@@ -54,6 +54,35 @@ paths:
         '204':
           description: Profile deleted successfully
 
+  /profiles/{profile_id}/link:
+    post:
+      tags: [Profile]
+      summary: Link an anonymous profile to a user
+      operationId: linkProfile
+      parameters:
+        - name: profile_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileLinkRequest'
+      responses:
+        '200':
+          description: Profile linked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileLinkResponse'
+        '400':
+          description: Invalid request
+        '404':
+          description: Profile not found
+
   /events:
     post:
       tags: [Events]
@@ -424,6 +453,25 @@ components:
             $ref: '#/components/schemas/ApplicationData'
         profile_hierarchy:
           $ref: '#/components/schemas/ProfileHierarchy'
+
+    ProfileLinkRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          example: "40497337-e8bf-4d92-9545-711894ab2af3"
+      required:
+        - user_id
+
+    ProfileLinkResponse:
+      type: object
+      properties:
+        profile_id:
+          type: string
+          example: "e8bf7337-4049-4d92-9545-711894ab2af3"
+        user_id:
+          type: string
+          example: "40497337-e8bf-4d92-9545-711894ab2af3"
 
     ProfileHierarchy:
       type: object

@@ -770,6 +770,86 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 	utils.RespondJSON(w, http.StatusOK, profileResponse, constants.ProfileResource)
 }
 
+// LinkProfile links an anonymous profile to a user
+func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
+
+	err := security.AuthnAndAuthz(r, "profile:link")
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+
+	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	if !isCDSEnabled(orgHandle) {
+		clientError := errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.CDS_NOT_ENABLED.Code,
+			Message:     errors2.CDS_NOT_ENABLED.Message,
+			Description: errors2.CDS_NOT_ENABLED.Description,
+		}, http.StatusBadRequest)
+		utils.HandleError(w, clientError)
+		return
+	}
+
+	profileId := r.PathValue("profileId")
+	if profileId == "" {
+		http.Error(w, "Invalid path", http.StatusNotFound)
+		return
+	}
+
+	var linkRequest model.ProfileLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&linkRequest); err != nil {
+		clientError := errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.UPDATE_PROFILE.Code,
+			Message:     errors2.UPDATE_PROFILE.Message,
+			Description: utils.HandleDecodeError(err, "profile link"),
+		}, http.StatusBadRequest)
+		utils.HandleError(w, clientError)
+		return
+	}
+
+	userId := strings.TrimSpace(linkRequest.UserId)
+	if userId == "" {
+		clientError := errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.UPDATE_PROFILE.Code,
+			Message:     errors2.UPDATE_PROFILE.Message,
+			Description: "user_id is required to link a profile",
+		}, http.StatusBadRequest)
+		utils.HandleError(w, clientError)
+		return
+	}
+
+	profilesProvider := provider.NewProfilesProvider()
+	profilesService := profilesProvider.GetProfilesService()
+
+	existingProfile, err := profilesService.GetProfile(profileId)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+
+	profileRequest := model.ProfileRequest{
+		UserId:             userId,
+		IdentityAttributes: existingProfile.IdentityAttributes,
+		Traits:             existingProfile.Traits,
+		ApplicationData:    profileService.WideAppDataMap(existingProfile.ApplicationData),
+	}
+
+	_, err = profilesService.UpdateProfile(profileId, orgHandle, profileRequest)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+
+	log.GetLogger().Info(fmt.Sprintf("Linked profile: %s to user: %s in organization: %s", profileId, userId,
+		orgHandle))
+
+	linkResponse := model.ProfileLinkResponse{
+		ProfileId: profileId,
+		UserId:    userId,
+	}
+	utils.RespondJSON(w, http.StatusOK, linkResponse, constants.ProfileResource)
+}
+
 // PatchCurrentUserProfile handles partial updates to the current user's profile
 func (ph *ProfileHandler) PatchCurrentUserProfile(w http.ResponseWriter, r *http.Request) {
 

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CDS anonymous profile linking</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 40rem; padding: 0 1rem; }
+      button { font: inherit; padding: 0.6rem 1.1rem; margin-right: 0.5rem; }
+      pre { background: #f4f4f5; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Anonymous profile linking</h1>
+
+    <p>
+      Click <em>View product</em> first. That is the first meaningful
+      interaction, and it is what creates the anonymous profile — page load does
+      not. Then log in: the backend links the anonymous profile to the
+      authenticated user.
+    </p>
+
+    <p>
+      <button id="view">View product</button>
+      <button id="login">Log in</button>
+    </p>
+
+    <h2>Status</h2>
+    <pre id="status">loading…</pre>
+
+    <script>
+      // Note what is absent: this page never calls CDS, and it never sends a
+      // profile id. It posts what happened; the backend decides whose profile
+      // it belongs to. (Practices 1 and 3.)
+      async function refresh() {
+        const [me, metrics] = await Promise.all([
+          fetch('/api/me').then((r) => r.json()),
+          fetch('/api/link-metrics').then((r) => r.json()),
+        ]);
+        document.getElementById('status').textContent = JSON.stringify(
+          { session: me, link: metrics },
+          null,
+          2,
+        );
+      }
+
+      document.getElementById('view').addEventListener('click', async () => {
+        await fetch('/api/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event: 'view_product' }),
+        });
+        refresh();
+      });
+
+      document.getElementById('login').addEventListener('click', () => {
+        window.location.href = '/login';
+      });
+
+      refresh();
+      setInterval(refresh, 3000);
+    </script>
+  </body>
+</html>

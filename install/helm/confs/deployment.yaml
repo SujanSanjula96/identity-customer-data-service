@@ -46,6 +46,8 @@ auth_server:
       - "internal_cds_profile_view"
     profile:delete:
       - "internal_cds_profile_delete"
+    profile:link:
+      - "internal_cds_profile_link"
 
     unification_rules:view:
       - "internal_cds_unification_rule_view"

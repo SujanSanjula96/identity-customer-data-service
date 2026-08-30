@@ -56,6 +56,15 @@ type ProfileRequest struct {
 	ApplicationData    map[string]interface{} `json:"application_data"`
 }
 
+type ProfileLinkRequest struct {
+	UserId string `json:"user_id" bson:"user_id"`
+}
+
+type ProfileLinkResponse struct {
+	ProfileId string `json:"profile_id" bson:"profile_id"`
+	UserId    string `json:"user_id" bson:"user_id"`
+}
+
 type ProfileSync struct {
 	UserId        string                 `json:"userId" bson:"userId"`
 	ProfileCookie string                 `json:"profileCookie,omitempty" bson:"profileCookie,omitempty"`
