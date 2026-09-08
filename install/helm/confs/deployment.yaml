@@ -80,6 +80,11 @@ datasource:
   password: "${DB_PASSWORD}"
   name: {{ .Values.cloud.deployment.cds.config.datasource.name | quote }}
   sslmode: {{ .Values.cloud.deployment.cds.config.datasource.sslmode | quote }}
+  postgres:
+    max_open_conns: {{ .Values.cloud.deployment.cds.config.datasource.postgres.maxOpenConns }}
+    max_idle_conns: {{ .Values.cloud.deployment.cds.config.datasource.postgres.maxIdleConns }}
+    conn_max_lifetime_seconds: {{ .Values.cloud.deployment.cds.config.datasource.postgres.connMaxLifetimeSeconds }}
+    conn_max_idle_time_seconds: {{ .Values.cloud.deployment.cds.config.datasource.postgres.connMaxIdleTimeSeconds }}
 
 tls:
   mtls_enabled: {{ .Values.cloud.deployment.cds.tls.mtls_enabled }}

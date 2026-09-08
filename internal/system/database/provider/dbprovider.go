@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -57,6 +58,20 @@ var (
 	sqliteErr    error
 )
 
+// postgresHandle is the single pooled handle for PostgreSQL, opened on the
+// first use and kept open for the life of the process. Every store shares it,
+// so a request reuses a connection instead of a new TCP, TLS and
+// authentication round trip. The client treats Close as a no-op, so a store
+// that closes its client leaves the pool open.
+//
+// A mutex rather than a sync.Once guards it, so that a database which is
+// unreachable at the first call does not cache its error for the life of the
+// process. The next call tries again.
+var (
+	postgresMu     sync.Mutex
+	postgresHandle *sql.DB
+)
+
 // DBProviderInterface defines the interface for getting database clients.
 type DBProviderInterface interface {
 	GetDBClient() (client.DBClientInterface, error)
@@ -72,7 +87,9 @@ func NewDBProvider() DBProviderInterface {
 	return &DBProvider{}
 }
 
-// GetDBClient returns a database client for the configured datasource.
+// GetDBClient returns a database client for the configured datasource. Every
+// call shares the one pool the process holds, so the client is cheap to build
+// and its Close is a no-op.
 func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 
 	// The suite owns the test handle, so Close must leave it open.
@@ -81,16 +98,39 @@ func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 	}
 
 	// Production DB setup
-	runtimeConfig := config.GetCDSRuntime().Config
-	dbType := database.ResolveType(runtimeConfig.DataSource.Type)
+	dbType := database.ResolveType(config.GetCDSRuntime().Config.DataSource.Type)
+
+	db, err := getDB(dbType)
+	if err != nil {
+		return nil, err
+	}
+
+	return client.NewSharedDBClient(db, dbType), nil
+}
+
+// getDB returns the process-wide pool for the given datasource type.
+func getDB(dbType string) (*sql.DB, error) {
 
 	if dbType == database.TypeSQLite {
-		db, err := getSQLiteDB()
-		if err != nil {
-			return nil, err
-		}
-		return client.NewSharedDBClient(db, dbType), nil
+		return getSQLiteDB()
 	}
+	return getPostgresDB()
+}
+
+// getPostgresDB opens the PostgreSQL pool once and returns it on every later
+// call. sql.Open builds the pool without a network call, so the first
+// connection is made by the first query. EnsureDatabase pings at start, so a
+// wrong setting still fails before the server accepts traffic.
+func getPostgresDB() (*sql.DB, error) {
+
+	postgresMu.Lock()
+	defer postgresMu.Unlock()
+
+	if postgresHandle != nil {
+		return postgresHandle, nil
+	}
+
+	runtimeConfig := config.GetCDSRuntime().Config
 
 	dbConfig, err := getDBConfig(runtimeConfig)
 	if err != nil {
@@ -102,12 +142,83 @@ func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	// Test the database connection.
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %v", err)
+	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
+
+	postgresHandle = db
+	return postgresHandle, nil
+}
+
+// postgresPoolSettings holds the resolved bounds of the PostgreSQL pool.
+type postgresPoolSettings struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+	connMaxIdleTime time.Duration
+}
+
+// resolvePostgresPoolSettings applies a default to every value the operator
+// left empty, and lowers an idle limit that is above the open limit.
+func resolvePostgresPoolSettings(cfg config.PostgresConfig) postgresPoolSettings {
+
+	settings := postgresPoolSettings{
+		maxOpenConns:    cfg.MaxOpenConns,
+		maxIdleConns:    cfg.MaxIdleConns,
+		connMaxLifetime: time.Duration(cfg.ConnMaxLifetimeSeconds) * time.Second,
+		connMaxIdleTime: time.Duration(cfg.ConnMaxIdleTimeSeconds) * time.Second,
 	}
 
-	return client.NewDBClient(db, dbType), nil
+	if settings.maxOpenConns <= 0 {
+		settings.maxOpenConns = database.DefaultPostgresMaxOpenConns
+	}
+	if settings.maxIdleConns <= 0 {
+		settings.maxIdleConns = database.DefaultPostgresMaxIdleConns
+	}
+	// An idle limit above the open limit reserves connections the pool can
+	// never hold, so lower it.
+	if settings.maxIdleConns > settings.maxOpenConns {
+		settings.maxIdleConns = settings.maxOpenConns
+	}
+	if settings.connMaxLifetime <= 0 {
+		settings.connMaxLifetime = database.DefaultPostgresConnMaxLifetime
+	}
+	if settings.connMaxIdleTime <= 0 {
+		settings.connMaxIdleTime = database.DefaultPostgresConnMaxIdleTime
+	}
+
+	return settings
+}
+
+// applyPostgresPoolSettings bounds the pool.
+func applyPostgresPoolSettings(db *sql.DB, cfg config.PostgresConfig) {
+
+	settings := resolvePostgresPoolSettings(cfg)
+
+	db.SetMaxOpenConns(settings.maxOpenConns)
+	db.SetMaxIdleConns(settings.maxIdleConns)
+	db.SetConnMaxLifetime(settings.connMaxLifetime)
+	db.SetConnMaxIdleTime(settings.connMaxIdleTime)
+}
+
+// CloseDB closes the pools the process holds. Call it once, at shutdown, after
+// the HTTP server and the workers stop.
+func CloseDB() error {
+
+	postgresMu.Lock()
+	postgres := postgresHandle
+	postgresHandle = nil
+	postgresMu.Unlock()
+
+	var firstErr error
+	if postgres != nil {
+		firstErr = postgres.Close()
+	}
+	if sqliteHandle != nil {
+		if err := sqliteHandle.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
 }
 
 // getSQLiteDB opens the inbuilt database once and initializes its schema.
