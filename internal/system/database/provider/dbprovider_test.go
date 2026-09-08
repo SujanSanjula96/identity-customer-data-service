@@ -21,6 +21,7 @@ package provider
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -215,4 +216,152 @@ func Test_ValidateDataSource(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Test_getPostgresDB_reusesOnePool pins the fix for the connection churn: the
+// process opens one PostgreSQL pool and hands it to every caller. sql.Open
+// builds the pool without a network call, so this needs no database server.
+func Test_getPostgresDB_reusesOnePool(t *testing.T) {
+
+	config.OverrideCDSRuntime(postgresDataSource("postgres"))
+	t.Cleanup(func() { _ = CloseDB() })
+
+	if err := CloseDB(); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first != second {
+		t.Error("expected every call to return the same pool")
+	}
+
+	if got := first.Stats().MaxOpenConnections; got != database.DefaultPostgresMaxOpenConns {
+		t.Errorf("expected the pool to be bounded at %d, got %d",
+			database.DefaultPostgresMaxOpenConns, got)
+	}
+
+	// A client must not close the shared pool, so that the stores can keep
+	// their `defer dbClient.Close()`.
+	dbClient, err := NewDBProvider().GetDBClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	third, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third != first {
+		t.Error("expected closing a client to leave the shared pool in place")
+	}
+}
+
+// Test_CloseDB_releasesThePool checks that shutdown drops the handle, so a
+// later call builds a new pool rather than one that is closed.
+func Test_CloseDB_releasesThePool(t *testing.T) {
+
+	config.OverrideCDSRuntime(postgresDataSource("postgres"))
+	t.Cleanup(func() { _ = CloseDB() })
+
+	if err := CloseDB(); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CloseDB(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Error("expected a new pool after CloseDB")
+	}
+}
+
+func Test_resolvePostgresPoolSettings(t *testing.T) {
+
+	testCases := []struct {
+		name     string
+		cfg      config.PostgresConfig
+		expected postgresPoolSettings
+	}{
+		{
+			name: "an empty configuration uses every default",
+			cfg:  config.PostgresConfig{},
+			expected: postgresPoolSettings{
+				maxOpenConns:    database.DefaultPostgresMaxOpenConns,
+				maxIdleConns:    database.DefaultPostgresMaxIdleConns,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+		{
+			name: "configured values replace the defaults",
+			cfg: config.PostgresConfig{
+				MaxOpenConns:           10,
+				MaxIdleConns:           4,
+				ConnMaxLifetimeSeconds: 60,
+				ConnMaxIdleTimeSeconds: 30,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    10,
+				maxIdleConns:    4,
+				connMaxLifetime: 60 * time.Second,
+				connMaxIdleTime: 30 * time.Second,
+			},
+		},
+		{
+			name: "an idle limit above the open limit is lowered to it",
+			cfg: config.PostgresConfig{
+				MaxOpenConns: 5,
+				MaxIdleConns: 50,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    5,
+				maxIdleConns:    5,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+		{
+			name: "a negative value falls back to its default",
+			cfg: config.PostgresConfig{
+				MaxOpenConns:           -1,
+				MaxIdleConns:           -1,
+				ConnMaxLifetimeSeconds: -1,
+				ConnMaxIdleTimeSeconds: -1,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    database.DefaultPostgresMaxOpenConns,
+				maxIdleConns:    database.DefaultPostgresMaxIdleConns,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := resolvePostgresPoolSettings(testCase.cfg); got != testCase.expected {
+				t.Errorf("expected %+v, got %+v", testCase.expected, got)
+			}
+		})
+	}
 }

@@ -48,9 +48,15 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 		return err
 	}
 
+	// This opens the shared connection pool that every request reuses. For the
+	// inbuilt database it also creates the file and applies the schema.
+	if err := provider.EnsureDatabase(); err != nil {
+		return err
+	}
+
 	ds := cdsConfig.DataSource
 	if database.ResolveType(ds.Type) == database.TypeSQLite {
-		return provider.EnsureDatabase()
+		return nil
 	}
 
 	log.GetLogger().Info(fmt.Sprintf("Database initialized successfully for configurations - db name:%s, "+
@@ -197,6 +203,11 @@ func main() {
 	}
 
 	workers.StopCookieCleanupWorker()
+
+	// The pool is shared, so it is closed here rather than by any store.
+	if err := provider.CloseDB(); err != nil {
+		logger.Error("Failed to close the database connections.", log.Error(err))
+	}
 
 	logger.Info("Shutdown complete")
 }

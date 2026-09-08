@@ -20,7 +20,10 @@
 // query layers.
 package database
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Supported values of the `datasource.type` configuration.
 const (
@@ -90,4 +93,28 @@ const (
 	// DefaultSQLiteMaxOpenConns bounds the connection pool. SQLite serialises
 	// writers, so a small pool avoids lock contention.
 	DefaultSQLiteMaxOpenConns = 4
+)
+
+// PostgreSQL connection pool defaults, applied when the corresponding
+// configuration values are left empty. One instance holds one pool for the
+// life of the process, so DefaultPostgresMaxOpenConns bounds the connections
+// that instance takes from the server. Multiply it by the instance count, then
+// leave headroom, when you size the server's max_connections.
+const (
+	// DefaultPostgresMaxOpenConns bounds the connections one instance holds,
+	// in use and idle together.
+	DefaultPostgresMaxOpenConns = 25
+
+	// DefaultPostgresMaxIdleConns is how many unused connections stay open.
+	// It matches the open limit, so a burst does not close and reopen
+	// connections.
+	DefaultPostgresMaxIdleConns = 25
+
+	// DefaultPostgresConnMaxLifetime retires a connection at this age, even a
+	// healthy one, so that a failover or a DNS change takes effect.
+	DefaultPostgresConnMaxLifetime = 30 * time.Minute
+
+	// DefaultPostgresConnMaxIdleTime closes a connection that stays unused for
+	// this long, so an idle instance releases what it does not need.
+	DefaultPostgresConnMaxIdleTime = 5 * time.Minute
 )

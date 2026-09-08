@@ -120,6 +120,16 @@ datasource:
   password: "${DB_PASSWORD}"
   name: "cds_db"
   sslmode: disable
+  # Applies only when type is "postgres". One instance opens one pool and keeps
+  # it for the life of the process, so these values bound what a single
+  # instance takes from the server. Multiply max_open_conns by the instance
+  # count, then leave headroom, when you size the server's max_connections.
+  # Leave a value empty to use its default.
+  # postgres:
+  #   max_open_conns: 25              # connections held, in use and idle together
+  #   max_idle_conns: 25              # unused connections kept open
+  #   conn_max_lifetime_seconds: 1800 # retire a connection at this age
+  #   conn_max_idle_time_seconds: 300 # close a connection unused this long
   # Applies only when type is "sqlite". Leave a value empty to use its default.
   # sqlite:
   #   path: "repository/database/cds.db" # Relative to the CDS home directory

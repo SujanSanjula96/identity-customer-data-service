@@ -48,6 +48,14 @@ cloud:
           port: 5432
           name: "cds_db"
           sslmode: require
+          # Connection pool bounds for one pod. Multiply maxOpenConns by the
+          # replica count, then leave headroom, when you size the PostgreSQL
+          # max_connections.
+          postgres:
+            maxOpenConns: 25
+            maxIdleConns: 25
+            connMaxLifetimeSeconds: 1800
+            connMaxIdleTimeSeconds: 300
 
         serverUrl : "http://localhost:8900"
 
