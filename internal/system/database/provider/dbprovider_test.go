@@ -220,6 +220,34 @@ func Test_ValidateDataSource(t *testing.T) {
 	})
 }
 
+// resetPools closes whatever the process holds and clears the shutdown state.
+//
+// CloseDB marks the process as shut down, so that a late caller cannot open a
+// pool nothing would close. A test opens a pool after it closes one, so it
+// clears that mark at both ends of the test.
+func resetPools(t *testing.T) {
+
+	t.Helper()
+
+	if err := CloseDB(); err != nil {
+		t.Error(err)
+	}
+
+	dbMu.Lock()
+	closed = false
+	dbMu.Unlock()
+}
+
+// isolatePools gives the test a process that holds no pool, and leaves one
+// behind for the next test.
+func isolatePools(t *testing.T) {
+
+	t.Helper()
+
+	resetPools(t)
+	t.Cleanup(func() { resetPools(t) })
+}
+
 // seedPostgresHandle publishes a pool as the process-wide PostgreSQL handle.
 //
 // getPostgresDB verifies a pool before it publishes one, so it needs a server.
@@ -235,10 +263,11 @@ func seedPostgresHandle(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 
+	isolatePools(t)
+
 	dbMu.Lock()
 	postgresHandle = db
 	dbMu.Unlock()
-	t.Cleanup(func() { _ = CloseDB() })
 
 	return db
 }
