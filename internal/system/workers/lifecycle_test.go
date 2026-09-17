@@ -20,6 +20,7 @@ package workers
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,12 +44,15 @@ func Test_stop_waitsForARunningJob(t *testing.T) {
 	release := make(chan struct{})
 	var finished atomic.Bool
 
-	go lifecycle.run(func(ctx context.Context) {
-		close(started)
-		// Stands for a multi-step merge that holds a transaction.
-		<-release
-		finished.Store(true)
-	})
+	go func() {
+		_ = lifecycle.run(func(ctx context.Context) error {
+			close(started)
+			// Stands for a multi-step merge that holds a transaction.
+			<-release
+			finished.Store(true)
+			return nil
+		})
+	}()
 	<-started
 
 	stopped := make(chan error, 1)
@@ -88,10 +92,18 @@ func Test_stop_dropsAJobThatHasNotStarted(t *testing.T) {
 	}
 
 	var ran atomic.Bool
-	lifecycle.run(func(context.Context) { ran.Store(true) })
+	err := lifecycle.run(func(context.Context) error {
+		ran.Store(true)
+		return nil
+	})
 
 	if ran.Load() {
-		t.Error("expected a job that arrives after shutdown to be dropped")
+		t.Error("expected a job that arrives after shutdown to be refused")
+	}
+	// The error is what keeps the message. A broker leaves an unacknowledged
+	// message for redelivery, so the work survives the restart.
+	if !errors.Is(err, ErrWorkerStopping) {
+		t.Errorf("expected ErrWorkerStopping so the message is not acknowledged, got %v", err)
 	}
 }
 
@@ -105,13 +117,16 @@ func Test_stop_cancelsAJobThatOutlastsTheBudget(t *testing.T) {
 	started := make(chan struct{})
 	var cancelled atomic.Bool
 
-	go lifecycle.run(func(ctx context.Context) {
-		close(started)
-		// A job that ignores its own deadline still ends, because shutdown
-		// cancels the context every job derives from.
-		<-ctx.Done()
-		cancelled.Store(true)
-	})
+	go func() {
+		_ = lifecycle.run(func(ctx context.Context) error {
+			close(started)
+			// A job that ignores its own deadline still ends, because shutdown
+			// cancels the context every job derives from.
+			<-ctx.Done()
+			cancelled.Store(true)
+			return ctx.Err()
+		})
+	}()
 	<-started
 
 	start := time.Now()
@@ -145,13 +160,22 @@ func Test_stop_waitsForARunningJobOnTheRealQueue(t *testing.T) {
 	var handled atomic.Int32
 
 	// Exactly what StartProfileWorker builds.
-	if err := q.Start(func(profile profileModel.Profile) {
-		lifecycle.run(func(context.Context) {
+	refused := make(chan error, 16)
+	if err := q.Start(func(profile profileModel.Profile) error {
+		err := lifecycle.run(func(context.Context) error {
 			if handled.Add(1) == 1 {
 				close(started)
 				<-release
 			}
+			return nil
 		})
+		if err != nil {
+			select {
+			case refused <- err:
+			default:
+			}
+		}
+		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,5 +212,16 @@ func Test_stop_waitsForARunningJobOnTheRealQueue(t *testing.T) {
 	// them starts work.
 	if got := handled.Load(); got != 1 {
 		t.Errorf("expected only the job that was already running to do work, got %d", got)
+	}
+
+	// Each of those items was refused rather than silently dropped, so a
+	// broker would keep it.
+	select {
+	case err := <-refused:
+		if !errors.Is(err, ErrWorkerStopping) {
+			t.Errorf("expected ErrWorkerStopping for a buffered item, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("expected the buffered items to be refused with an error")
 	}
 }

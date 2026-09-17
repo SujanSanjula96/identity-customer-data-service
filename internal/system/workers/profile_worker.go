@@ -66,12 +66,20 @@ func StartProfileWorker() error {
 	}
 	lifecycle := newJobLifecycle()
 
-	if err := q.Start(func(profile profileModel.Profile) {
-		lifecycle.run(func(ctx context.Context) {
+	if err := q.Start(func(profile profileModel.Profile) error {
+		return lifecycle.run(func(ctx context.Context) error {
 			p, err := profileStore.GetProfile(ctx, profile.ProfileId)
-			if err == nil && p != nil {
-				unifyProfiles(ctx, *p)
+			if err != nil {
+				// The read failed, so the message is not processed and a
+				// broker keeps it.
+				return fmt.Errorf("workers: failed to read profile %s: %w", profile.ProfileId, err)
 			}
+			if p == nil {
+				// The profile is gone, so there is nothing left to unify.
+				return nil
+			}
+			unifyProfiles(ctx, *p)
+			return nil
 		})
 	}); err != nil {
 		_ = q.Close()

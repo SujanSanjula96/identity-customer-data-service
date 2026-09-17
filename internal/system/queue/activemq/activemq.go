@@ -274,12 +274,44 @@ func (mc *managedConn) subscribeCurrent(destination string) (*stomp.Subscription
 		return nil, generation, fmt.Errorf("activemq: no active connection available for subscription")
 	}
 
-	sub, err := conn.Subscribe(destination, stomp.AckAuto)
+	// Client-individual acknowledgement, not AckAuto. With AckAuto the broker
+	// treats a message as delivered the moment it sends it, so a handler that
+	// refuses the message loses it. Shutdown is exactly when a handler refuses.
+	sub, err := conn.Subscribe(destination, stomp.AckClientIndividual)
 	if err != nil {
 		return nil, generation, err
 	}
 
 	return sub, generation, nil
+}
+
+// ack tells the broker that the message was processed, so that it is not sent
+// again.
+func ack(msg *stomp.Message, queueName string) {
+
+	if msg.Conn == nil {
+		return
+	}
+	if err := msg.Conn.Ack(msg); err != nil {
+		log.GetLogger().Error(fmt.Sprintf(
+			"activemq: failed to acknowledge a %s message, it may be redelivered: %v", queueName, err))
+	}
+}
+
+// nack leaves the message with the broker, which sends it again.
+//
+// The redelivery policy of the broker bounds how often. When the retries run
+// out the message goes to the dead letter queue, so a message that can never
+// be processed does not circle for ever.
+func nack(msg *stomp.Message, queueName string) {
+
+	if msg.Conn == nil {
+		return
+	}
+	if err := msg.Conn.Nack(msg); err != nil {
+		log.GetLogger().Error(fmt.Sprintf(
+			"activemq: failed to return a %s message to the broker: %v", queueName, err))
+	}
 }
 
 // -----------------------------------------------------------------------
@@ -341,7 +373,7 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 // underlying connection was intentionally retired during a managed reconnect,
 // the consumer simply re-subscribes on the current connection instead of
 // reconnecting again.
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 	sub, subGen, err := q.mc.subscribeCurrent(q.destination)
 	if err != nil {
 		return fmt.Errorf("activemq: failed to subscribe to profile queue %s: %w", q.destination, err)
@@ -409,10 +441,21 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: failed to unmarshal profile message: %v", err,
 				))
+				// A message that cannot be read will never be read. The
+				// redelivery policy of the broker bounds the retries and then
+				// moves it to the dead letter queue, where an operator sees it.
+				nack(msg, "profile")
 				continue
 			}
 
-			handler(profile)
+			if err := handler(profile); err != nil {
+				log.GetLogger().Error(fmt.Sprintf(
+					"activemq: leaving a profile message for redelivery: %v", err,
+				))
+				nack(msg, "profile")
+				continue
+			}
+			ack(msg, "profile")
 		}
 	}()
 
@@ -470,7 +513,7 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 
 // Start subscribes to the destination and launches a consumer goroutine.
 // See ProfileQueue.Start for retry-policy rationale.
-func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) error {
+func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) error) error {
 	sub, subGen, err := q.mc.subscribeCurrent(q.destination)
 	if err != nil {
 		return fmt.Errorf("activemq: failed to subscribe to schema sync queue %s: %w", q.destination, err)
@@ -533,9 +576,17 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) err
 			if err := json.Unmarshal(msg.Body, &sync); err != nil {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: failed to unmarshal schema sync message: %v", err))
+				nack(msg, "schema sync")
 				continue
 			}
-			handler(sync)
+
+			if err := handler(sync); err != nil {
+				log.GetLogger().Error(fmt.Sprintf(
+					"activemq: leaving a schema sync message for redelivery: %v", err))
+				nack(msg, "schema sync")
+				continue
+			}
+			ack(msg, "schema sync")
 		}
 	}()
 	return nil

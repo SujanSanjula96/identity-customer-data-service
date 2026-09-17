@@ -54,8 +54,10 @@ func StartSchemaSyncWorker() error {
 	}
 	lifecycle := newJobLifecycle()
 
-	if err := q.Start(func(schemaSync model.ProfileSchemaSync) {
-		lifecycle.run(func(ctx context.Context) { processSchemaSyncJob(ctx, schemaSync) })
+	if err := q.Start(func(schemaSync model.ProfileSchemaSync) error {
+		return lifecycle.run(func(ctx context.Context) error {
+			return processSchemaSyncJob(ctx, schemaSync)
+		})
 	}); err != nil {
 		_ = q.Close()
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
@@ -104,7 +106,7 @@ func StopSchemaSyncWorker() error {
 }
 
 // processSchemaSyncJob processes a schema sync job
-func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
+func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) error {
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))
@@ -115,8 +117,11 @@ func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSyn
 	err := schemaService.SyncProfileSchema(ctx, schemaSync.OrgId)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
-		return
+		// The sync did not happen, so the message is not processed and a
+		// broker keeps it.
+		return err
 	}
 
 	logger.Info(fmt.Sprintf("Profile schema sync completed successfully for tenant: %s", schemaSync.OrgId))
+	return nil
 }

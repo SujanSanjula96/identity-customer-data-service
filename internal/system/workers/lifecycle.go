@@ -20,6 +20,7 @@ package workers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -79,16 +80,21 @@ func (l *jobLifecycle) begin() bool {
 	return true
 }
 
+// ErrWorkerStopping says the job did not run because the worker is shutting
+// down. A queue that can redeliver must not acknowledge the message.
+var ErrWorkerStopping = errors.New("workers: the job did not run because the worker is stopping")
+
 // run executes one job under a context that is certain to end, and that
 // shutdown waits for.
 //
-// A job that arrives after shutdown started is dropped rather than run against
-// a pool that is about to close. The in-memory queue loses that message, which
-// it does anyway when the process stops. A broker redelivers it.
-func (l *jobLifecycle) run(work func(ctx context.Context)) {
+// A job that arrives after shutdown started is refused rather than run against
+// a pool that is about to close. The error is what keeps that message: a
+// broker leaves an unacknowledged message for redelivery, so the work survives
+// the restart. The in-memory queue cannot do that, and says so.
+func (l *jobLifecycle) run(work func(ctx context.Context) error) error {
 
 	if !l.begin() {
-		return
+		return ErrWorkerStopping
 	}
 	defer l.running.Done()
 
@@ -96,7 +102,7 @@ func (l *jobLifecycle) run(work func(ctx context.Context)) {
 	ctx, cancel := context.WithTimeout(l.ctx, constants.WorkerJobTimeout)
 	defer cancel()
 
-	work(ctx)
+	return work(ctx)
 }
 
 // stop ends the worker and returns only when no job is running.

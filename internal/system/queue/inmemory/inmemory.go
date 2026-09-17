@@ -24,6 +24,7 @@ package inmemory
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
@@ -68,10 +69,16 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 // Start launches a goroutine that reads profiles from the channel and
 // forwards each one to handler. The goroutine runs until the channel is
 // closed. Always returns nil.
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 	go func() {
 		for profile := range q.ch {
-			handler(profile)
+			// An item the handler refuses is lost. This queue holds its items
+			// in the memory of one process, so it cannot redeliver them and it
+			// does not survive a restart. A deployment that must not lose an
+			// item runs a broker instead.
+			if err := handler(profile); err != nil {
+				log.Printf("inmemory: dropping an item the handler did not process: %v", err)
+			}
 		}
 	}()
 	return nil
@@ -126,10 +133,16 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 // Start launches a goroutine that reads schema sync jobs from the channel and
 // forwards each one to handler. The goroutine runs until the channel is
 // closed. Always returns nil.
-func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) error {
+func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) error) error {
 	go func() {
 		for sync := range q.ch {
-			handler(sync)
+			// An item the handler refuses is lost. This queue holds its items
+			// in the memory of one process, so it cannot redeliver them and it
+			// does not survive a restart. A deployment that must not lose an
+			// item runs a broker instead.
+			if err := handler(sync); err != nil {
+				log.Printf("inmemory: dropping an item the handler did not process: %v", err)
+			}
 		}
 	}()
 	return nil

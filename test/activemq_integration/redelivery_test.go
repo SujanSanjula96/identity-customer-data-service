@@ -1,0 +1,174 @@
+/*
+ * Copyright (c) 2026, WSO2 LLC. (http://www.wso2.com).
+ *
+ * WSO2 LLC. licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package activemqintegration
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
+	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/queue/activemq"
+	"github.com/wso2/identity-customer-data-service/internal/system/workers"
+)
+
+// redeliveryWait is how long a test waits for the broker to send a message
+// again. ActiveMQ delays a redelivery, so this is well above that delay.
+const redeliveryWait = 30 * time.Second
+
+// newRedeliveryQueue opens a consumer of its own on the given destination, so
+// that the test does not disturb the workers the suite started.
+func newRedeliveryQueue(t *testing.T, destination string) *activemq.ProfileQueue {
+
+	t.Helper()
+
+	broker := config.GetCDSRuntime().Config.MessageQueue.Broker
+	q, err := activemq.NewProfileQueue(broker.Addr, broker.Username, broker.Password,
+		destination, config.TLSConfig{})
+	if err != nil {
+		t.Fatalf("failed to open a queue on %s: %v", destination, err)
+	}
+	return q
+}
+
+// Test_ActiveMQ_keepsAJobRefusedAtShutdown is the message loss the review
+// found.
+//
+// A worker that is shutting down refuses a job rather than start it against a
+// pool that is about to close. With AckAuto the broker had already treated the
+// message as delivered, so refusing it lost the work. The job has to survive
+// the restart instead.
+func Test_ActiveMQ_keepsAJobRefusedAtShutdown(t *testing.T) {
+
+	destination := fmt.Sprintf("/queue/cds-test-redelivery-%d", time.Now().UnixNano())
+	profileID := "refused-at-shutdown"
+
+	// The consumer that is shutting down. It refuses whatever it is given.
+	stopping := newRedeliveryQueue(t, destination)
+
+	delivered := make(chan string, 8)
+	if err := stopping.Start(func(profile profileModel.Profile) error {
+		select {
+		case delivered <- profile.ProfileId:
+		default:
+		}
+		return workers.ErrWorkerStopping
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := stopping.Enqueue(profileModel.Profile{ProfileId: profileID}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case got := <-delivered:
+		if got != profileID {
+			t.Fatalf("expected %q, got %q", profileID, got)
+		}
+	case <-time.After(redeliveryWait):
+		t.Fatal("the message never reached the consumer that was shutting down")
+	}
+
+	// Shutdown finishes. The message was never acknowledged.
+	if err := stopping.Close(); err != nil {
+		t.Logf("close reported %v", err)
+	}
+
+	// A new instance starts, and this one processes the job.
+	restarted := newRedeliveryQueue(t, destination)
+	t.Cleanup(func() { _ = restarted.Close() })
+
+	processed := make(chan string, 8)
+	if err := restarted.Start(func(profile profileModel.Profile) error {
+		select {
+		case processed <- profile.ProfileId:
+		default:
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case got := <-processed:
+		if got != profileID {
+			t.Fatalf("expected the same message back, got %q", got)
+		}
+	case <-time.After(redeliveryWait):
+		t.Fatal("the refused message was lost: the broker never sent it again")
+	}
+}
+
+// Test_ActiveMQ_doesNotRepeatAJobThatWasProcessed is the control. Without it
+// the test above would pass on a queue that repeats every message.
+func Test_ActiveMQ_doesNotRepeatAJobThatWasProcessed(t *testing.T) {
+
+	destination := fmt.Sprintf("/queue/cds-test-processed-%d", time.Now().UnixNano())
+	profileID := "processed-once"
+
+	first := newRedeliveryQueue(t, destination)
+
+	processed := make(chan string, 8)
+	if err := first.Start(func(profile profileModel.Profile) error {
+		select {
+		case processed <- profile.ProfileId:
+		default:
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := first.Enqueue(profileModel.Profile{ProfileId: profileID}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-processed:
+	case <-time.After(redeliveryWait):
+		t.Fatal("the message never reached the consumer")
+	}
+
+	if err := first.Close(); err != nil {
+		t.Logf("close reported %v", err)
+	}
+
+	// Nothing is left on the queue for the next instance.
+	second := newRedeliveryQueue(t, destination)
+	t.Cleanup(func() { _ = second.Close() })
+
+	again := make(chan string, 8)
+	if err := second.Start(func(profile profileModel.Profile) error {
+		select {
+		case again <- profile.ProfileId:
+		default:
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case got := <-again:
+		t.Errorf("expected an acknowledged message to be gone, got %q again", got)
+	case <-time.After(10 * time.Second):
+	}
+}
