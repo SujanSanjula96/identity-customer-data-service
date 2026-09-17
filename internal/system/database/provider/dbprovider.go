@@ -161,11 +161,16 @@ func getPostgresDB() (*sql.DB, error) {
 	// implement OpenConnector, so sql.Open wraps it in a connector whose
 	// Connect discards the context. The pool would then ignore every deadline
 	// while it opens a connection.
+	//
+	// boundedConnector covers what the pq connector still does not: the
+	// startup handshake after the dial, which reads the connect_timeout of the
+	// DSN and no context at all. With both, the whole attempt ends at whichever
+	// comes first, the caller's deadline or the connect timeout.
 	connector, err := pq.NewConnector(dbConfig.dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the datasource settings: %w", err)
 	}
-	db := sql.OpenDB(connector)
+	db := sql.OpenDB(boundedConnector{inner: connector})
 
 	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
 

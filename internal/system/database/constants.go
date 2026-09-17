@@ -128,12 +128,20 @@ const (
 	// driver as the connect_timeout parameter of the DSN, and it is also the
 	// deadline of the check that runs when the pool opens.
 	//
-	// The deadline alone is not enough. lib/pq does not implement
-	// OpenConnector, so database/sql wraps it in a connector that discards the
-	// context, and a call against a host that drops packets waits for the
-	// operating system instead. The pool is therefore built from a
-	// pq.Connector, which keeps the context, and connect_timeout bounds the
-	// handshake that follows the dial.
+	// Three things are needed, because each covers a different failure.
+	//
+	// lib/pq does not implement OpenConnector, so database/sql wraps it in a
+	// connector that discards the context. A call against a host that drops
+	// packets then waits for the operating system. The pool is therefore built
+	// from a pq.Connector, which reads the context while it dials.
+	//
+	// The pq connector still reads no context once the dial succeeds, so a
+	// server that accepts and then answers nothing holds the caller for the
+	// whole of this value. connect_timeout is what ends that, and it is in the
+	// DSN for exactly that reason.
+	//
+	// A caller with a shorter deadline than this value must not wait for it.
+	// provider.boundedConnector ends the attempt at whichever comes first.
 	DefaultPostgresConnectTimeout = 10 * time.Second
 )
 
