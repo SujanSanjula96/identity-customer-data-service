@@ -96,12 +96,22 @@ func validateNumericSettings(ds config.DataSourceConfig) error {
 
 	// An idle limit above the open limit reserves connections the pool can
 	// never hold, so the two settings contradict each other.
-	if dbType != database.TypeSQLite && ds.Postgres.MaxOpenConns > 0 &&
-		ds.Postgres.MaxIdleConns > ds.Postgres.MaxOpenConns {
-		problems = append(problems, fmt.Sprintf(
-			"datasource.postgres.max_idle_conns is %d, which is above "+
-				"datasource.postgres.max_open_conns of %d",
-			ds.Postgres.MaxIdleConns, ds.Postgres.MaxOpenConns))
+	//
+	// The comparison is against the limit the pool really uses. An open limit
+	// the operator left empty becomes the default, not zero, so an idle limit
+	// of 30 with no open limit is rejected rather than lowered to 25 in
+	// silence.
+	if dbType != database.TypeSQLite && ds.Postgres.MaxIdleConns > 0 {
+		openLimit, openSource := ds.Postgres.MaxOpenConns, "datasource.postgres.max_open_conns"
+		if openLimit <= 0 {
+			openLimit = database.DefaultPostgresMaxOpenConns
+			openSource = "the default datasource.postgres.max_open_conns"
+		}
+		if ds.Postgres.MaxIdleConns > openLimit {
+			problems = append(problems, fmt.Sprintf(
+				"datasource.postgres.max_idle_conns is %d, which is above %s of %d",
+				ds.Postgres.MaxIdleConns, openSource, openLimit))
+		}
 	}
 
 	if len(problems) > 0 {

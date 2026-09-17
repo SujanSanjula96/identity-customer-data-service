@@ -103,6 +103,15 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 			expectKey: "datasource.sqlite.max_open_conns",
 		},
 		{
+			// The open limit is not configured, so it resolves to the default
+			// of 25. An idle limit of 26 would be lowered to 25 in silence.
+			name: "an idle limit one above the default open limit",
+			dataSource: withPostgres(config.PostgresConfig{
+				MaxIdleConns: database.DefaultPostgresMaxOpenConns + 1,
+			}),
+			expectKey: "datasource.postgres.max_idle_conns",
+		},
+		{
 			name: "a lifetime that would overflow a duration",
 			dataSource: withPostgres(config.PostgresConfig{
 				ConnMaxLifetimeSeconds: maxConfigurableSeconds + 1,
@@ -187,6 +196,11 @@ func Test_ValidateDataSource_acceptsValidNumbers(t *testing.T) {
 		"an idle limit with no open limit": func() config.DataSourceConfig {
 			ds := postgresDataSource("postgres").DataSource
 			ds.Postgres = config.PostgresConfig{MaxIdleConns: 10}
+			return ds
+		}(),
+		"an idle limit exactly at the default open limit": func() config.DataSourceConfig {
+			ds := postgresDataSource("postgres").DataSource
+			ds.Postgres = config.PostgresConfig{MaxIdleConns: database.DefaultPostgresMaxOpenConns}
 			return ds
 		}(),
 		"invalid PostgreSQL settings on the inbuilt database": {
