@@ -407,3 +407,13 @@ func (d *DBProvider) GetDBType() string {
 	}
 	return database.ResolveType(config.GetCDSRuntime().Config.DataSource.Type)
 }
+
+// ResetLifecycleForTest clears the shutdown state, so that a test can open a
+// pool after it closed one. The server never reopens, so production code has
+// no reason to call this.
+func ResetLifecycleForTest() {
+
+	dbMu.Lock()
+	closed = false
+	dbMu.Unlock()
+}

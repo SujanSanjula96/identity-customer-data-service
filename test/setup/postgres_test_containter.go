@@ -33,9 +33,17 @@ import (
 // postgresReadyTimeout bounds the wait for a server that answers a query.
 const postgresReadyTimeout = 60 * time.Second
 
+// TestPostgres is a running PostgreSQL container and the settings needed to
+// reach it. The settings are what a test needs when it drives the production
+// provider, which builds its own pool from the runtime configuration.
 type TestPostgres struct {
 	Container testcontainers.Container
 	DB        *sql.DB
+	Host      string
+	Port      int
+	Username  string
+	Password  string
+	Database  string
 }
 
 func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
@@ -68,8 +76,16 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 		return nil, err
 	}
 
-	host, _ := container.Host(ctx)
-	port, _ := container.MappedPort(ctx, "5432")
+	host, err := container.Host(ctx)
+	if err != nil {
+		_ = container.Terminate(ctx)
+		return nil, err
+	}
+	port, err := container.MappedPort(ctx, "5432")
+	if err != nil {
+		_ = container.Terminate(ctx)
+		return nil, err
+	}
 
 	dsn := fmt.Sprintf("host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable", host, port.Port())
 	db, err := sql.Open("postgres", dsn)
@@ -88,6 +104,11 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 	return &TestPostgres{
 		Container: container,
 		DB:        db,
+		Host:      host,
+		Port:      port.Int(),
+		Username:  "testuser",
+		Password:  "testpass",
+		Database:  "testdb",
 	}, nil
 }
 
