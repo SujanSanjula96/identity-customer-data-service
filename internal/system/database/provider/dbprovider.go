@@ -170,7 +170,12 @@ func getPostgresDB() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the datasource settings: %w", err)
 	}
-	db := sql.OpenDB(boundedConnector{inner: connector})
+	// The dialer reports each socket to the attempt that opened it, so that an
+	// attempt the caller gave up on can be ended rather than left running.
+	connector.Dialer(attemptDialer{})
+
+	settings := resolvePostgresPoolSettings(runtimeConfig.DataSource.Postgres)
+	db := sql.OpenDB(newBoundedConnector(connector, settings.maxOpenConns))
 
 	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
 

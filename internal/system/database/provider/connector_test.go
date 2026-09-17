@@ -21,10 +21,13 @@ package provider
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,7 +64,9 @@ func silentServerClient(t *testing.T, connectTimeoutSeconds int, queryTimeout ti
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := sql.OpenDB(boundedConnector{inner: connector})
+	connector.Dialer(attemptDialer{})
+
+	db := sql.OpenDB(newBoundedConnector(connector, database.DefaultPostgresMaxOpenConns))
 	t.Cleanup(func() { _ = db.Close() })
 
 	return client.NewSharedDBClient(db, database.TypePostgres, client.Timeouts{Query: queryTimeout}), db
@@ -180,4 +185,130 @@ func Test_getDBConfig_keepsTheConnectTimeout(t *testing.T) {
 	if !strings.Contains(dbConfig.dsn, "connect_timeout=") {
 		t.Errorf("expected the DSN to bound the handshake, got %q", dbConfig.dsn)
 	}
+}
+
+// countingConnector stands in for the driver. It records how many connection
+// attempts run at the same time, which is the number the pool limit has to
+// bound.
+type countingConnector struct {
+	inFlight atomic.Int64
+	peak     atomic.Int64
+	// hold is how long one attempt takes. It stands for a server that accepts
+	// a connection and then answers slowly.
+	hold time.Duration
+}
+
+func (c *countingConnector) Connect(ctx context.Context) (driver.Conn, error) {
+
+	running := c.inFlight.Add(1)
+	defer c.inFlight.Add(-1)
+
+	for {
+		peak := c.peak.Load()
+		if running <= peak || c.peak.CompareAndSwap(peak, running) {
+			break
+		}
+	}
+
+	// The driver does not read the context once the dial is done, which is the
+	// whole reason boundedConnector exists.
+	timer := time.NewTimer(c.hold)
+	defer timer.Stop()
+	<-timer.C
+
+	return nil, errors.New("the server never finished the handshake")
+}
+
+func (c *countingConnector) Driver() driver.Driver { return nil }
+
+// Test_boundedConnector_neverExceedsTheOpenLimit is the stress test the review
+// asked for.
+//
+// Callers give up long before the handshake ends, so database/sql stops
+// counting each attempt and opens another. Without a budget of its own the
+// connector would then run generation after generation of handshakes at once,
+// each holding a socket, and the process would pass max_open_conns however
+// small that limit is.
+func Test_boundedConnector_neverExceedsTheOpenLimit(t *testing.T) {
+
+	const (
+		limit   = 3
+		callers = 60
+	)
+
+	inner := &countingConnector{hold: 400 * time.Millisecond}
+	connector := newBoundedConnector(inner, limit)
+
+	var done sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			// Far shorter than the attempt takes, so every caller gives up.
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+
+			conn, err := connector.Connect(ctx)
+			if err == nil && conn != nil {
+				_ = conn.Close()
+			}
+		}()
+	}
+	done.Wait()
+
+	// The attempts that were abandoned are still running, so measure now
+	// rather than after they drain.
+	peak := inner.peak.Load()
+	t.Logf("%d callers, each giving up early, reached %d simultaneous attempts", callers, peak)
+
+	if peak > limit {
+		t.Errorf("%d attempts ran at once, above the configured limit of %d", peak, limit)
+	}
+	if peak == 0 {
+		t.Error("expected the callers to reach the driver at all")
+	}
+}
+
+// Test_boundedConnector_freesItsSlotWhenTheCallerGivesUp is why the socket is
+// closed rather than left to the connect timeout.
+//
+// A slot that is held for the whole connect timeout would starve every later
+// caller. The attempt has to end when its caller does.
+func Test_boundedConnector_freesItsSlotWhenTheCallerGivesUp(t *testing.T) {
+
+	host, port := silentServer(t)
+	// Ten seconds, so a slot that waits for the connect timeout is obvious.
+	dbConfig, err := getDBConfig(unreachableDataSource(host, port, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inner, err := pq.NewConnector(dbConfig.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner.Dialer(attemptDialer{})
+
+	connector := newBoundedConnector(inner, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	if _, err := connector.Connect(ctx); err == nil {
+		t.Fatal("expected the attempt to end at the caller's deadline")
+	}
+
+	// The attempt keeps its slot until the handshake really ends. That has to
+	// happen now, not in ten seconds.
+	start := time.Now()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(connector.slots) == 0 {
+			t.Logf("the abandoned attempt gave its slot back after %v", time.Since(start))
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Error("the abandoned attempt still holds its slot, so it ran to the connect timeout")
 }
