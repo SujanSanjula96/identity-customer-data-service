@@ -23,11 +23,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+// postgresReadyTimeout bounds the wait for a server that answers a query.
+const postgresReadyTimeout = 60 * time.Second
 
 type TestPostgres struct {
 	Container testcontainers.Container
@@ -44,7 +48,17 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 			"POSTGRES_PASSWORD": "testpass",
 			"POSTGRES_DB":       "testdb",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp"),
+		// The image starts the server twice: once for initdb and once for
+		// real. The ready message therefore appears twice, and only the second
+		// one means the server accepts connections.
+		//
+		// A wait on the port alone returns during the first start, and the
+		// query that follows fails with "the database system is starting up".
+		// That is what the mq-test job hit on 2026-09-17.
+		WaitingFor: wait.ForAll(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+			wait.ForListeningPort("5432/tcp"),
+		).WithDeadline(2 * time.Minute),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -64,8 +78,7 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 		return nil, err
 	}
 
-	err = db.Ping()
-	if err != nil {
+	if err := waitForQuery(ctx, db); err != nil {
 		_ = container.Terminate(ctx)
 		return nil, err
 	}
@@ -76,4 +89,31 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 		Container: container,
 		DB:        db,
 	}, nil
+}
+
+// waitForQuery runs a statement until the server answers it.
+//
+// The container wait already reports a server that accepts connections, so
+// this normally succeeds on the first attempt. It is the last guard: the
+// readiness of the test database is a successful query, not an open port.
+func waitForQuery(ctx context.Context, db *sql.DB) error {
+
+	deadline, cancel := context.WithTimeout(ctx, postgresReadyTimeout)
+	defer cancel()
+
+	var lastErr error
+	for {
+		_, err := db.ExecContext(deadline, "SELECT 1")
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		select {
+		case <-deadline.Done():
+			return fmt.Errorf("the test database did not answer a query within %s: %w",
+				postgresReadyTimeout, lastErr)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
