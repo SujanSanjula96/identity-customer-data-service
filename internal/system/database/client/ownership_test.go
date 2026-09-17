@@ -21,9 +21,11 @@ package client
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 )
@@ -121,5 +123,69 @@ func Test_Close_leavesTheSharedPoolOpenUnderConcurrency(t *testing.T) {
 	// Every client closed. The pool must still answer.
 	if err := db.Ping(); err != nil {
 		t.Errorf("expected the pool to outlive every client: %v", err)
+	}
+}
+
+// Test_Rollback_returnsTheConnectionAtOnce is why every transaction site defers
+// a rollback.
+//
+// A transaction holds its connection until it ends. A store that returned on an
+// error without a rollback left that connection out until the transaction
+// deadline, which is 30 seconds by default and two minutes for a worker. A few
+// of those at once empty a bounded pool.
+func Test_Rollback_returnsTheConnectionAtOnce(t *testing.T) {
+
+	db := openSharedPool(t)
+	db.SetMaxOpenConns(1)
+	dbClient := NewSharedDBClient(db, database.TypeSQLite, Timeouts{})
+
+	tx, err := dbClient.BeginTxContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The transaction holds the only connection, so a query has to wait.
+	waiting, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := dbClient.ExecuteQueryContext(waiting, testPing); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the query to wait for the held connection, got %v", err)
+	}
+
+	// This is the line every store now defers.
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The connection is back, so the same query succeeds at once.
+	quick, cancelQuick := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelQuick()
+	if _, err := dbClient.ExecuteQueryContext(quick, testPing); err != nil {
+		t.Errorf("expected the rollback to return the connection: %v", err)
+	}
+}
+
+// Test_Rollback_afterCommitIsHarmless is the other half of the pattern. The
+// deferred rollback runs on the successful path too, so it has to change
+// nothing there.
+func Test_Rollback_afterCommitIsHarmless(t *testing.T) {
+
+	db := openSharedPool(t)
+	dbClient := NewSharedDBClient(db, database.TypeSQLite, Timeouts{})
+
+	tx, err := dbClient.BeginTxContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tx.Rollback(); !errors.Is(err, sql.ErrTxDone) {
+		t.Errorf("expected sql.ErrTxDone after a commit, got %v", err)
+	}
+
+	// And the pool is unharmed.
+	if _, err := dbClient.ExecuteQueryContext(context.Background(), testPing); err != nil {
+		t.Errorf("expected the pool to keep working: %v", err)
 	}
 }

@@ -59,6 +59,12 @@ func AddConsentCategory(ctx context.Context, category model.ConsentCategory) err
 		}, err)
 		return serverError
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	_, err = tx.Exec(query, category.CategoryName, category.CategoryIdentifier, category.OrgHandle, category.Purpose,
 		scripts.EncodeStringArray(dbType, category.Destinations), category.IsMandatory)
 	if err != nil {
@@ -303,6 +309,11 @@ func UpdateConsentCategory(ctx context.Context, category model.ConsentCategory) 
 		return serverError
 	}
 
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	dbType := dbClient.DBType()
 	query := scripts.UpdateConsentCategory
 	_, err = tx.Exec(query, category.CategoryName, category.Purpose,
@@ -374,6 +385,11 @@ func DeleteConsentCategory(ctx context.Context, categoryId string) error {
 		}, err)
 		return serverError
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
 
 	query := scripts.DeleteConsentCategory
 	_, err = tx.Exec(query, categoryId)

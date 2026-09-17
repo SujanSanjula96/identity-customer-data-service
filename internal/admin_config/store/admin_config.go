@@ -122,6 +122,11 @@ func UpdateAdminConfig(ctx context.Context, config model.AdminConfig, orgHandle 
 		}, err)
 	}
 
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	query := scripts.UpdateOrgConfiguration
 
 	cdsEnabledValue := "false"
@@ -209,6 +214,11 @@ func UpdateInitialSchemaSyncConfig(ctx context.Context, state bool, orgHandle st
 			Description: errorMsg,
 		}, err)
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
 
 	stateValue := "false"
 	if state {

@@ -1453,6 +1453,12 @@ func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, c
 		}, err)
 		return serverError
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	query := scripts.UpdateProfileReference
 
 	for _, child := range children {
@@ -2006,6 +2012,11 @@ func UpdateProfileConsents(ctx context.Context, profileId string, consents []mod
 		}, err)
 		return serverError
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
 
 	// First, delete existing consents for this profile to ensure a clean slate
 

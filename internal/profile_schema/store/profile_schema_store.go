@@ -481,6 +481,11 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 		}, err)
 	}
 
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	stmt := scripts.UpdateProfileSchemaAttributesForSchema
 
 	for _, attr := range updates {
@@ -651,6 +656,12 @@ func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.P
 			Description: errorMsg,
 		}, err)
 	}
+
+	// Harmless after a successful Commit, which leaves the transaction done.
+	// On every other exit it releases the connection at once, rather than at
+	// the transaction deadline.
+	defer func() { _ = tx.Rollback() }()
+
 	defer func() {
 		if err != nil {
 			_ = tx.Rollback()
