@@ -19,6 +19,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	model "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
@@ -29,7 +30,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-func GetAdminConfig(orgHandle string) (*model.AdminConfig, error) {
+func GetAdminConfig(ctx context.Context, orgHandle string) (*model.AdminConfig, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -45,7 +46,7 @@ func GetAdminConfig(orgHandle string) (*model.AdminConfig, error) {
 	defer dbClient.Close()
 
 	query := scripts.GetOrgConfigurations
-	results, err := dbClient.ExecuteQuery(query, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to execute query for fetching configurations for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))
@@ -95,7 +96,7 @@ func GetAdminConfig(orgHandle string) (*model.AdminConfig, error) {
 }
 
 // UpdateAdminConfig updates organization-level admin configuration (e.g., CDS enablement, schema sync flags).
-func UpdateAdminConfig(config model.AdminConfig, orgHandle string) error {
+func UpdateAdminConfig(ctx context.Context, config model.AdminConfig, orgHandle string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -110,7 +111,7 @@ func UpdateAdminConfig(config model.AdminConfig, orgHandle string) error {
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for updating configurations for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))
@@ -183,7 +184,7 @@ func UpdateAdminConfig(config model.AdminConfig, orgHandle string) error {
 }
 
 // UpdateInitialSchemaSyncConfig updates organization-level admin configuration (e.g., CDS enablement, schema sync flags).
-func UpdateInitialSchemaSyncConfig(state bool, orgHandle string) error {
+func UpdateInitialSchemaSyncConfig(ctx context.Context, state bool, orgHandle string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -198,7 +199,7 @@ func UpdateInitialSchemaSyncConfig(state bool, orgHandle string) error {
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for updating configurations for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))

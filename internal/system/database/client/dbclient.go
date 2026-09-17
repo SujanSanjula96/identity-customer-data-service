@@ -36,15 +36,12 @@ import (
 // Statements are passed as a model.DBQuery, so the client is the only place that
 // selects a dialect and the stores stay datasource-agnostic.
 type DBClientInterface interface {
-	// ExecuteQuery runs a query under the client's default deadline.
-	ExecuteQuery(query model.DBQuery, args ...interface{}) ([]map[string]interface{}, error)
 	// ExecuteQueryContext runs a query under the caller's context. The caller
 	// cancels the wait for a free connection, and the query itself, by
-	// cancelling that context.
+	// cancelling that context. Every call takes a context, so no call path can
+	// wait on the bounded pool without a limit.
 	ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 		[]map[string]interface{}, error)
-	// BeginTx starts a transaction under the client's default deadline.
-	BeginTx() (*model.Tx, error)
 	// BeginTxContext starts a transaction under the caller's context. The
 	// transaction ends when that context ends.
 	BeginTxContext(ctx context.Context) (*model.Tx, error)
@@ -107,14 +104,6 @@ func withDeadline(ctx context.Context, timeout time.Duration) (context.Context, 
 		return ctx, nil
 	}
 	return context.WithTimeout(ctx, timeout)
-}
-
-// ExecuteQuery executes a query under the client's default deadline and returns
-// the result as a slice of maps.
-func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
-	[]map[string]interface{}, error) {
-
-	return client.ExecuteQueryContext(context.Background(), query, args...)
 }
 
 // ExecuteQueryContext executes a query under the caller's context and returns
@@ -187,13 +176,6 @@ func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQ
 	}
 
 	return results, nil
-}
-
-// BeginTx starts a new database transaction under the client's default
-// deadline.
-func (client *DBClient) BeginTx() (*model.Tx, error) {
-
-	return client.BeginTxContext(context.Background())
 }
 
 // BeginTxContext starts a new database transaction under the caller's context.

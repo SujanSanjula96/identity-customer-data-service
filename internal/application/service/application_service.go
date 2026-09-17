@@ -19,6 +19,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
@@ -30,8 +31,8 @@ import (
 
 // ApplicationServiceInterface defines the interface for the application service.
 type ApplicationServiceInterface interface {
-	ResolveAndRegisterApplication(appIdentifier, orgHandle string) (bool, error)
-	ResolveAppIdentifierByClientID(orgHandle, clientID string) (string, error)
+	ResolveAndRegisterApplication(ctx context.Context, appIdentifier, orgHandle string) (bool, error)
+	ResolveAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error)
 }
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
@@ -44,7 +45,8 @@ func GetApplicationService() ApplicationServiceInterface {
 }
 
 // ResolveAndRegisterApplication validates the application in the identity server and persists its clientId.
-func (as *ApplicationService) ResolveAndRegisterApplication(appIdentifier, orgHandle string) (bool, error) {
+func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
+	appIdentifier, orgHandle string) (bool, error) {
 
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
@@ -62,7 +64,7 @@ func (as *ApplicationService) ResolveAndRegisterApplication(appIdentifier, orgHa
 
 	// clientId is empty for SAML-only apps; the row is still persisted (with a NULL clientId) so the table
 	// holds an entry for every application.
-	if err := store.UpsertApplication(model.Application{
+	if err := store.UpsertApplication(ctx, model.Application{
 		AppID:     appIdentifier,
 		OrgHandle: orgHandle,
 		ClientID:  app.ClientId,
@@ -74,7 +76,8 @@ func (as *ApplicationService) ResolveAndRegisterApplication(appIdentifier, orgHa
 
 // ResolveAppIdentifierByClientID resolves an OAuth clientId to the app ID via the local store. A missing mapping
 // returns an empty string with a nil error; a store failure is returned so callers can distinguish the two.
-func (as *ApplicationService) ResolveAppIdentifierByClientID(orgHandle, clientID string) (string, error) {
+func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context,
+	orgHandle, clientID string) (string, error) {
 
-	return store.GetAppIdentifierByClientID(orgHandle, clientID)
+	return store.GetAppIdentifierByClientID(ctx, orgHandle, clientID)
 }

@@ -101,14 +101,15 @@ func Test_ExecuteQueryContext_endsTheWaitOnCancel(t *testing.T) {
 	}
 }
 
-// Test_ExecuteQuery_endsTheWaitOnTheDefaultDeadline covers the caller that
-// passes no context at all. The client must still bound the wait.
-func Test_ExecuteQuery_endsTheWaitOnTheDefaultDeadline(t *testing.T) {
+// Test_ExecuteQueryContext_endsTheWaitOnTheDefaultDeadline covers the caller
+// whose context carries no deadline, which is what an HTTP request context is.
+// The client must still bound the wait.
+func Test_ExecuteQueryContext_endsTheWaitOnTheDefaultDeadline(t *testing.T) {
 
 	dbClient := openSaturatedPool(t, Timeouts{Query: 200 * time.Millisecond})
 
 	start := time.Now()
-	_, err := dbClient.ExecuteQuery(testPing)
+	_, err := dbClient.ExecuteQueryContext(context.Background(), testPing)
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -182,7 +183,7 @@ func Test_AbandonedTx_releasesItsConnection(t *testing.T) {
 	dbClient := NewSharedDBClient(db, database.TypeSQLite, Timeouts{Tx: 200 * time.Millisecond})
 
 	// Start a transaction and abandon it. Nothing commits or rolls it back.
-	if _, err := dbClient.BeginTx(); err != nil {
+	if _, err := dbClient.BeginTxContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -89,7 +90,7 @@ func scanProfileConsentRow(row map[string]interface{}) (model.ConsentRecord, err
 }
 
 // InsertProfile inserts a new profile into the database
-func InsertProfile(profile model.Profile) error {
+func InsertProfile(ctx context.Context, profile model.Profile) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -120,7 +121,7 @@ func InsertProfile(profile model.Profile) error {
 
 	query := scripts.InsertProfile
 
-	_, err = dbClient.ExecuteQuery(query,
+	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		profile.ProfileId,
 		profile.UserId,
 		profile.OrgHandle,
@@ -146,7 +147,7 @@ func InsertProfile(profile model.Profile) error {
 
 	referenceQuery := scripts.InsertProfileReference
 
-	_, err = dbClient.ExecuteQuery(referenceQuery,
+	_, err = dbClient.ExecuteQueryContext(ctx, referenceQuery,
 		profile.ProfileId,
 		profileStatus,
 		profile.ProfileStatus.ReferenceProfileId,
@@ -166,7 +167,7 @@ func InsertProfile(profile model.Profile) error {
 		return serverError
 	}
 
-	err = InsertApplicationData(profile.ProfileId, profile.ApplicationData)
+	err = InsertApplicationData(ctx, profile.ProfileId, profile.ApplicationData)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -182,7 +183,7 @@ func InsertProfile(profile model.Profile) error {
 	return nil
 }
 
-func InsertApplicationData(profileId string, apps []model.ApplicationData) error {
+func InsertApplicationData(ctx context.Context, profileId string, apps []model.ApplicationData) error {
 
 	for _, app := range apps {
 		// Construct the update map
@@ -194,7 +195,7 @@ func InsertApplicationData(profileId string, apps []model.ApplicationData) error
 		}
 
 		// Use the existing upsert method
-		err := UpsertAppDatum(profileId, app.AppId, updateMap)
+		err := UpsertAppDatum(ctx, profileId, app.AppId, updateMap)
 		logger := log.GetLogger()
 		if err != nil {
 			errorMsg := fmt.Sprintf("Failed to insert application data for profile with Id: %s and appId: %s",
@@ -212,7 +213,7 @@ func InsertApplicationData(profileId string, apps []model.ApplicationData) error
 }
 
 // GetProfile retrieves a profile by its Id
-func GetProfile(profileId string) (*model.Profile, error) {
+func GetProfile(ctx context.Context, profileId string) (*model.Profile, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -230,12 +231,21 @@ func GetProfile(profileId string) (*model.Profile, error) {
 
 	query := scripts.GetProfileById
 
-	results, err := dbClient.ExecuteQuery(query, profileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
 		// todo: should we return a client error with 404 here?
 		return nil, nil
+	}
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed fetching profile with Id: %s", profileId)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_PROFILE.Code,
+			Message:     errors2.GET_PROFILE.Message,
+			Description: errorMsg,
+		}, err)
 	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
@@ -253,12 +263,12 @@ func GetProfile(profileId string) (*model.Profile, error) {
 		}, err)
 		return nil, serverError
 	}
-	profile.ApplicationData, _ = FetchApplicationData(profileId)
+	profile.ApplicationData, _ = FetchApplicationData(ctx, profileId)
 	return &profile, nil
 }
 
 // GetProfileConsents retrieves the consents of a profile by its profileId
-func GetProfileConsents(profileId string) ([]model.ConsentRecord, error) {
+func GetProfileConsents(ctx context.Context, profileId string) ([]model.ConsentRecord, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -276,16 +286,25 @@ func GetProfileConsents(profileId string) ([]model.ConsentRecord, error) {
 
 	query := scripts.GetProfileConsentsByProfileId
 
-	results, err := dbClient.ExecuteQuery(query, profileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
 		// todo: should we return a client error with 404 here?
 		return nil, nil
 	}
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed fetching consents of profile with Id: %s", profileId)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_PROFILE.Code,
+			Message:     errors2.GET_PROFILE.Message,
+			Description: errorMsg,
+		}, err)
+	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
-		var profile, _ = GetProfile(profileId)
+		var profile, _ = GetProfile(ctx, profileId)
 		if profile != nil {
 			// If no consents found and the user exists, return an empty slice instead of nil
 			return []model.ConsentRecord{}, nil
@@ -312,7 +331,7 @@ func GetProfileConsents(profileId string) ([]model.ConsentRecord, error) {
 	return profileConsents, nil
 }
 
-func FetchApplicationData(profileId string) ([]model.ApplicationData, error) {
+func FetchApplicationData(ctx context.Context, profileId string) ([]model.ApplicationData, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -329,7 +348,7 @@ func FetchApplicationData(profileId string) ([]model.ApplicationData, error) {
 	}
 	defer dbClient.Close()
 	query := scripts.GetAppDataByProfileId
-	results, err := dbClient.ExecuteQuery(query, profileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed fetching application data for profile with Id: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -371,7 +390,7 @@ func FetchApplicationData(profileId string) ([]model.ApplicationData, error) {
 	return apps, nil
 }
 
-func FetchApplicationDataWithAppId(profileId string, appId string) (model.ApplicationData, error) {
+func FetchApplicationDataWithAppId(ctx context.Context, profileId string, appId string) (model.ApplicationData, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -387,7 +406,7 @@ func FetchApplicationDataWithAppId(profileId string, appId string) (model.Applic
 	}
 	defer dbClient.Close()
 	query := scripts.GetAppDataByAppId
-	results, err := dbClient.ExecuteQuery(query, profileId, appId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId, appId)
 	var app model.ApplicationData
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed fetching application data of app:%s for profile: %s", appId, profileId)
@@ -428,7 +447,7 @@ func FetchApplicationDataWithAppId(profileId string, appId string) (model.Applic
 }
 
 // UpdateProfile updates the profile
-func UpdateProfile(profile model.Profile) error {
+func UpdateProfile(ctx context.Context, profile model.Profile) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -460,7 +479,7 @@ func UpdateProfile(profile model.Profile) error {
 
 	query := scripts.UpdateProfile
 
-	_, err = dbClient.ExecuteQuery(query,
+	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		profile.UserId,
 		profile.ProfileStatus.ListProfile,
 		profile.ProfileStatus.DeleteProfile,
@@ -482,7 +501,7 @@ func UpdateProfile(profile model.Profile) error {
 
 	query = scripts.UpsertProfileReference
 
-	_, err = dbClient.ExecuteQuery(query,
+	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		profile.ProfileId,
 		profileStatus,
 		profile.ProfileStatus.ReferenceProfileId,
@@ -500,7 +519,7 @@ func UpdateProfile(profile model.Profile) error {
 		return serverError
 	}
 	// Update application data
-	err = InsertApplicationData(profile.ProfileId, profile.ApplicationData)
+	err = InsertApplicationData(ctx, profile.ProfileId, profile.ApplicationData)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -517,7 +536,8 @@ func UpdateProfile(profile model.Profile) error {
 
 // GetAllProfiles retrieves profiles using cursor-based pagination.
 // It returns up to `limit` profiles and a boolean indicating if more records exist.
-func GetAllProfiles(orgHandle string, limit int, cursor *model.ProfileCursor) ([]model.Profile, bool, error) {
+func GetAllProfiles(ctx context.Context,
+	orgHandle string, limit int, cursor *model.ProfileCursor) ([]model.Profile, bool, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -560,7 +580,7 @@ func GetAllProfiles(orgHandle string, limit int, cursor *model.ProfileCursor) ([
 	// lookahead
 	limitPlusOne := limit + 1
 
-	results, err := dbClient.ExecuteQuery(query, orgHandle, cursorTime, cursorProfileId, direction, limitPlusOne)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, cursorTime, cursorProfileId, direction, limitPlusOne)
 	if err != nil {
 		errorMsg := "Failed fetching all profiles"
 		logger.Debug(errorMsg, log.Error(err))
@@ -588,7 +608,7 @@ func GetAllProfiles(orgHandle string, limit int, cursor *model.ProfileCursor) ([
 		profileIDs = append(profileIDs, profile.ProfileId)
 	}
 
-	appDataMap, err := FetchApplicationDataBatch(profileIDs)
+	appDataMap, err := FetchApplicationDataBatch(ctx, profileIDs)
 	if err != nil {
 		errorMsg := "Failed fetching application data for profiles."
 		logger.Debug(errorMsg, log.Error(err))
@@ -614,7 +634,7 @@ func GetAllProfiles(orgHandle string, limit int, cursor *model.ProfileCursor) ([
 	return profiles, hasMore, nil
 }
 
-func FetchApplicationDataBatch(profileIDs []string) (map[string][]model.ApplicationData, error) {
+func FetchApplicationDataBatch(ctx context.Context, profileIDs []string) (map[string][]model.ApplicationData, error) {
 	result := make(map[string][]model.ApplicationData)
 	if len(profileIDs) == 0 {
 		return result, nil
@@ -643,7 +663,7 @@ func FetchApplicationDataBatch(profileIDs []string) (map[string][]model.Applicat
 
 	query := scripts.GetAppDataByProfileIds.Format(strings.Join(placeholders, ","))
 
-	rows, err := dbClient.ExecuteQuery(query, args...)
+	rows, err := dbClient.ExecuteQueryContext(ctx, query, args...)
 	if err != nil {
 		errorMsg := "Failed fetching application data batch."
 		logger.Debug(errorMsg, log.Error(err))
@@ -687,7 +707,7 @@ func FetchApplicationDataBatch(profileIDs []string) (map[string][]model.Applicat
 }
 
 // DeleteProfile deletes a profile and its associated data
-func DeleteProfile(profileId string) error {
+func DeleteProfile(ctx context.Context, profileId string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -704,7 +724,7 @@ func DeleteProfile(profileId string) error {
 	defer dbClient.Close()
 
 	// Step 1: Delete application_data explicitly (optional if ON DELETE CASCADE not enabled)
-	_, err = dbClient.ExecuteQuery(scripts.DeleteProfileByProfileId, profileId)
+	_, err = dbClient.ExecuteQueryContext(ctx, scripts.DeleteProfileByProfileId, profileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("failed to delete application data for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -718,7 +738,7 @@ func DeleteProfile(profileId string) error {
 
 	// Step 2: Delete child relationships where this is a parent (optional safety, ON DELETE CASCADE already exists)
 	//:todo: Need to decide if its needed
-	//_, err = dbClient.ExecuteQuery(
+	//_, err = dbClient.ExecuteQueryContext(ctx,
 	//	`DELETE FROM profiles WHERE reference_profile_id = $1`, profileId)
 	//if err != nil {
 	//	errorMsg := fmt.Sprintf("failed to delete child profile links for profile: %s", profileId)
@@ -732,7 +752,7 @@ func DeleteProfile(profileId string) error {
 	//}
 
 	// Step 3: Delete the profile itself
-	result, err := dbClient.ExecuteQuery(scripts.DeleteProfile, profileId)
+	result, err := dbClient.ExecuteQueryContext(ctx, scripts.DeleteProfile, profileId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
@@ -757,10 +777,10 @@ func DeleteProfile(profileId string) error {
 	return nil
 }
 
-func UpsertAppDatum(profileId string, appId string, updates map[string]interface{}) error {
+func UpsertAppDatum(ctx context.Context, profileId string, appId string, updates map[string]interface{}) error {
 
 	// Fetch existing application_data for the given app
-	appData, err := FetchApplicationDataWithAppId(profileId, appId)
+	appData, err := FetchApplicationDataWithAppId(ctx, profileId, appId)
 	if err != nil {
 		return err
 	}
@@ -817,7 +837,7 @@ func UpsertAppDatum(profileId string, appId string, updates map[string]interface
 	}
 	defer dbClient.Close()
 
-	_, err = dbClient.ExecuteQuery(query, profileId, appId, jsonBytes)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, profileId, appId, jsonBytes)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to upsert application data for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -833,7 +853,7 @@ func UpsertAppDatum(profileId string, appId string, updates map[string]interface
 }
 
 // DetachRefererProfileFromReference removes a child from a parent's child_profile_ids list
-func DetachRefererProfileFromReference(referenceProfileId, profileId string) error {
+func DetachRefererProfileFromReference(ctx context.Context, referenceProfileId, profileId string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -851,7 +871,7 @@ func DetachRefererProfileFromReference(referenceProfileId, profileId string) err
 
 	// todo: decide if we need to delete the references as well.
 	query := scripts.DeleteProfileReference
-	result, err := dbClient.ExecuteQuery(query, referenceProfileId, profileId)
+	result, err := dbClient.ExecuteQueryContext(ctx, query, referenceProfileId, profileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to delete child relationship of child: %s of parent: %s",
 			referenceProfileId, profileId)
@@ -872,9 +892,9 @@ func DetachRefererProfileFromReference(referenceProfileId, profileId string) err
 }
 
 // InsertMergedMasterProfileAppData adds or updates application-specific context data.
-func InsertMergedMasterProfileAppData(profileId string, newAppCtx model.ApplicationData) error {
+func InsertMergedMasterProfileAppData(ctx context.Context, profileId string, newAppCtx model.ApplicationData) error {
 
-	profile, err := GetProfile(profileId)
+	profile, err := GetProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for app data update.", profileId)
@@ -922,13 +942,14 @@ func InsertMergedMasterProfileAppData(profileId string, newAppCtx model.Applicat
 
 	profile.ApplicationData = resultAppData
 	// this inserts the entire application_data blob with the update.
-	return InsertApplicationData(profile.ProfileId, profile.ApplicationData)
+	return InsertApplicationData(ctx, profile.ProfileId, profile.ApplicationData)
 }
 
 // InsertMergedMasterProfileTraitData replaces (PUT) the traits data inside Profile
-func InsertMergedMasterProfileTraitData(profileId string, traitsData map[string]interface{}) error {
+func InsertMergedMasterProfileTraitData(ctx context.Context,
+	profileId string, traitsData map[string]interface{}) error {
 
-	profile, err := GetProfile(profileId)
+	profile, err := GetProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for trait data update.", profileId)
@@ -952,13 +973,13 @@ func InsertMergedMasterProfileTraitData(profileId string, traitsData map[string]
 	}
 
 	profile.Traits = traitsData
-	return UpdateProfile(*profile) // Update existing profile
+	return UpdateProfile(ctx, *profile) // Update existing profile
 }
 
 // MergeIdentityDataOfProfiles replaces or adds to identity_attributes in Profile
-func MergeIdentityDataOfProfiles(profileId string, identityData map[string]interface{}) error {
+func MergeIdentityDataOfProfiles(ctx context.Context, profileId string, identityData map[string]interface{}) error {
 
-	profile, err := GetProfile(profileId)
+	profile, err := GetProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for identity data update.", profileId)
@@ -988,11 +1009,11 @@ func MergeIdentityDataOfProfiles(profileId string, identityData map[string]inter
 		profile.IdentityAttributes[k] = v // Overwrites or adds
 	}
 
-	return UpdateProfile(*profile)
+	return UpdateProfile(ctx, *profile)
 }
 
 // GetAllProfilesWithFilter retrieves profiles using dynamic filters and cursor-based pagination.
-func GetAllProfilesWithFilter(
+func GetAllProfilesWithFilter(ctx context.Context,
 	orgHandle string,
 	filters []string,
 	limit int,
@@ -1238,7 +1259,7 @@ func GetAllProfilesWithFilter(
 	finalSQL := fmt.Sprintf("%s\n%s\n%s\nLIMIT $%d", baseSQL, whereClause, orderClause, argID)
 	args = append(args, limitPlusOne)
 
-	results, err := dbClient.ExecuteQuery(scripts.GetAllProfilesWithFilterBase.WithSQL(finalSQL), args...)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetAllProfilesWithFilterBase.WithSQL(finalSQL), args...)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to execute filtered query: %s", err)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1266,7 +1287,7 @@ func GetAllProfilesWithFilter(
 		profileIDs = append(profileIDs, profile.ProfileId)
 	}
 
-	appDataMap, err := FetchApplicationDataBatch(profileIDs)
+	appDataMap, err := FetchApplicationDataBatch(ctx, profileIDs)
 	if err != nil {
 		errorMsg := "Failed fetching application data for profiles."
 		logger.Debug(errorMsg, log.Error(err))
@@ -1305,7 +1326,8 @@ func sanitizeForAlias(input string) string {
 	return sanitized
 }
 
-func GetAllReferenceProfilesExceptForCurrent(currentProfile model.Profile) ([]model.Profile, error) {
+func GetAllReferenceProfilesExceptForCurrent(ctx context.Context,
+	currentProfile model.Profile) ([]model.Profile, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1324,7 +1346,7 @@ func GetAllReferenceProfilesExceptForCurrent(currentProfile model.Profile) ([]mo
 
 	query := scripts.GetAllReferenceProfileExceptCurrent
 
-	results, err := dbClient.ExecuteQuery(query, currentProfile.ProfileId, currentProfile.OrgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, currentProfile.ProfileId, currentProfile.OrgHandle)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed fetching all master profiles except for current profile: %s", currentProfile.ProfileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1393,7 +1415,7 @@ func GetAllReferenceProfilesExceptForCurrent(currentProfile model.Profile) ([]mo
 			return nil, serverError
 		}
 
-		profile.ApplicationData, _ = FetchApplicationData(profile.ProfileId)
+		profile.ApplicationData, _ = FetchApplicationData(ctx, profile.ProfileId)
 
 		profiles = append(profiles, profile)
 	}
@@ -1402,7 +1424,7 @@ func GetAllReferenceProfilesExceptForCurrent(currentProfile model.Profile) ([]mo
 }
 
 // UpdateProfileReferences updates the references of a parent profile with the provided child profiles.
-func UpdateProfileReferences(parentProfile model.Profile, children []model.Reference) error {
+func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, children []model.Reference) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1419,7 +1441,7 @@ func UpdateProfileReferences(parentProfile model.Profile, children []model.Refer
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for adding child profiles for parent: %s",
 			parentProfile.ProfileId)
@@ -1461,7 +1483,7 @@ func UpdateProfileReferences(parentProfile model.Profile, children []model.Refer
 	return tx.Commit()
 }
 
-func FetchReferencedProfiles(referenceProfileId string) ([]model.Reference, error) {
+func FetchReferencedProfiles(ctx context.Context, referenceProfileId string) ([]model.Reference, error) {
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Fetching referenced profiles for profile: %s", referenceProfileId))
@@ -1481,7 +1503,7 @@ func FetchReferencedProfiles(referenceProfileId string) ([]model.Reference, erro
 	defer dbClient.Close()
 	query := scripts.FetchReferencedProfiles
 
-	results, err := dbClient.ExecuteQuery(query, referenceProfileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, referenceProfileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed fetching referenced profiles for profile: %s", referenceProfileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1636,7 +1658,7 @@ func toInt(val interface{}) (int, bool) {
 	return 0, false
 }
 
-func GetProfileWithUserId(userId string) (*model.Profile, error) {
+func GetProfileWithUserId(ctx context.Context, userId string) (*model.Profile, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1654,12 +1676,21 @@ func GetProfileWithUserId(userId string) (*model.Profile, error) {
 
 	query := scripts.GetProfileByUserId
 
-	results, err := dbClient.ExecuteQuery(query, userId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, userId)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given userId: %s", userId))
 		// todo: should we return a client error with 404 here?
 		return nil, nil
+	}
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed fetching profile with user Id: %s", userId)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_PROFILE.Code,
+			Message:     errors2.GET_PROFILE.Message,
+			Description: errorMsg,
+		}, err)
 	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile found with the given userId: %s", userId))
@@ -1677,12 +1708,12 @@ func GetProfileWithUserId(userId string) (*model.Profile, error) {
 		}, err)
 		return nil, serverError
 	}
-	profile.ApplicationData, _ = FetchApplicationData(profile.ProfileId)
+	profile.ApplicationData, _ = FetchApplicationData(ctx, profile.ProfileId)
 	return &profile, nil
 }
 
 // CreateProfileCookie creates a new profile cookie
-func CreateProfileCookie(profileCookie model.ProfileCookie) error {
+func CreateProfileCookie(ctx context.Context, profileCookie model.ProfileCookie) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1699,7 +1730,7 @@ func CreateProfileCookie(profileCookie model.ProfileCookie) error {
 
 	query := scripts.InsertCookie
 
-	_, err = dbClient.ExecuteQuery(query, profileCookie.CookieId, profileCookie.ProfileId, profileCookie.IsActive)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, profileCookie.CookieId, profileCookie.ProfileId, profileCookie.IsActive)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed creating the profile cookie with Id: %s", profileCookie.CookieId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1715,7 +1746,7 @@ func CreateProfileCookie(profileCookie model.ProfileCookie) error {
 }
 
 // GetProfileCookieByProfileId retrieves a profile cookie by profileId
-func GetProfileCookieByProfileId(profileId string) (*model.ProfileCookie, error) {
+func GetProfileCookieByProfileId(ctx context.Context, profileId string) (*model.ProfileCookie, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1733,11 +1764,20 @@ func GetProfileCookieByProfileId(profileId string) (*model.ProfileCookie, error)
 
 	query := scripts.GetCookieByProfileId
 
-	results, err := dbClient.ExecuteQuery(query, profileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given profileId: %s", profileId))
 		return nil, nil
+	}
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed fetching cookie of profile with Id: %s", profileId)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_PROFILE_COOKIE.Code,
+			Message:     errors2.GET_PROFILE_COOKIE.Message,
+			Description: errorMsg,
+		}, err)
 	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given profileId: %s", profileId))
@@ -1753,7 +1793,7 @@ func GetProfileCookieByProfileId(profileId string) (*model.ProfileCookie, error)
 }
 
 // GetProfileCookie retrieves a profile cookie by profileId
-func GetProfileCookie(cookie string) (*model.ProfileCookie, error) {
+func GetProfileCookie(ctx context.Context, cookie string) (*model.ProfileCookie, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1771,11 +1811,20 @@ func GetProfileCookie(cookie string) (*model.ProfileCookie, error) {
 
 	query := scripts.GetCookieByCookieId
 
-	results, err := dbClient.ExecuteQuery(query, cookie)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))
 		return nil, nil
+	}
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed fetching profile cookie: %s", cookie)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_PROFILE_COOKIE.Code,
+			Message:     errors2.GET_PROFILE_COOKIE.Message,
+			Description: errorMsg,
+		}, err)
 	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))
@@ -1791,7 +1840,7 @@ func GetProfileCookie(cookie string) (*model.ProfileCookie, error) {
 }
 
 // UpdateProfileCookieByProfileId updates the status of a profile cookie
-func UpdateProfileCookieByProfileId(profileId string, isActive bool) error {
+func UpdateProfileCookieByProfileId(ctx context.Context, profileId string, isActive bool) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1809,7 +1858,7 @@ func UpdateProfileCookieByProfileId(profileId string, isActive bool) error {
 
 	query := scripts.UpdateCookieStatusByProfileId
 
-	_, err = dbClient.ExecuteQuery(query, isActive, profileId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, isActive, profileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed updating the profile cookie with profile Id: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1825,7 +1874,7 @@ func UpdateProfileCookieByProfileId(profileId string, isActive bool) error {
 }
 
 // UpdateProfileCookieByCookieId updates the status of a profile cookie
-func UpdateProfileCookieByCookieId(cookieId string, isActive bool) error {
+func UpdateProfileCookieByCookieId(ctx context.Context, cookieId string, isActive bool) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1843,7 +1892,7 @@ func UpdateProfileCookieByCookieId(cookieId string, isActive bool) error {
 
 	query := scripts.UpdateCookieStatusByCookieId
 
-	_, err = dbClient.ExecuteQuery(query, isActive, cookieId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, isActive, cookieId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed updating the profile cookie: %s", cookieId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1859,7 +1908,7 @@ func UpdateProfileCookieByCookieId(cookieId string, isActive bool) error {
 }
 
 // DeleteProfileCookieByProfile deletes a profile cookie by profileId
-func DeleteProfileCookieByProfile(profileId string) error {
+func DeleteProfileCookieByProfile(ctx context.Context, profileId string) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1876,7 +1925,7 @@ func DeleteProfileCookieByProfile(profileId string) error {
 
 	query := scripts.DeleteCookieByProfileId
 
-	_, err = dbClient.ExecuteQuery(query, profileId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, profileId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed deleting the profile cookie with Id: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1892,7 +1941,7 @@ func DeleteProfileCookieByProfile(profileId string) error {
 }
 
 // DeleteInactiveCookieProfiles deletes inactive cookie-profile records in batches.
-func DeleteInactiveCookieProfiles(batchSize int) (int, error) {
+func DeleteInactiveCookieProfiles(ctx context.Context, batchSize int) (int, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1910,7 +1959,7 @@ func DeleteInactiveCookieProfiles(batchSize int) (int, error) {
 
 	query := scripts.DeleteInactiveCookies
 
-	results, err := dbClient.ExecuteQuery(query, batchSize)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, batchSize)
 	if err != nil {
 		errorMsg := "Failed to delete inactive cookie profiles"
 		logger.Debug(errorMsg, log.Error(err))
@@ -1930,7 +1979,7 @@ func DeleteInactiveCookieProfiles(batchSize int) (int, error) {
 }
 
 // UpdateProfileConsents updates or creates consent records for a profile
-func UpdateProfileConsents(profileId string, consents []model.ConsentRecord) error {
+func UpdateProfileConsents(ctx context.Context, profileId string, consents []model.ConsentRecord) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1946,7 +1995,7 @@ func UpdateProfileConsents(profileId string, consents []model.ConsentRecord) err
 	defer dbClient.Close()
 
 	// Start a transaction to ensure atomicity of consent updates
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for updating consents for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))

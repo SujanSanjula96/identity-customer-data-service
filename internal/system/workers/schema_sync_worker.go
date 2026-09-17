@@ -19,12 +19,14 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/queue"
 )
@@ -90,13 +92,17 @@ func StopSchemaSyncWorker() error {
 // processSchemaSyncJob processes a schema sync job
 func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
 
+	// One message is one unit of work, so it carries its own deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), constants.WorkerJobTimeout)
+	defer cancel()
+
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))
 
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err := schemaService.SyncProfileSchema(schemaSync.OrgId)
+	err := schemaService.SyncProfileSchema(ctx, schemaSync.OrgId)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
 		return

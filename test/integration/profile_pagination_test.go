@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func Test_ProfileCursorPagination(t *testing.T) {
 	org := fmt.Sprintf("pagination-org-%d", time.Now().UnixNano())
 
 	for i := 0; i < totalProfiles; i++ {
-		_, err := profileSvc.CreateProfile(profileModel.ProfileRequest{}, org)
+		_, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{}, org)
 		require.NoError(t, err, "failed to create profile %d", i)
 	}
 
@@ -62,7 +63,7 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		for page := 0; ; page++ {
 			require.LessOrEqual(t, page, totalProfiles, "paging did not terminate")
 
-			profiles, hasMore, err := profileSvc.GetAllProfilesCursor(org, pageSize, cursor)
+			profiles, hasMore, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, cursor)
 			require.NoError(t, err)
 			require.NotEmpty(t, profiles, "page %d is empty", page)
 			require.LessOrEqual(t, len(profiles), pageSize, "page %d is over the limit", page)
@@ -91,13 +92,13 @@ func Test_ProfileCursorPagination(t *testing.T) {
 	})
 
 	t.Run("Paging backward returns the previous page", func(t *testing.T) {
-		firstPage, hasMore, err := profileSvc.GetAllProfilesCursor(org, pageSize, nil)
+		firstPage, hasMore, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, nil)
 		require.NoError(t, err)
 		require.True(t, hasMore)
 		require.Len(t, firstPage, pageSize)
 
 		last := firstPage[len(firstPage)-1]
-		secondPage, _, err := profileSvc.GetAllProfilesCursor(org, pageSize, &profileModel.ProfileCursor{
+		secondPage, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, &profileModel.ProfileCursor{
 			CreatedAt: last.Meta.CreatedAt,
 			ProfileId: last.ProfileId,
 			Direction: "next",
@@ -108,7 +109,7 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		// Stepping back from the start of the second page must reproduce the
 		// first page.
 		first := secondPage[0]
-		backwards, _, err := profileSvc.GetAllProfilesCursor(org, pageSize, &profileModel.ProfileCursor{
+		backwards, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, &profileModel.ProfileCursor{
 			CreatedAt: first.Meta.CreatedAt,
 			ProfileId: first.ProfileId,
 			Direction: "prev",
@@ -121,7 +122,7 @@ func Test_ProfileCursorPagination(t *testing.T) {
 	})
 
 	t.Run("A cursor survives encoding", func(t *testing.T) {
-		page, _, err := profileSvc.GetAllProfilesCursor(org, pageSize, nil)
+		page, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, page)
 
@@ -140,10 +141,10 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		require.True(t, original.CreatedAt.Equal(decoded.CreatedAt),
 			"expected %s, got %s", original.CreatedAt, decoded.CreatedAt)
 
-		fromEncoded, _, err := profileSvc.GetAllProfilesCursor(org, pageSize, decoded)
+		fromEncoded, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, decoded)
 		require.NoError(t, err)
 
-		fromOriginal, _, err := profileSvc.GetAllProfilesCursor(org, pageSize, &original)
+		fromOriginal, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org, pageSize, &original)
 		require.NoError(t, err)
 
 		require.Equal(t, profileIds(fromOriginal), profileIds(fromEncoded),
@@ -161,7 +162,7 @@ func forceSharedCreatedAt(t *testing.T, org string, count int) []string {
 	require.NoError(t, err)
 	defer dbClient.Close()
 
-	rows, err := dbClient.ExecuteQuery(dbmodel.DBQuery{
+	rows, err := dbClient.ExecuteQueryContext(context.Background(), dbmodel.DBQuery{
 		ID:    "TEST-PAG-01",
 		Query: `SELECT profile_id FROM profiles WHERE org_handle = $1 ORDER BY created_at ASC`,
 	}, org)
@@ -175,7 +176,7 @@ func forceSharedCreatedAt(t *testing.T, org string, count int) []string {
 		profileId, ok := row["profile_id"].(string)
 		require.True(t, ok, "unexpected profile_id type %T", row["profile_id"])
 
-		_, err := dbClient.ExecuteQuery(dbmodel.DBQuery{
+		_, err := dbClient.ExecuteQueryContext(context.Background(), dbmodel.DBQuery{
 			ID:    "TEST-PAG-02",
 			Query: `UPDATE profiles SET created_at = $1 WHERE profile_id = $2`,
 		}, shared, profileId)

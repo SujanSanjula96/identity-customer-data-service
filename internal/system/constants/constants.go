@@ -18,7 +18,10 @@
 
 package constants
 
-import "regexp"
+import (
+	"regexp"
+	"time"
+)
 
 const ApiBasePath = "/cds/api"
 const ProfileApiPath = "profiles"
@@ -210,4 +213,17 @@ const (
 
 const (
 	DefaultCookieCleanupTime = 24 * 60 * 60 // 24 hours in seconds
+)
+
+// Deadlines for background work. A worker has no request context of its own,
+// so it builds one. Without a deadline a worker would wait without a limit for
+// a connection from the bounded pool, and would hold that connection for as
+// long as the statement took.
+const (
+	// WorkerJobTimeout bounds the work one queue message causes.
+	WorkerJobTimeout = 2 * time.Minute
+
+	// CookieCleanupJobTimeout bounds one cleanup sweep, which deletes the
+	// inactive cookie records in batches.
+	CookieCleanupJobTimeout = 10 * time.Minute
 )

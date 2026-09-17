@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -55,7 +56,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(appID, org string) (error, bool) { return nil, true })
+		func(context.Context, string, string) (error, bool) { return nil, true })
 	defer restore()
 
 	// Initialize Profile Schema Attributes
@@ -88,9 +89,9 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 			Mutability: constants.MutabilityReadWrite, ApplicationIdentifier: AppB_Id},
 	}
 
-	_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(identityAttr, constants.IdentityAttributes, SuperTenantOrg)
-	_, err1 := profileSchemaSvc.AddProfileSchemaAttributesForScope(traits, constants.Traits, SuperTenantOrg)
-	_, err2 := profileSchemaSvc.AddProfileSchemaAttributesForScope(appData, constants.ApplicationData, SuperTenantOrg)
+	_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttr, constants.IdentityAttributes, SuperTenantOrg)
+	_, err1 := profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traits, constants.Traits, SuperTenantOrg)
+	_, err2 := profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), appData, constants.ApplicationData, SuperTenantOrg)
 	require.NoError(t, err)
 	require.NoError(t, err1)
 	require.NoError(t, err2)
@@ -110,7 +111,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
-	_ = unificationSvc.AddUnificationRule(emailBasedRule, SuperTenantOrg)
+	_ = unificationSvc.AddUnificationRule(context.Background(), emailBasedRule, SuperTenantOrg)
 
 	phoneRuleId := uuid.New().String()
 	phoneBasedRule := model.UnificationRule{
@@ -124,22 +125,22 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}
 
-	_ = unificationSvc.AddUnificationRule(phoneBasedRule, SuperTenantOrg)
+	_ = unificationSvc.AddUnificationRule(context.Background(), phoneBasedRule, SuperTenantOrg)
 
 	t.Run("Scenario1_TempProfiles_Email_Then_Phone_Unify", func(t *testing.T) {
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["a@wso2.com"]},"traits":{"interests":["music"]}}`)
 		p2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["a@wso2.com"],"phone_number":["0771234567"]},"traits":{"interests":["sports"]}}`)
 		p3 := mustUnmarshalProfile(`{"identity_attributes":{"phone_number":["0771234567"]},"traits":{"interests":["art"]}}`)
 
-		prof1, _ := profileSvc.CreateProfile(p1, SuperTenantOrg)
-		prof2, _ := profileSvc.CreateProfile(p2, SuperTenantOrg)
-		prof3, _ := profileSvc.CreateProfile(p3, SuperTenantOrg)
+		prof1, _ := profileSvc.CreateProfile(context.Background(), p1, SuperTenantOrg)
+		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
+		prof3, _ := profileSvc.CreateProfile(context.Background(), p3, SuperTenantOrg)
 
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(prof2.ProfileId)
-		merged3, _ := profileSvc.GetProfile(prof3.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId)
 		require.Equal(t, RuleNameEmailBased, merged1.MergedTo.Reason)
@@ -157,12 +158,12 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		temp := mustUnmarshalProfile(`{"identity_attributes":{"email":["b@wso2.com"],"phone_number":["0774567890"]},"traits":{"interests":["music"]}}`)
 		perm := mustUnmarshalProfile(`{"user_id":"user-123","identity_attributes":{"user_id": "user-123", "email":["b@wso2.com","b2@wso2.com"]},"traits":{"interests":["sports"]}}`)
 
-		p1, _ := profileSvc.CreateProfile(temp, SuperTenantOrg)
-		p2, _ := profileSvc.CreateProfile(perm, SuperTenantOrg)
+		p1, _ := profileSvc.CreateProfile(context.Background(), temp, SuperTenantOrg)
+		p2, _ := profileSvc.CreateProfile(context.Background(), perm, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(p1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(p2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), p1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), p2.ProfileId)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.ProfileId)
 		require.Equal(t, RuleNameEmailBased, merged1.MergedTo.Reason)
@@ -180,15 +181,15 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		temp2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["c@wso2.com"]},"traits":{"interests":["art"]}}`)
 		perm := mustUnmarshalProfile(`{"user_id":"perm-789","identity_attributes":{"user_id": "perm-789","phone_number":["0771111111"]},"traits":{"interests":["sports"]}}`)
 
-		p1, _ := profileSvc.CreateProfile(temp1, SuperTenantOrg)
-		p2, _ := profileSvc.CreateProfile(temp2, SuperTenantOrg)
+		p1, _ := profileSvc.CreateProfile(context.Background(), temp1, SuperTenantOrg)
+		p2, _ := profileSvc.CreateProfile(context.Background(), temp2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
-		p3, _ := profileSvc.CreateProfile(perm, SuperTenantOrg)
+		p3, _ := profileSvc.CreateProfile(context.Background(), perm, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(p1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(p2.ProfileId)
-		merged3, _ := profileSvc.GetProfile(p3.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), p1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), p2.ProfileId)
+		merged3, _ := profileSvc.GetProfile(context.Background(), p3.ProfileId)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId)
 		require.Equal(t, RuleNameEmailBased, merged1.MergedTo.Reason)
@@ -211,14 +212,14 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		temp := mustUnmarshalProfile(`{"identity_attributes":{"email":["d@wso2.com"],"phone_number":["0775554444"]},"traits":{"interests":["art"]}}`)
 		temp2 := mustUnmarshalProfile(`{"identity_attributes":{"phone_number":["0775554444"]},"traits":{"interests":["sports"]}}`)
 
-		p1, _ := profileSvc.CreateProfile(perm, SuperTenantOrg)
-		p2, _ := profileSvc.CreateProfile(temp, SuperTenantOrg)
-		p3, _ := profileSvc.CreateProfile(temp2, SuperTenantOrg)
+		p1, _ := profileSvc.CreateProfile(context.Background(), perm, SuperTenantOrg)
+		p2, _ := profileSvc.CreateProfile(context.Background(), temp, SuperTenantOrg)
+		p3, _ := profileSvc.CreateProfile(context.Background(), temp2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(p1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(p2.ProfileId)
-		merged3, _ := profileSvc.GetProfile(p3.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), p1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), p2.ProfileId)
+		merged3, _ := profileSvc.GetProfile(context.Background(), p3.ProfileId)
 
 		require.Equal(t, merged1.ProfileId, merged2.MergedTo.ProfileId)
 		require.Equal(t, RuleNameEmailBased, merged2.MergedTo.Reason)
@@ -237,8 +238,8 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		perm1 := mustUnmarshalProfile(`{"user_id":"perm-A","identity_attributes":{"email":["e@wso2.com"]}}`)
 		perm2 := mustUnmarshalProfile(`{"user_id":"perm-B","identity_attributes":{"email":["e@wso2.com"]}}`)
 
-		p1, _ := profileSvc.CreateProfile(perm1, SuperTenantOrg)
-		p2, _ := profileSvc.CreateProfile(perm2, SuperTenantOrg)
+		p1, _ := profileSvc.CreateProfile(context.Background(), perm1, SuperTenantOrg)
+		p2, _ := profileSvc.CreateProfile(context.Background(), perm2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
 		require.Empty(t, p1.MergedTo)
@@ -252,13 +253,13 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		temp1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["f@wso2.com"],"phone_number":["0777777777"]}}`)
 		temp2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["f@wso2.com"],"phone_number":["0777777777"]}}`)
 
-		p1, _ := profileSvc.CreateProfile(temp1, SuperTenantOrg)
-		p2, _ := profileSvc.CreateProfile(temp2, SuperTenantOrg)
+		p1, _ := profileSvc.CreateProfile(context.Background(), temp1, SuperTenantOrg)
+		p2, _ := profileSvc.CreateProfile(context.Background(), temp2, SuperTenantOrg)
 
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(p1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(p2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), p1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), p2.ProfileId)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId)
 		require.Equal(t, RuleNameEmailBased, merged2.MergedTo.Reason)
@@ -269,26 +270,26 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	t.Run("Scenario7_InactiveRule_ShouldPreventUnification", func(t *testing.T) {
 
 		emailBasedRule.IsActive = false
-		err = unificationSvc.PatchUnificationRule(emailRuleId, SuperTenantOrg, emailBasedRule)
+		err = unificationSvc.PatchUnificationRule(context.Background(), emailRuleId, SuperTenantOrg, emailBasedRule)
 		require.NoError(t, err, "Failed to deactivate email based unification rule")
-		rule, _ := unificationSvc.GetUnificationRule(emailRuleId)
+		rule, _ := unificationSvc.GetUnificationRule(context.Background(), emailRuleId)
 		require.Equal(t, false, rule.IsActive)
 
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["g@wso2.com"]}}`)
 		p2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["g@wso2.com"]}}`)
 
-		prof1, _ := profileSvc.CreateProfile(p1, SuperTenantOrg)
-		prof2, _ := profileSvc.CreateProfile(p2, SuperTenantOrg)
+		prof1, _ := profileSvc.CreateProfile(context.Background(), p1, SuperTenantOrg)
+		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		mergedProfile1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		mergedProfile2, _ := profileSvc.GetProfile(prof2.ProfileId)
+		mergedProfile1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		mergedProfile2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 
 		require.Empty(t, mergedProfile1.MergedTo)
 		require.Empty(t, mergedProfile2.MergedTo)
 
 		emailBasedRule.IsActive = true
-		err = unificationSvc.PatchUnificationRule(emailRuleId, SuperTenantOrg, emailBasedRule)
+		err = unificationSvc.PatchUnificationRule(context.Background(), emailRuleId, SuperTenantOrg, emailBasedRule)
 		require.NoError(t, err, "Failed to reactivate email based unification rule")
 		cleanProfiles(profileSvc, SuperTenantOrg)
 
@@ -298,21 +299,21 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["j@wso2.com"]}}`)
 		p2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["j@wso2.com"]}}`)
 
-		prof1, _ := profileSvc.CreateProfile(p1, SuperTenantOrg)
-		prof2, _ := profileSvc.CreateProfile(p2, SuperTenantOrg)
+		prof1, _ := profileSvc.CreateProfile(context.Background(), p1, SuperTenantOrg)
+		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId)
 
-		_ = unificationSvc.DeleteUnificationRule(emailRuleId)
+		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRuleId)
 
-		after1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		after2, _ := profileSvc.GetProfile(prof2.ProfileId)
+		after1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		after2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 
-		merged1, _ = profileSvc.GetProfile(after1.ProfileId)
-		merged2, _ = profileSvc.GetProfile(after2.ProfileId)
+		merged1, _ = profileSvc.GetProfile(context.Background(), after1.ProfileId)
+		merged2, _ = profileSvc.GetProfile(context.Background(), after2.ProfileId)
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId)
 		cleanProfiles(profileSvc, SuperTenantOrg)
 
@@ -325,7 +326,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 			{OrgId: OtherTenant, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email", ValueType: constants.StringDataType, MergeStrategy: "combine",
 				Mutability: constants.MutabilityReadWrite, MultiValued: true},
 		}
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(identityAttr, constants.IdentityAttributes, OtherTenant)
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttr, constants.IdentityAttributes, OtherTenant)
 
 		emailRuleId := uuid.New().String()
 		jsonData := []byte(`{
@@ -344,17 +345,17 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		emailBasedRule.CreatedAt = time.Now().UTC()
 		emailBasedRule.UpdatedAt = time.Now().UTC()
 
-		_ = unificationSvc.AddUnificationRule(emailBasedRule, SuperTenantOrg)
+		_ = unificationSvc.AddUnificationRule(context.Background(), emailBasedRule, SuperTenantOrg)
 
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["k@wso2.com"]}}`)
 		p2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["k@wso2.com"]}}`)
 
-		prof1, _ := profileSvc.CreateProfile(p1, SuperTenantOrg)
-		prof2, _ := profileSvc.CreateProfile(p2, OtherTenant)
+		prof1, _ := profileSvc.CreateProfile(context.Background(), p1, SuperTenantOrg)
+		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, OtherTenant)
 		time.Sleep(5 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 
 		require.Empty(t, merged1.MergedTo)
 		require.Empty(t, merged2.MergedTo)
@@ -370,15 +371,15 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		p2JSON := `{"identity_attributes":{"email":["shared-app-test@wso2.com"]}, "application_data":{"` + AppB_Id + `":{"ui_mode":"light"}}}`
 		p2Req := mustUnmarshalProfile(p2JSON)
 
-		prof1, err1 := profileSvc.CreateProfile(p1Req, SuperTenantOrg)
+		prof1, err1 := profileSvc.CreateProfile(context.Background(), p1Req, SuperTenantOrg)
 		require.NoError(t, err1)
-		prof2, err2 := profileSvc.CreateProfile(p2Req, SuperTenantOrg)
+		prof2, err2 := profileSvc.CreateProfile(context.Background(), p2Req, SuperTenantOrg)
 		require.NoError(t, err2)
 
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 
 		require.NotEmpty(t, merged1.MergedTo.ProfileId, "Merged1 should be merged")
 		require.NotEmpty(t, merged2.MergedTo.ProfileId, "Merged2 should be merged")
@@ -388,7 +389,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		if merged1.MergedTo.ProfileId == "" {
 			master = merged1
 		} else {
-			master, _ = profileSvc.GetProfile(merged1.MergedTo.ProfileId)
+			master, _ = profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileId)
 		}
 
 		// Master profile should have both app attributes intact
@@ -401,8 +402,8 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		require.Equal(t, "dark", appAData["ui_mode"], "App A ui_mode should be 'dark'")
 
 		// Profile 1 and Profile 2 should have their respective app attributes but not the others
-		p1Final, _ := profileSvc.GetProfile(prof1.ProfileId)
-		p2Final, _ := profileSvc.GetProfile(prof2.ProfileId)
+		p1Final, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		p2Final, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
 
 		p1AppData := p1Final.ApplicationData
 		p2AppData := p2Final.ApplicationData
@@ -418,20 +419,20 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 
 	// Cleanup
 	t.Cleanup(func() {
-		rules, _ := unificationSvc.GetUnificationRules(SuperTenantOrg)
+		rules, _ := unificationSvc.GetUnificationRules(context.Background(), SuperTenantOrg)
 		for _, r := range rules {
-			_ = unificationSvc.DeleteUnificationRule(r.RuleId)
+			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleId)
 		}
 		cleanProfiles(profileSvc, SuperTenantOrg)
-		_ = profileSchemaSvc.DeleteProfileSchema(SuperTenantOrg)
-		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(SuperTenantOrg, constants.IdentityAttributes)
+		_ = profileSchemaSvc.DeleteProfileSchema(context.Background(), SuperTenantOrg)
+		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), SuperTenantOrg, constants.IdentityAttributes)
 	})
 }
 
 func cleanProfiles(profileSvc profileService.ProfilesServiceInterface, org string) {
 
-	profiles, _, _ := profileSvc.GetAllProfilesCursor(org, 10, nil)
+	profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), org, 10, nil)
 	for _, p := range profiles {
-		_ = profileSvc.DeleteProfile(p.ProfileId)
+		_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId)
 	}
 }

@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -62,7 +63,7 @@ func Test_ProfileLink(t *testing.T) {
 	router := newLinkRouter()
 
 	t.Run("PreRequisite_EnableCDSAndAddSchema", func(t *testing.T) {
-		err := adminConfigStore.UpdateAdminConfig(adminConfigModel.AdminConfig{
+		err := adminConfigStore.UpdateAdminConfig(context.Background(), adminConfigModel.AdminConfig{
 			OrgHandle:  org,
 			CDSEnabled: true,
 		}, org)
@@ -79,13 +80,13 @@ func Test_ProfileLink(t *testing.T) {
 				MultiValued:   true,
 			},
 		}
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(identityAttributes,
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttributes,
 			constants.IdentityAttributes, org)
 		require.NoError(t, err, "Failed to add identity schema attributes")
 	})
 
 	t.Run("Link_Anonymous_Profile_Sets_UserId", func(t *testing.T) {
-		anonymous, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		anonymous, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-1@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
@@ -100,7 +101,7 @@ func Test_ProfileLink(t *testing.T) {
 		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
 		require.Equal(t, userId, linkResponse.UserId)
 
-		linked, err := profileSvc.GetProfile(anonymous.ProfileId)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
 		require.NoError(t, err)
 		require.Equal(t, userId, linked.UserId)
 		// Nothing to unify against, so the profile stays a master of its own.
@@ -108,7 +109,7 @@ func Test_ProfileLink(t *testing.T) {
 	})
 
 	t.Run("Link_With_Missing_Identifier_Is_Rejected", func(t *testing.T) {
-		anonymous, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		anonymous, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-2@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
@@ -125,7 +126,7 @@ func Test_ProfileLink(t *testing.T) {
 				status, body := doLink(t, router, org, payload)
 				require.Equal(t, http.StatusBadRequest, status, string(body))
 
-				unchanged, err := profileSvc.GetProfile(anonymous.ProfileId)
+				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
 				require.NoError(t, err)
 				require.Empty(t, unchanged.UserId)
 			})
@@ -139,7 +140,7 @@ func Test_ProfileLink(t *testing.T) {
 	})
 
 	t.Run("Relink_To_Different_User_Is_Rejected", func(t *testing.T) {
-		anonymous, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		anonymous, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-4@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
@@ -152,13 +153,13 @@ func Test_ProfileLink(t *testing.T) {
 		status, body = doLink(t, router, org, linkBody(anonymous.ProfileId, secondUser))
 		require.Equal(t, http.StatusConflict, status, string(body))
 
-		unchanged, err := profileSvc.GetProfile(anonymous.ProfileId)
+		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
 		require.NoError(t, err)
 		require.Equal(t, firstUser, unchanged.UserId)
 	})
 
 	t.Run("Relink_To_Same_User_Is_Accepted", func(t *testing.T) {
-		anonymous, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		anonymous, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-5@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
@@ -178,7 +179,7 @@ func Test_ProfileLink(t *testing.T) {
 		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
 		require.Equal(t, userId, linkResponse.UserId)
 
-		linked, err := profileSvc.GetProfile(anonymous.ProfileId)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
 		require.NoError(t, err)
 		require.Equal(t, userId, linked.UserId)
 	})
@@ -186,14 +187,14 @@ func Test_ProfileLink(t *testing.T) {
 	t.Run("Link_UserId_With_Existing_Profile_Unifies", func(t *testing.T) {
 		userId := "user-" + uuid.New().String()
 
-		existing, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		existing, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			UserId:             userId,
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"known@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
 		time.Sleep(2 * time.Second)
 
-		anonymous, err := profileSvc.CreateProfile(profileModel.ProfileRequest{
+		anonymous, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-3@wso2.com"}},
 		}, org)
 		require.NoError(t, err)
@@ -205,14 +206,14 @@ func Test_ProfileLink(t *testing.T) {
 
 		// The pre-existing permanent profile stays the master and the linked profile
 		// becomes its child, matched on the userId the link supplied.
-		merged, err := profileSvc.GetProfile(anonymous.ProfileId)
+		merged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
 		require.NoError(t, err)
 		require.NotNil(t, merged.MergedTo)
 		require.Equal(t, existing.ProfileId, merged.MergedTo.ProfileId)
 		require.Equal(t, constants.SystemUserIdMatchReason, merged.MergedTo.Reason)
 		require.Equal(t, userId, merged.UserId)
 
-		master, err := profileSvc.GetProfile(existing.ProfileId)
+		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileId)
 		require.NoError(t, err)
 		require.Equal(t, userId, master.UserId)
 		require.Contains(t, master.IdentityAttributes["email"].([]interface{}), "anon-3@wso2.com")

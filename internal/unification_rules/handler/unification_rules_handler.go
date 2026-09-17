@@ -19,6 +19,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -51,6 +52,8 @@ func NewUnificationRulesHandler() *UnificationRulesHandler {
 // AddUnificationRule handles adding a new rule
 func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	err := security.AuthnAndAuthz(r, "unification_rules:create")
 	if err != nil {
 		utils.HandleError(w, err)
@@ -71,7 +74,7 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	}
 
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(orgHandle) {
+	if !isCDSEnabled(ctx, orgHandle) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -95,12 +98,12 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	err = ruleService.AddUnificationRule(rule, orgHandle)
+	err = ruleService.AddUnificationRule(ctx, rule, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	addedRule, err := ruleService.GetUnificationRule(rule.RuleId)
+	addedRule, err := ruleService.GetUnificationRule(ctx, rule.RuleId)
 	addedRuleResponse := model.UnificationRuleAPIResponse{
 		RuleId:       addedRule.RuleId,
 		RuleName:     addedRule.RuleName,
@@ -118,6 +121,8 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 // GetUnificationRules handles fetching all rules
 func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	err := security.AuthnAndAuthz(r, "unification_rules:view")
 	if err != nil {
 		utils.HandleError(w, err)
@@ -126,7 +131,7 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(orgHandle) {
+	if !isCDSEnabled(ctx, orgHandle) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -135,7 +140,7 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 		utils.HandleError(w, clientError)
 		return
 	}
-	rules, err := ruleService.GetUnificationRules(orgHandle)
+	rules, err := ruleService.GetUnificationRules(ctx, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -158,13 +163,15 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 // GetUnificationRule Fetches a specific resolution rule.
 func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	err := security.AuthnAndAuthz(r, "unification_rules:view")
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(orgHandle) {
+	if !isCDSEnabled(ctx, orgHandle) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -185,7 +192,7 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	rule, err := ruleService.GetUnificationRule(ruleId)
+	rule, err := ruleService.GetUnificationRule(ctx, ruleId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -203,6 +210,8 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 // PatchUnificationRule applies partial updates to a unification rule.
 func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	err := security.AuthnAndAuthz(r, "unification_rules:update")
 	if err != nil {
 		utils.HandleError(w, err)
@@ -214,7 +223,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		return
 	}
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(orgHandle) {
+	if !isCDSEnabled(ctx, orgHandle) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -237,7 +246,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	updatedRule, err := ruleService.GetUnificationRule(ruleId)
+	updatedRule, err := ruleService.GetUnificationRule(ctx, ruleId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -255,13 +264,13 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		updatedRule.IsActive = *ruleUpdateRequest.IsActive
 	}
 
-	err = ruleService.PatchUnificationRule(ruleId, orgHandle, *updatedRule)
+	err = ruleService.PatchUnificationRule(ctx, ruleId, orgHandle, *updatedRule)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
-	rule, err := ruleService.GetUnificationRule(ruleId)
+	rule, err := ruleService.GetUnificationRule(ctx, ruleId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -279,6 +288,8 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 // DeleteUnificationRule removes a resolution rule.
 func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	err := security.AuthnAndAuthz(r, "unification_rules:delete")
 	if err != nil {
 		utils.HandleError(w, err)
@@ -290,7 +301,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 		return
 	}
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(orgHandle) {
+	if !isCDSEnabled(ctx, orgHandle) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -301,7 +312,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	err = ruleService.DeleteUnificationRule(ruleId)
+	err = ruleService.DeleteUnificationRule(ctx, ruleId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -311,6 +322,6 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 }
 
 // isCDSEnabled checks if CDS is enabled for the given tenant
-func isCDSEnabled(orgHandle string) bool {
-	return adminConfigService.GetAdminConfigService().IsCDSEnabled(orgHandle)
+func isCDSEnabled(ctx context.Context, orgHandle string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgHandle)
 }
