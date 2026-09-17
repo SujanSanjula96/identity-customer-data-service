@@ -69,11 +69,11 @@ type SQLiteConfig struct {
 // optional and falls back to a default.
 type PostgresConfig struct {
 	// MaxOpenConns bounds the connections the pool holds, in use and idle
-	// together. Multiply it by the instance count, then leave headroom, when
-	// you size the server's max_connections.
+	// together. Multiply it by the maximum instance count, then leave
+	// headroom, when you size the server's max_connections.
 	MaxOpenConns int `yaml:"max_open_conns"`
-	// MaxIdleConns is how many unused connections stay open. A value above
-	// MaxOpenConns is lowered to it.
+	// MaxIdleConns is how many unused connections stay open. It may not be
+	// above MaxOpenConns, and the server refuses to start when it is.
 	MaxIdleConns int `yaml:"max_idle_conns"`
 	// ConnMaxLifetimeSeconds retires a connection at this age, even a healthy
 	// one, so that a failover or a DNS change takes effect.

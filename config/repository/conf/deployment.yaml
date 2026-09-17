@@ -128,9 +128,14 @@ datasource:
   # tx_timeout_seconds: 30    # one transaction, which holds its connection
   # Applies only when type is "postgres". One instance opens one pool and keeps
   # it for the life of the process, so these values bound what a single
-  # instance takes from the server. Multiply max_open_conns by the instance
-  # count, then leave headroom, when you size the server's max_connections.
-  # Leave a value empty to use its default.
+  # instance takes from the server. The deployment-wide demand is
+  #
+  #   max_open_conns * maximum instance count + operational headroom
+  #       <= the server's max_connections
+  #
+  # Count every instance that can run at the same time, an extra instance
+  # during a rolling update included. Leave a value empty to use its default.
+  # A negative value is refused at start rather than replaced by the default.
   # postgres:
   #   max_open_conns: 25              # connections held, in use and idle together
   #   max_idle_conns: 25              # unused connections kept open
