@@ -40,6 +40,9 @@ import (
 var (
 	suiteDB     *sql.DB
 	suiteDBType string
+	// suitePostgres is the running container, for the tests that build their
+	// own pool from the runtime configuration rather than from suiteDB.
+	suitePostgres *setup.TestPostgres
 )
 
 // TestMain runs the suite against the datasource named by CDS_TEST_DB:
@@ -83,6 +86,7 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		db = pg.DB
+		suitePostgres = pg
 		teardown = func() {
 			// Terminate container manually after tests complete
 			_ = pg.Container.Terminate(ctx)
