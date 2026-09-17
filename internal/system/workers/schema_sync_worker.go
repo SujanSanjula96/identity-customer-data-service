@@ -26,7 +26,6 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
-	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/queue"
 )
@@ -38,6 +37,9 @@ import (
 var (
 	schemaSyncQueueMu     sync.RWMutex
 	activeSchemaSyncQueue queue.SchemaSyncQueue
+	// schemaSyncLifecycle counts the jobs that run, so that shutdown waits for
+	// them before the database pool closes.
+	schemaSyncLifecycle *jobLifecycle
 )
 
 // StartSchemaSyncWorker initialises the schema sync queue (using the provider
@@ -50,12 +52,17 @@ func StartSchemaSyncWorker() error {
 	if err != nil {
 		return fmt.Errorf("workers: failed to create schema sync queue: %w", err)
 	}
-	if err := q.Start(processSchemaSyncJob); err != nil {
+	lifecycle := newJobLifecycle()
+
+	if err := q.Start(func(schemaSync model.ProfileSchemaSync) {
+		lifecycle.run(func(ctx context.Context) { processSchemaSyncJob(ctx, schemaSync) })
+	}); err != nil {
 		_ = q.Close()
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
 	}
 	schemaSyncQueueMu.Lock()
 	activeSchemaSyncQueue = q
+	schemaSyncLifecycle = lifecycle
 	schemaSyncQueueMu.Unlock()
 	return nil
 }
@@ -81,20 +88,23 @@ func EnqueueSchemaSyncJob(schemaSync model.ProfileSchemaSync) error {
 func StopSchemaSyncWorker() error {
 	schemaSyncQueueMu.Lock()
 	q := activeSchemaSyncQueue
-	activeSchemaSyncQueue = nil
+	lifecycle := schemaSyncLifecycle
+	activeSchemaSyncQueue, schemaSyncLifecycle = nil, nil
 	schemaSyncQueueMu.Unlock()
-	if q != nil {
+
+	if q == nil {
+		return nil
+	}
+	if lifecycle == nil {
 		return q.Close()
 	}
-	return nil
+	// Returns only when no schema sync job is still at work, so that the
+	// caller can close the database pool.
+	return lifecycle.stop(q.Close)
 }
 
 // processSchemaSyncJob processes a schema sync job
-func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
-
-	// One message is one unit of work, so it carries its own deadline.
-	ctx, cancel := context.WithTimeout(context.Background(), constants.WorkerJobTimeout)
-	defer cancel()
+func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))

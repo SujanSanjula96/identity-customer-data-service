@@ -21,6 +21,7 @@ package workers
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/store"
@@ -29,9 +30,17 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-// cookieCleanupCancel stops the worker and cancels the database work that a
-// sweep has in flight.
-var cookieCleanupCancel context.CancelFunc
+var (
+	cookieCleanupMu sync.Mutex
+	// cookieCleanupCancel stops the worker and cancels the database work that
+	// a sweep has in flight.
+	cookieCleanupCancel context.CancelFunc
+	// cookieCleanupDone is closed when the worker goroutine returns. Shutdown
+	// waits on it, so a sweep that is in flight unwinds before the database
+	// pool closes. A sweep deletes in batches and is safe to cut short,
+	// because the next start continues where it stopped.
+	cookieCleanupDone chan struct{}
+)
 
 func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 
@@ -49,7 +58,12 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	cookieCleanupMu.Lock()
 	cookieCleanupCancel = cancel
+	cookieCleanupDone = done
+	cookieCleanupMu.Unlock()
 
 	logger.Info(fmt.Sprintf("Cookie cleanup worker started. Interval: %s, Batch size: %d",
 		interval, batchSize))
@@ -57,6 +71,7 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 	ticker := time.NewTicker(interval)
 
 	go func() {
+		defer close(done)
 		defer ticker.Stop()
 		for {
 			select {
@@ -70,9 +85,32 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 	}()
 }
 
+// StopCookieCleanupWorker stops the worker and returns when its goroutine has
+// gone, so that the caller can close the database pool. The wait is bounded.
 func StopCookieCleanupWorker() {
-	if cookieCleanupCancel != nil {
-		cookieCleanupCancel()
+
+	cookieCleanupMu.Lock()
+	cancel, done := cookieCleanupCancel, cookieCleanupDone
+	cookieCleanupCancel, cookieCleanupDone = nil, nil
+	cookieCleanupMu.Unlock()
+
+	if cancel == nil {
+		return
+	}
+	cancel()
+
+	if done == nil {
+		return
+	}
+
+	timer := time.NewTimer(constants.WorkerShutdownTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		log.GetLogger().Error(fmt.Sprintf("Cookie cleanup worker did not stop within %s",
+			constants.WorkerShutdownTimeout))
 	}
 }
 

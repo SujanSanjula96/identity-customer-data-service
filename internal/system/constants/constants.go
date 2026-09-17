@@ -226,4 +226,11 @@ const (
 	// CookieCleanupJobTimeout bounds one cleanup sweep, which deletes the
 	// inactive cookie records in batches.
 	CookieCleanupJobTimeout = 10 * time.Minute
+
+	// WorkerShutdownTimeout bounds the wait for the jobs that are running when
+	// the server stops. A job that is still running when it expires is
+	// cancelled, so that the database pool can close. It is below the 15
+	// seconds the HTTP server takes to drain, so that shutdown as a whole
+	// stays predictable.
+	WorkerShutdownTimeout = 10 * time.Second
 )

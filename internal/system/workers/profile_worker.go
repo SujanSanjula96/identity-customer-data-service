@@ -49,6 +49,9 @@ import (
 var (
 	profileQueueMu     sync.RWMutex
 	activeProfileQueue queue.ProfileUnificationQueue
+	// profileLifecycle counts the jobs that run, so that shutdown waits for
+	// them before the database pool closes.
+	profileLifecycle *jobLifecycle
 )
 
 // StartProfileWorker initialises the profile unification queue (using the
@@ -61,21 +64,22 @@ func StartProfileWorker() error {
 	if err != nil {
 		return fmt.Errorf("workers: failed to create profile unification queue: %w", err)
 	}
-	if err := q.Start(func(profile profileModel.Profile) {
-		// One message is one unit of work, so it carries its own deadline.
-		ctx, cancel := context.WithTimeout(context.Background(), constants.WorkerJobTimeout)
-		defer cancel()
+	lifecycle := newJobLifecycle()
 
-		p, err := profileStore.GetProfile(ctx, profile.ProfileId)
-		if err == nil && p != nil {
-			unifyProfiles(ctx, *p)
-		}
+	if err := q.Start(func(profile profileModel.Profile) {
+		lifecycle.run(func(ctx context.Context) {
+			p, err := profileStore.GetProfile(ctx, profile.ProfileId)
+			if err == nil && p != nil {
+				unifyProfiles(ctx, *p)
+			}
+		})
 	}); err != nil {
 		_ = q.Close()
 		return fmt.Errorf("workers: failed to start profile unification queue: %w", err)
 	}
 	profileQueueMu.Lock()
 	activeProfileQueue = q
+	profileLifecycle = lifecycle
 	profileQueueMu.Unlock()
 	return nil
 }
@@ -112,12 +116,19 @@ func (q *ProfileWorkerQueue) Enqueue(profile profileModel.Profile) {
 func StopProfileWorker() error {
 	profileQueueMu.Lock()
 	q := activeProfileQueue
-	activeProfileQueue = nil
+	lifecycle := profileLifecycle
+	activeProfileQueue, profileLifecycle = nil, nil
 	profileQueueMu.Unlock()
-	if q != nil {
+
+	if q == nil {
+		return nil
+	}
+	if lifecycle == nil {
 		return q.Close()
 	}
-	return nil
+	// Returns only when no unification job is still at work, so that the
+	// caller can close the database pool.
+	return lifecycle.stop(q.Close)
 }
 
 // unifyProfiles unifies profiles based on unification rules

@@ -195,6 +195,8 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error.", log.Error(err))
 	}
+	// The order below is the shutdown contract. Each Stop returns only when
+	// its worker has no job at work, so the pool is closed under nobody.
 	if err := workers.StopProfileWorker(); err != nil {
 		logger.Error("Failed to stop profile worker.", log.Error(err))
 	}
