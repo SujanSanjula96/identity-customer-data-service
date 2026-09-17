@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,7 +49,8 @@ func postgresDataSource(dbType string) config.Config {
 // must not change.
 func Test_getDBConfig_postgres(t *testing.T) {
 
-	expectedDSN := "host=localhost port=5432 user=cdsuser password=cdspwd dbname=cdsdb sslmode=disable"
+	expectedDSN := "host=localhost port=5432 user=cdsuser password=cdspwd dbname=cdsdb sslmode=disable" +
+		" connect_timeout=10"
 
 	t.Run("configured as postgres", func(t *testing.T) {
 		dbConfig, err := getDBConfig(postgresDataSource("postgres"))
@@ -218,17 +220,35 @@ func Test_ValidateDataSource(t *testing.T) {
 	})
 }
 
+// seedPostgresHandle publishes a pool as the process-wide PostgreSQL handle.
+//
+// getPostgresDB verifies a pool before it publishes one, so it needs a server.
+// A test that checks what happens to an already published handle supplies that
+// handle instead. Only the pointer matters here, so the pool is an inbuilt one.
+func seedPostgresHandle(t *testing.T) *sql.DB {
+
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "cds.db")
+	db, err := sql.Open(database.DriverSQLite, path+"?"+database.DefaultSQLiteOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbMu.Lock()
+	postgresHandle = db
+	dbMu.Unlock()
+	t.Cleanup(func() { _ = CloseDB() })
+
+	return db
+}
+
 // Test_getPostgresDB_reusesOnePool pins the fix for the connection churn: the
-// process opens one PostgreSQL pool and hands it to every caller. sql.Open
-// builds the pool without a network call, so this needs no database server.
+// process opens one PostgreSQL pool and hands it to every caller.
 func Test_getPostgresDB_reusesOnePool(t *testing.T) {
 
 	config.OverrideCDSRuntime(postgresDataSource("postgres"))
-	t.Cleanup(func() { _ = CloseDB() })
-
-	if err := CloseDB(); err != nil {
-		t.Fatal(err)
-	}
+	seeded := seedPostgresHandle(t)
 
 	first, err := getPostgresDB()
 	if err != nil {
@@ -239,13 +259,8 @@ func Test_getPostgresDB_reusesOnePool(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if first != second {
+	if first != seeded || first != second {
 		t.Error("expected every call to return the same pool")
-	}
-
-	if got := first.Stats().MaxOpenConnections; got != database.DefaultPostgresMaxOpenConns {
-		t.Errorf("expected the pool to be bounded at %d, got %d",
-			database.DefaultPostgresMaxOpenConns, got)
 	}
 
 	// A client must not close the shared pool, so that the stores can keep
@@ -267,31 +282,42 @@ func Test_getPostgresDB_reusesOnePool(t *testing.T) {
 	}
 }
 
+// Test_applyPostgresPoolSettings_boundsThePool checks that the resolved limits
+// reach the pool.
+func Test_applyPostgresPoolSettings_boundsThePool(t *testing.T) {
+
+	path := filepath.Join(t.TempDir(), "cds.db")
+	db, err := sql.Open(database.DriverSQLite, path+"?"+database.DefaultSQLiteOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	applyPostgresPoolSettings(db, config.PostgresConfig{})
+
+	if got := db.Stats().MaxOpenConnections; got != database.DefaultPostgresMaxOpenConns {
+		t.Errorf("expected the pool to be bounded at %d, got %d",
+			database.DefaultPostgresMaxOpenConns, got)
+	}
+}
+
 // Test_CloseDB_releasesThePool checks that shutdown drops the handle, so a
 // later call builds a new pool rather than one that is closed.
 func Test_CloseDB_releasesThePool(t *testing.T) {
 
 	config.OverrideCDSRuntime(postgresDataSource("postgres"))
-	t.Cleanup(func() { _ = CloseDB() })
+	seedPostgresHandle(t)
 
 	if err := CloseDB(); err != nil {
 		t.Fatal(err)
 	}
 
-	first, err := getPostgresDB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CloseDB(); err != nil {
-		t.Fatal(err)
-	}
+	dbMu.Lock()
+	published := postgresHandle
+	dbMu.Unlock()
 
-	second, err := getPostgresDB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == second {
-		t.Error("expected a new pool after CloseDB")
+	if published != nil {
+		t.Error("expected CloseDB to drop the handle")
 	}
 }
 

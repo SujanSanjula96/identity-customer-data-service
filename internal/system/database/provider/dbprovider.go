@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
@@ -49,26 +51,19 @@ func SetTestDB(db *sql.DB, dbType string) {
 	testDBTypeOverride = dbType
 }
 
-// sqliteHandle is the single pooled handle for the inbuilt database, opened
-// once and kept open. The client treats Close as a no-op, so the file's locks
-// are held for the process rather than re-acquired on every query.
-var (
-	sqliteHandle *sql.DB
-	sqliteOnce   sync.Once
-	sqliteErr    error
-)
-
-// postgresHandle is the single pooled handle for PostgreSQL, opened on the
-// first use and kept open for the life of the process. Every store shares it,
-// so a request reuses a connection instead of a new TCP, TLS and
-// authentication round trip. The client treats Close as a no-op, so a store
-// that closes its client leaves the pool open.
+// The process holds one pool per datasource, opened on the first use and kept
+// open. Every store shares it, so a request reuses a connection instead of a
+// new TCP, TLS and authentication round trip. The client treats Close as a
+// no-op, so a store that closes its client leaves the pool open.
 //
-// A mutex rather than a sync.Once guards it, so that a database which is
-// unreachable at the first call does not cache its error for the life of the
-// process. The next call tries again.
+// A mutex rather than a sync.Once guards the handles. A sync.Once would cache
+// the failure of the first attempt for the life of the process, so a database
+// that is briefly unreachable at start would break the instance for ever. A
+// handle is published only after it is verified, so a failed attempt leaves
+// nothing behind and the next call builds a fresh pool.
 var (
-	postgresMu     sync.Mutex
+	dbMu           sync.Mutex
+	sqliteHandle   *sql.DB
 	postgresHandle *sql.DB
 )
 
@@ -135,8 +130,8 @@ func getDB(dbType string) (*sql.DB, error) {
 // wrong setting still fails before the server accepts traffic.
 func getPostgresDB() (*sql.DB, error) {
 
-	postgresMu.Lock()
-	defer postgresMu.Unlock()
+	dbMu.Lock()
+	defer dbMu.Unlock()
 
 	if postgresHandle != nil {
 		return postgresHandle, nil
@@ -149,15 +144,44 @@ func getPostgresDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
+	// A connector, rather than sql.Open with a driver name. lib/pq does not
+	// implement OpenConnector, so sql.Open wraps it in a connector whose
+	// Connect discards the context. The pool would then ignore every deadline
+	// while it opens a connection.
+	connector, err := pq.NewConnector(dbConfig.dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to read the datasource settings: %w", err)
 	}
+	db := sql.OpenDB(connector)
 
 	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
 
+	// Verify before the handle is published. A pool that no caller can reach
+	// must not become the handle every later call returns.
+	timeout := resolveConnectTimeout(runtimeConfig.DataSource.Postgres)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to reach the database within %s: %w (close error: %v)",
+				timeout, err, closeErr)
+		}
+		return nil, fmt.Errorf("failed to reach the database within %s: %w", timeout, err)
+	}
+
 	postgresHandle = db
 	return postgresHandle, nil
+}
+
+// resolveConnectTimeout returns the bound on one connection attempt.
+func resolveConnectTimeout(cfg config.PostgresConfig) time.Duration {
+
+	timeout := time.Duration(cfg.ConnectTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = database.DefaultPostgresConnectTimeout
+	}
+	return timeout
 }
 
 // postgresPoolSettings holds the resolved bounds of the PostgreSQL pool.
@@ -215,17 +239,17 @@ func applyPostgresPoolSettings(db *sql.DB, cfg config.PostgresConfig) {
 // the HTTP server and the workers stop.
 func CloseDB() error {
 
-	postgresMu.Lock()
-	postgres := postgresHandle
-	postgresHandle = nil
-	postgresMu.Unlock()
+	dbMu.Lock()
+	postgres, sqlite := postgresHandle, sqliteHandle
+	postgresHandle, sqliteHandle = nil, nil
+	dbMu.Unlock()
 
 	var firstErr error
 	if postgres != nil {
 		firstErr = postgres.Close()
 	}
-	if sqliteHandle != nil {
-		if err := sqliteHandle.Close(); err != nil && firstErr == nil {
+	if sqlite != nil {
+		if err := sqlite.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -233,52 +257,59 @@ func CloseDB() error {
 	return firstErr
 }
 
-// getSQLiteDB opens the inbuilt database once and initializes its schema.
+// getSQLiteDB opens the inbuilt database once and initializes its schema. Like
+// the PostgreSQL pool, the handle is published only after the database answers
+// and the schema is applied, so a failed attempt leaves nothing behind.
 func getSQLiteDB() (*sql.DB, error) {
 
-	sqliteOnce.Do(func() {
-		runtimeConfig := config.GetCDSRuntime()
+	dbMu.Lock()
+	defer dbMu.Unlock()
 
-		dbConfig, err := getDBConfig(runtimeConfig.Config)
-		if err != nil {
-			sqliteErr = err
-			return
+	if sqliteHandle != nil {
+		return sqliteHandle, nil
+	}
+
+	runtimeConfig := config.GetCDSRuntime()
+
+	dbConfig, err := getDBConfig(runtimeConfig.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ensureSQLiteDir(runtimeConfig.Config.DataSource.SQLite.Path); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the inbuilt database: %v", err)
+	}
+
+	maxOpenConns := runtimeConfig.Config.DataSource.SQLite.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = database.DefaultSQLiteMaxOpenConns
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+
+	// The inbuilt database is a local file, so the open needs no deadline of
+	// its own. The DSN carries busy_timeout, which bounds a wait for the lock.
+	if err := db.Ping(); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to ping the inbuilt database: %v (close error: %v)", err, closeErr)
 		}
+		return nil, fmt.Errorf("failed to ping the inbuilt database: %v", err)
+	}
 
-		if err := ensureSQLiteDir(runtimeConfig.Config.DataSource.SQLite.Path); err != nil {
-			sqliteErr = err
-			return
+	if err := initializeSQLiteSchema(db); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("%v (close error: %v)", err, closeErr)
 		}
+		return nil, err
+	}
 
-		db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
-		if err != nil {
-			sqliteErr = fmt.Errorf("failed to open the inbuilt database: %v", err)
-			return
-		}
-
-		maxOpenConns := runtimeConfig.Config.DataSource.SQLite.MaxOpenConns
-		if maxOpenConns <= 0 {
-			maxOpenConns = database.DefaultSQLiteMaxOpenConns
-		}
-		db.SetMaxOpenConns(maxOpenConns)
-		db.SetMaxIdleConns(maxOpenConns)
-
-		if err := db.Ping(); err != nil {
-			_ = db.Close()
-			sqliteErr = fmt.Errorf("failed to ping the inbuilt database: %v", err)
-			return
-		}
-
-		if err := initializeSQLiteSchema(db); err != nil {
-			_ = db.Close()
-			sqliteErr = err
-			return
-		}
-
-		sqliteHandle = db
-	})
-
-	return sqliteHandle, sqliteErr
+	sqliteHandle = db
+	return sqliteHandle, nil
 }
 
 // getDBConfig returns the database configuration based on the provided data source.
@@ -307,11 +338,13 @@ func getDBConfig(dataSource config.Config) (DBConfig, error) {
 		}, nil
 
 	default:
-		// PostgreSQL.
+		// PostgreSQL. connect_timeout bounds the startup handshake that follows
+		// the dial, which no context can reach.
+		connectTimeout := int(resolveConnectTimeout(ds.Postgres).Seconds())
 		return DBConfig{
 			driverName: ds.Type,
-			dsn: fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-				ds.Hostname, ds.Port, ds.Username, ds.Password, ds.Name, ds.SSLMode),
+			dsn: fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
+				ds.Hostname, ds.Port, ds.Username, ds.Password, ds.Name, ds.SSLMode, connectTimeout),
 		}, nil
 	}
 }

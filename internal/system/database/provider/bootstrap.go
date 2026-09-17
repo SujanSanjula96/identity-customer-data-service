@@ -71,20 +71,19 @@ func ValidateDataSource(ds config.DataSourceConfig) error {
 // EnsureDatabase prepares the configured datasource for use.
 //
 // For the inbuilt datasource it creates the database file and applies the
-// schema. For PostgreSQL it opens the shared connection pool and verifies that
-// the server answers, so a wrong setting fails at start rather than on the
-// first request. The PostgreSQL schema itself is applied by the operator. It
-// is safe to call more than once.
+// schema. For PostgreSQL it opens the shared connection pool, which verifies
+// that the server answers within the connect timeout, so a wrong setting fails
+// at start rather than on the first request. The PostgreSQL schema itself is
+// applied by the operator. It is safe to call more than once.
 func EnsureDatabase() error {
 
 	runtimeConfig := config.GetCDSRuntime().Config
 	if database.ResolveType(runtimeConfig.DataSource.Type) != database.TypeSQLite {
-		db, err := getPostgresDB()
-		if err != nil {
+		// Opening the pool verifies that the server answers, within the
+		// configured connect timeout, so a wrong setting or an unreachable
+		// host fails the start rather than the first request.
+		if _, err := getPostgresDB(); err != nil {
 			return err
-		}
-		if err := db.Ping(); err != nil {
-			return fmt.Errorf("failed to ping database: %v", err)
 		}
 		return nil
 	}

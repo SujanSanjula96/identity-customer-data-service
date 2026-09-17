@@ -117,6 +117,19 @@ const (
 	// DefaultPostgresConnMaxIdleTime closes a connection that stays unused for
 	// this long, so an idle instance releases what it does not need.
 	DefaultPostgresConnMaxIdleTime = 5 * time.Minute
+
+	// DefaultPostgresConnectTimeout bounds one connection attempt, from the TCP
+	// dial to the end of the PostgreSQL startup handshake. It reaches the
+	// driver as the connect_timeout parameter of the DSN, and it is also the
+	// deadline of the check that runs when the pool opens.
+	//
+	// The deadline alone is not enough. lib/pq does not implement
+	// OpenConnector, so database/sql wraps it in a connector that discards the
+	// context, and a call against a host that drops packets waits for the
+	// operating system instead. The pool is therefore built from a
+	// pq.Connector, which keeps the context, and connect_timeout bounds the
+	// handshake that follows the dial.
+	DefaultPostgresConnectTimeout = 10 * time.Second
 )
 
 // Timeout defaults, applied when the corresponding configuration values are

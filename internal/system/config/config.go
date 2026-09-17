@@ -81,6 +81,11 @@ type PostgresConfig struct {
 	// ConnMaxIdleTimeSeconds closes a connection that stays unused for this
 	// long.
 	ConnMaxIdleTimeSeconds int `yaml:"conn_max_idle_time_seconds"`
+	// ConnectTimeoutSeconds bounds one connection attempt, from the TCP dial to
+	// the end of the startup handshake. It also bounds the check that runs when
+	// the pool opens, so a database that cannot be reached fails the server
+	// start within a known time instead of waiting for the operating system.
+	ConnectTimeoutSeconds int `yaml:"connect_timeout_seconds"`
 }
 
 // DataSourceConfig selects and configures the database.
