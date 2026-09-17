@@ -61,6 +61,10 @@ cloud:
             maxIdleConns: 25
             connMaxLifetimeSeconds: 1800
             connMaxIdleTimeSeconds: 300
+            # Bounds one connection attempt, the startup handshake included. It
+            # also bounds the check that runs when the pool opens, so an
+            # unreachable database fails the pod start within this time.
+            connectTimeoutSeconds: 10
 
         serverUrl : "http://localhost:8900"
 
