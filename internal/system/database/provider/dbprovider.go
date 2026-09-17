@@ -21,6 +21,7 @@ package provider
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,16 @@ var (
 	dbMu           sync.Mutex
 	sqliteHandle   *sql.DB
 	postgresHandle *sql.DB
+	// closed records that CloseDB ran. The handles are cleared at that point,
+	// so without this flag a late caller would open a fresh pool that nothing
+	// would ever close.
+	closed bool
 )
+
+// ErrDatabaseClosed is returned to a caller that asks for a pool after CloseDB
+// ran. Shutdown closes the pools once, after the HTTP server and the workers
+// stop, so a pool opened after that would leak for the rest of the process.
+var ErrDatabaseClosed = errors.New("the database is closed: the server has shut down")
 
 // DBProviderInterface defines the interface for getting database clients.
 type DBProviderInterface interface {
@@ -133,6 +143,9 @@ func getPostgresDB() (*sql.DB, error) {
 	dbMu.Lock()
 	defer dbMu.Unlock()
 
+	if closed {
+		return nil, ErrDatabaseClosed
+	}
 	if postgresHandle != nil {
 		return postgresHandle, nil
 	}
@@ -235,13 +248,19 @@ func applyPostgresPoolSettings(db *sql.DB, cfg config.PostgresConfig) {
 	db.SetConnMaxIdleTime(settings.connMaxIdleTime)
 }
 
-// CloseDB closes the pools the process holds. Call it once, at shutdown, after
-// the HTTP server and the workers stop.
+// CloseDB closes the pools the process holds. Call it at shutdown, after the
+// HTTP server and the workers stop.
+//
+// It is safe to call more than once: the second call finds no handle and
+// returns nil. After it runs, a request for a pool returns ErrDatabaseClosed
+// rather than a new pool, so a worker that has not stopped yet cannot open
+// connections that nothing will close.
 func CloseDB() error {
 
 	dbMu.Lock()
 	postgres, sqlite := postgresHandle, sqliteHandle
 	postgresHandle, sqliteHandle = nil, nil
+	closed = true
 	dbMu.Unlock()
 
 	var firstErr error
@@ -265,6 +284,9 @@ func getSQLiteDB() (*sql.DB, error) {
 	dbMu.Lock()
 	defer dbMu.Unlock()
 
+	if closed {
+		return nil, ErrDatabaseClosed
+	}
 	if sqliteHandle != nil {
 		return sqliteHandle, nil
 	}

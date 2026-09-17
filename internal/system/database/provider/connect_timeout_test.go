@@ -85,11 +85,7 @@ func Test_getPostgresDB_failsWithinTheConnectTimeout(t *testing.T) {
 
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
-	t.Cleanup(func() { _ = CloseDB() })
-
-	if err := CloseDB(); err != nil {
-		t.Fatal(err)
-	}
+	isolatePools(t)
 
 	start := time.Now()
 	_, err := getPostgresDB()
@@ -109,11 +105,7 @@ func Test_getPostgresDB_publishesNoHandleOnFailure(t *testing.T) {
 
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
-	t.Cleanup(func() { _ = CloseDB() })
-
-	if err := CloseDB(); err != nil {
-		t.Fatal(err)
-	}
+	isolatePools(t)
 
 	if _, err := getPostgresDB(); err == nil {
 		t.Fatal("expected an error from a server that never answers")
@@ -135,11 +127,7 @@ func Test_getPostgresDB_triesAgainAfterAFailure(t *testing.T) {
 
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
-	t.Cleanup(func() { _ = CloseDB() })
-
-	if err := CloseDB(); err != nil {
-		t.Fatal(err)
-	}
+	isolatePools(t)
 
 	if _, err := getPostgresDB(); err == nil {
 		t.Fatal("expected the first attempt to fail")
