@@ -19,9 +19,11 @@
 package client
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -34,12 +36,44 @@ import (
 // Statements are passed as a model.DBQuery, so the client is the only place that
 // selects a dialect and the stores stay datasource-agnostic.
 type DBClientInterface interface {
+	// ExecuteQuery runs a query under the client's default deadline.
 	ExecuteQuery(query model.DBQuery, args ...interface{}) ([]map[string]interface{}, error)
+	// ExecuteQueryContext runs a query under the caller's context. The caller
+	// cancels the wait for a free connection, and the query itself, by
+	// cancelling that context.
+	ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
+		[]map[string]interface{}, error)
+	// BeginTx starts a transaction under the client's default deadline.
 	BeginTx() (*model.Tx, error)
+	// BeginTxContext starts a transaction under the caller's context. The
+	// transaction ends when that context ends.
+	BeginTxContext(ctx context.Context) (*model.Tx, error)
 	// DBType is for the few statements a store builds at runtime, whose bind
 	// arguments differ per datasource. It is not for selecting a statement.
 	DBType() string
 	Close() error
+}
+
+// Timeouts bounds the database calls a client makes. A zero value falls back
+// to the package default.
+type Timeouts struct {
+	// Query bounds one statement, from the wait for a free connection to the
+	// last row.
+	Query time.Duration
+	// Tx bounds a whole transaction, which holds its connection until it ends.
+	Tx time.Duration
+}
+
+// resolve applies a default to every value the operator left empty.
+func (t Timeouts) resolve() Timeouts {
+
+	if t.Query <= 0 {
+		t.Query = database.DefaultQueryTimeout
+	}
+	if t.Tx <= 0 {
+		t.Tx = database.DefaultTxTimeout
+	}
+	return t
 }
 
 // DBClient is the implementation of DBClientInterface.
@@ -47,34 +81,52 @@ type DBClient struct {
 	db *sql.DB
 	// dbType is the datasource type this client is connected to.
 	dbType string
-	// shared marks a connection pool owned by the caller, which Close must
-	// leave open.
-	shared bool
-}
-
-// NewDBClient creates a new instance of DBClient with the provided database connection.
-func NewDBClient(db *sql.DB, dbType string) DBClientInterface {
-
-	return &DBClient{
-		db:     db,
-		dbType: dbType,
-	}
+	// timeouts bounds a call whose caller supplies no deadline.
+	timeouts Timeouts
 }
 
 // NewSharedDBClient creates a client over a connection pool owned by the
 // caller. Close is a no-op, so the pool outlives the client.
-func NewSharedDBClient(db *sql.DB, dbType string) DBClientInterface {
+func NewSharedDBClient(db *sql.DB, dbType string, timeouts Timeouts) DBClientInterface {
 
 	return &DBClient{
-		db:     db,
-		dbType: dbType,
-		shared: true,
+		db:       db,
+		dbType:   dbType,
+		timeouts: timeouts.resolve(),
 	}
 }
 
-// ExecuteQuery executes a query and returns the result as a slice of maps.
+// withDeadline returns a context that is certain to end.
+//
+// The pool is bounded, so a call waits when every connection is in use. That
+// wait ends only when the context ends, so a call without a deadline would wait
+// without a limit. A caller that set its own deadline keeps it.
+func withDeadline(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, nil
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// ExecuteQuery executes a query under the client's default deadline and returns
+// the result as a slice of maps.
 func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 	[]map[string]interface{}, error) {
+
+	return client.ExecuteQueryContext(context.Background(), query, args...)
+}
+
+// ExecuteQueryContext executes a query under the caller's context and returns
+// the result as a slice of maps. Every row is read before it returns, so the
+// context covers the whole call.
+func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
+	[]map[string]interface{}, error) {
+
+	ctx, cancel := withDeadline(ctx, client.timeouts.Query)
+	if cancel != nil {
+		defer cancel()
+	}
 
 	isSQLite := client.dbType == database.TypeSQLite
 	if isSQLite {
@@ -83,7 +135,7 @@ func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 
 	sqlText := query.GetQuery(client.dbType)
 
-	rows, err := client.db.Query(sqlText, args...)
+	rows, err := client.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
 	}
@@ -137,14 +189,30 @@ func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 	return results, nil
 }
 
-// BeginTx starts a new database transaction.
+// BeginTx starts a new database transaction under the client's default
+// deadline.
 func (client *DBClient) BeginTx() (*model.Tx, error) {
 
-	tx, err := client.db.Begin()
+	return client.BeginTxContext(context.Background())
+}
+
+// BeginTxContext starts a new database transaction under the caller's context.
+//
+// The transaction holds its connection until it ends, so the context must end.
+// When it does, database/sql rolls the transaction back and returns the
+// connection to the pool, even when no code calls Commit or Rollback.
+func (client *DBClient) BeginTxContext(ctx context.Context) (*model.Tx, error) {
+
+	ctx, cancel := withDeadline(ctx, client.timeouts.Tx)
+
+	tx, err := client.db.BeginTx(ctx, nil)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, err
 	}
-	return model.NewTx(tx, client.dbType), nil
+	return model.NewTx(ctx, cancel, tx, client.dbType), nil
 }
 
 // DBType returns the datasource type this client is connected to.
@@ -153,11 +221,10 @@ func (client *DBClient) DBType() string {
 	return client.dbType
 }
 
-// Close closes the database connection, unless the pool is owned by the caller.
+// Close releases the client. The connection pool belongs to the process, not
+// to the client, so this is a no-op. The process closes the pool at shutdown
+// through provider.CloseDB.
 func (client *DBClient) Close() error {
 
-	if client.shared {
-		return nil
-	}
-	return client.db.Close()
+	return nil
 }

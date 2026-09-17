@@ -120,6 +120,12 @@ datasource:
   password: "${DB_PASSWORD}"
   name: "cds_db"
   sslmode: disable
+  # Deadlines for database calls. They apply to both datasource types, because
+  # both bound their connection pool: a call that finds every connection in use
+  # waits, and these values end that wait. Leave a value empty to use its
+  # default.
+  # query_timeout_seconds: 30 # one statement, including the wait for a connection
+  # tx_timeout_seconds: 30    # one transaction, which holds its connection
   # Applies only when type is "postgres". One instance opens one pool and keeps
   # it for the life of the process, so these values bound what a single
   # instance takes from the server. Multiply max_open_conns by the instance
