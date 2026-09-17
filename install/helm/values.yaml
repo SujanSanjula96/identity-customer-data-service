@@ -58,14 +58,18 @@ cloud:
           #   (hpa.maxReplicas + strategy.rollingUpdate.maxSurge) * maxOpenConns
           #       + operational headroom  <=  PostgreSQL max_connections
           #
-          # With the values in this file that is (3 + 1) * 25 = 100, which is
-          # the PostgreSQL default max_connections and leaves no headroom for
-          # an operator session or another client. Raise max_connections, or
-          # lower maxOpenConns, before you run this chart against a server with
-          # the default.
+          # The values below give (3 + 1) * 15 = 60 against the PostgreSQL
+          # default max_connections of 100. The remaining 40 is the headroom
+          # that schema migrations, backups, monitoring, an operator session
+          # and any other client need, and it covers the 3 connections
+          # PostgreSQL reserves for a superuser.
+          #
+          # Raise these values only together with max_connections, and
+          # load-test the result. The Go default is higher, at 25, because it
+          # is meant for one instance rather than for this chart.
           postgres:
-            maxOpenConns: 25
-            maxIdleConns: 25
+            maxOpenConns: 15
+            maxIdleConns: 15
             connMaxLifetimeSeconds: 1800
             connMaxIdleTimeSeconds: 300
             # Bounds one connection attempt, the startup handshake included. It
