@@ -46,6 +46,11 @@ const (
 	maxBackoff        = 60 * time.Second
 	backoffMultiplier = 2
 
+	// redeliveryBackoff is how long the consumer waits before it takes a new
+	// subscription after a job failed. It keeps a failure that repeats from
+	// spinning between the broker and the handler.
+	redeliveryBackoff = 2 * time.Second
+
 	// disconnectReceiptTimeout bounds the wait for the broker to confirm a
 	// graceful disconnect.
 	//
@@ -326,6 +331,48 @@ func disconnect(ctx context.Context, conn *stomp.Conn) error {
 	}
 }
 
+// recycleSubscription ends the subscription and takes a new one, so that the
+// messages it still holds return to the queue.
+//
+// A message the handler refused stays unacknowledged, and the broker keeps it.
+// Without this it would come back only when the connection closed, which is
+// when the process stops: a transient database failure would leave the job
+// stuck until the pod restarted, and enough of them would use up the prefetch
+// of the subscription. Ending the subscription returns those messages now.
+//
+// The broker bounds how often. Each return counts as a redelivery, and when
+// maximumRedeliveries runs out the message goes to the dead letter queue, so a
+// job that always fails does not circle for ever.
+//
+// It reports false when the consumer must stop, either because shutdown began
+// or because a new subscription could not be taken.
+func (mc *managedConn) recycleSubscription(sub *stomp.Subscription, destination, queueName string) (
+	*stomp.Subscription, uint64, bool) {
+
+	if err := sub.Unsubscribe(); err != nil {
+		// The subscription may already be gone, which is the outcome wanted.
+		log.GetLogger().Debug(fmt.Sprintf(
+			"activemq: could not end the %s subscription cleanly: %v", queueName, err))
+	}
+
+	timer := time.NewTimer(redeliveryBackoff)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+	case <-mc.done:
+		return nil, 0, false
+	}
+
+	newSub, newGen, err := mc.subscribeCurrent(destination)
+	if err != nil {
+		log.GetLogger().Error(fmt.Sprintf(
+			"activemq: failed to take a new %s subscription after a failed job: %v", queueName, err))
+		return nil, 0, false
+	}
+	return newSub, newGen, true
+}
+
 // ack tells the broker that the message was processed, so that it is not sent
 // again.
 func ack(msg *stomp.Message, queueName string) {
@@ -342,9 +389,10 @@ func ack(msg *stomp.Message, queueName string) {
 // keepForRedelivery leaves the message unacknowledged, so the broker still
 // owns it.
 //
-// Nothing is sent. An unacknowledged message returns to the queue when this
-// consumer's connection closes, which is what shutdown does, and another
-// instance or the next start of this one receives it.
+// Nothing is sent. The broker keeps an unacknowledged message, and it returns
+// to the queue as soon as the subscription that holds it ends: at shutdown,
+// when the connection closes, or at once when the caller recycles the
+// subscription after a failure.
 //
 // A NACK is deliberately not sent here. ActiveMQ does not treat a STOMP NACK
 // as "try again": the message did not come back at all in the integration
@@ -512,6 +560,12 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 					"activemq: leaving a profile message for redelivery: %v", err,
 				))
 				keepForRedelivery("profile")
+
+				newSub, newGen, ok := q.mc.recycleSubscription(sub, q.destination, "profile")
+				if !ok {
+					return
+				}
+				sub, subGen = newSub, newGen
 				continue
 			}
 			ack(msg, "profile")
@@ -643,6 +697,12 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) erro
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: leaving a schema sync message for redelivery: %v", err))
 				keepForRedelivery("schema sync")
+
+				newSub, newGen, ok := q.mc.recycleSubscription(sub, q.destination, "schema sync")
+				if !ok {
+					return
+				}
+				sub, subGen = newSub, newGen
 				continue
 			}
 			ack(msg, "schema sync")

@@ -20,7 +20,9 @@ package activemqintegration
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -222,5 +224,60 @@ func Test_ActiveMQ_doesNotRepeatAJobThatWasProcessed(t *testing.T) {
 	case got := <-again:
 		t.Errorf("expected an acknowledged message to be gone, got %q again", got)
 	case <-time.After(10 * time.Second):
+	}
+}
+
+// Test_ActiveMQ_redeliversAfterAFailedAttempt is the case the review named.
+//
+// A refused message stays unacknowledged, and the broker keeps it. It used to
+// come back only when the connection closed, which is when the process stops,
+// so a transient database failure left the job stuck until the pod restarted.
+// Nobody closes the consumer here.
+func Test_ActiveMQ_redeliversAfterAFailedAttempt(t *testing.T) {
+
+	destination := fmt.Sprintf("/queue/cds-test-retry-%d", time.Now().UnixNano())
+	profileID := "fails-once"
+
+	queue := newRedeliveryQueue(t, destination)
+	t.Cleanup(func() { _ = queue.Close(context.Background()) })
+
+	attempts := make(chan int32, 8)
+	var count atomic.Int32
+
+	if err := queue.Start(func(profile profileModel.Profile) error {
+		attempt := count.Add(1)
+		select {
+		case attempts <- attempt:
+		default:
+		}
+		if attempt == 1 {
+			return errors.New("a transient failure, as a database that is briefly unreachable gives")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := queue.Enqueue(profileModel.Profile{ProfileId: profileID}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case attempt := <-attempts:
+		if attempt != 1 {
+			t.Fatalf("expected the first attempt, got %d", attempt)
+		}
+	case <-time.After(redeliveryWait):
+		t.Fatal("the message never reached the handler")
+	}
+
+	// The consumer stays open. The message has to come back anyway.
+	select {
+	case attempt := <-attempts:
+		if attempt != 2 {
+			t.Fatalf("expected a second attempt, got %d", attempt)
+		}
+	case <-time.After(redeliveryWait):
+		t.Fatal("the message was not redelivered while the consumer stayed open")
 	}
 }
