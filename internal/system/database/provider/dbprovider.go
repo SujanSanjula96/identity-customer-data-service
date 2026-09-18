@@ -207,6 +207,11 @@ type postgresPoolSettings struct {
 
 // resolvePostgresPoolSettings applies a default to every value the operator
 // left empty, and lowers an idle limit that is above the open limit.
+//
+// ValidateDataSource rejects a negative value and a contradictory pair before
+// the server starts, so the corrections below are a safety net rather than the
+// place a configuration mistake is handled. The function stays total, because
+// a test may build a pool from any configuration.
 func resolvePostgresPoolSettings(cfg config.PostgresConfig) postgresPoolSettings {
 
 	settings := postgresPoolSettings{

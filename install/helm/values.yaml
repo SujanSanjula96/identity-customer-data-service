@@ -53,9 +53,16 @@ cloud:
           # wait.
           queryTimeoutSeconds: 30
           txTimeoutSeconds: 30
-          # Connection pool bounds for one pod. Multiply maxOpenConns by the
-          # replica count, then leave headroom, when you size the PostgreSQL
-          # max_connections.
+          # Connection pool bounds for ONE pod. The deployment-wide demand is
+          #
+          #   (hpa.maxReplicas + strategy.rollingUpdate.maxSurge) * maxOpenConns
+          #       + operational headroom  <=  PostgreSQL max_connections
+          #
+          # With the values in this file that is (3 + 1) * 25 = 100, which is
+          # the PostgreSQL default max_connections and leaves no headroom for
+          # an operator session or another client. Raise max_connections, or
+          # lower maxOpenConns, before you run this chart against a server with
+          # the default.
           postgres:
             maxOpenConns: 25
             maxIdleConns: 25
