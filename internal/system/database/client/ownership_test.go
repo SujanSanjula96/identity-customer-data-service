@@ -19,17 +19,14 @@
 package client
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/database/model"
 )
-
-// testPing is a statement every datasource accepts.
-var testPing = model.DBQuery{ID: "TEST-01", Query: "SELECT 1"}
 
 // openSharedPool opens an inbuilt database and returns the pool. The test owns
 // it, as the process owns the pool in production.
@@ -58,8 +55,8 @@ func openSharedPool(t *testing.T) *sql.DB {
 func Test_Close_leavesTheSharedPoolOpen(t *testing.T) {
 
 	db := openSharedPool(t)
-	first := NewSharedDBClient(db, database.TypeSQLite)
-	second := NewSharedDBClient(db, database.TypeSQLite)
+	first := NewSharedDBClient(db, database.TypeSQLite, Timeouts{})
+	second := NewSharedDBClient(db, database.TypeSQLite, Timeouts{})
 
 	// A store may close its client more than once, so repeat it.
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -70,12 +67,12 @@ func Test_Close_leavesTheSharedPoolOpen(t *testing.T) {
 
 	// The other client must still answer. This is the check the pointer
 	// comparison alone does not make.
-	if _, err := second.ExecuteQuery(testPing); err != nil {
+	if _, err := second.ExecuteQueryContext(context.Background(), testPing); err != nil {
 		t.Errorf("expected the second client to keep working: %v", err)
 	}
 
 	// The closed client answers too, because Close released nothing.
-	if _, err := first.ExecuteQuery(testPing); err != nil {
+	if _, err := first.ExecuteQueryContext(context.Background(), testPing); err != nil {
 		t.Errorf("expected the closed client to keep working: %v", err)
 	}
 
@@ -103,12 +100,12 @@ func Test_Close_leavesTheSharedPoolOpenUnderConcurrency(t *testing.T) {
 		done.Add(1)
 		go func(index int) {
 			defer done.Done()
-			dbClient := NewSharedDBClient(db, database.TypeSQLite)
+			dbClient := NewSharedDBClient(db, database.TypeSQLite, Timeouts{})
 			// Every store does exactly this.
 			defer func() { _ = dbClient.Close() }()
 
 			start.Wait()
-			_, failures[index] = dbClient.ExecuteQuery(testPing)
+			_, failures[index] = dbClient.ExecuteQueryContext(context.Background(), testPing)
 		}(i)
 	}
 

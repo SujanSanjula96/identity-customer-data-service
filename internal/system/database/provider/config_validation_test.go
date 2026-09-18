@@ -73,6 +73,23 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 			expectKey: "datasource.postgres.max_idle_conns",
 		},
 		{
+			name: "a query timeout below zero",
+			dataSource: func() config.DataSourceConfig {
+				ds := postgresDataSource("postgres").DataSource
+				ds.QueryTimeoutSeconds = -1
+				return ds
+			}(),
+			expectKey: "datasource.query_timeout_seconds",
+		},
+		{
+			name: "a transaction timeout below zero on the inbuilt database",
+			dataSource: config.DataSourceConfig{
+				Type:             database.TypeSQLite,
+				TxTimeoutSeconds: -1,
+			},
+			expectKey: "datasource.tx_timeout_seconds",
+		},
+		{
 			name: "a negative open limit on the inbuilt database",
 			dataSource: config.DataSourceConfig{
 				Type:   database.TypeSQLite,
@@ -96,6 +113,15 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 			}),
 			expectKey: "datasource.postgres.conn_max_lifetime_seconds",
 		},
+		{
+			name: "a query timeout that would overflow a duration",
+			dataSource: func() config.DataSourceConfig {
+				ds := postgresDataSource("postgres").DataSource
+				ds.QueryTimeoutSeconds = 1 << 62
+				return ds
+			}(),
+			expectKey: "datasource.query_timeout_seconds",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -116,6 +142,7 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 
 	ds := postgresDataSource("postgres").DataSource
+	ds.QueryTimeoutSeconds = -1
 	ds.Postgres = config.PostgresConfig{MaxOpenConns: -1, ConnMaxLifetimeSeconds: -1}
 
 	err := ValidateDataSource(ds)
@@ -124,6 +151,7 @@ func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 	}
 
 	for _, key := range []string{
+		"datasource.query_timeout_seconds",
 		"datasource.postgres.max_open_conns",
 		"datasource.postgres.conn_max_lifetime_seconds",
 	} {
@@ -142,6 +170,8 @@ func Test_ValidateDataSource_acceptsValidNumbers(t *testing.T) {
 		"every pool setting left empty": postgresDataSource("postgres").DataSource,
 		"a complete pool configuration": func() config.DataSourceConfig {
 			ds := postgresDataSource("postgres").DataSource
+			ds.QueryTimeoutSeconds = 30
+			ds.TxTimeoutSeconds = 30
 			ds.Postgres = config.PostgresConfig{
 				MaxOpenConns:           25,
 				MaxIdleConns:           25,

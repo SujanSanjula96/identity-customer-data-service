@@ -48,6 +48,11 @@ cloud:
           port: 5432
           name: "cds_db"
           sslmode: require
+          # Deadlines for database calls, in seconds. The pool is bounded, so a
+          # call that finds every connection in use waits. These values end that
+          # wait.
+          queryTimeoutSeconds: 30
+          txTimeoutSeconds: 30
           # Connection pool bounds for ONE pod. The deployment-wide demand is
           #
           #   (hpa.maxReplicas + strategy.rollingUpdate.maxSurge) * maxOpenConns
@@ -123,9 +128,13 @@ cloud:
       livenessProbe:
         initialDelaySeconds: 20
         periodSeconds: 10
+        timeoutSeconds: 5
       readinessProbe:
         initialDelaySeconds: 20
         periodSeconds: 10
+        # Longer than the readiness query deadline, so the instance answers
+        # "not ready" itself instead of the probe timing out.
+        timeoutSeconds: 5
       imagePullPolicy: Always
       resources:
         requests:

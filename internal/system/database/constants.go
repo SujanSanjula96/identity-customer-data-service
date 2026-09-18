@@ -123,3 +123,27 @@ const (
 	// this long, so an idle instance releases what it does not need.
 	DefaultPostgresConnMaxIdleTime = 5 * time.Minute
 )
+
+// Timeout defaults, applied when the corresponding configuration values are
+// left empty.
+//
+// A bounded pool makes a database call wait when every connection is in use.
+// Go's short forms, db.Query and db.Begin, pass context.Background(), which has
+// no deadline, so that wait would never end. The client therefore gives every
+// call a deadline when the caller supplies none.
+const (
+	// DefaultQueryTimeout bounds one statement, from the wait for a free
+	// connection to the last row.
+	DefaultQueryTimeout = 30 * time.Second
+
+	// DefaultTxTimeout bounds a whole transaction. A transaction holds its
+	// connection until it ends, so an abandoned one would hold that connection
+	// for the life of the process. At this age the driver rolls it back and
+	// returns the connection to the pool.
+	DefaultTxTimeout = 30 * time.Second
+
+	// DefaultReadinessTimeout bounds the readiness probe's query. It is short,
+	// because a probe that cannot answer quickly has already answered: the
+	// instance is not ready.
+	DefaultReadinessTimeout = 2 * time.Second
+)

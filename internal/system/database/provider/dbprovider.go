@@ -97,18 +97,30 @@ func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 
 	// The suite owns the test handle, so Close must leave it open.
 	if testDBOverride != nil {
-		return client.NewSharedDBClient(testDBOverride, database.ResolveType(testDBTypeOverride)), nil
+		return client.NewSharedDBClient(testDBOverride, database.ResolveType(testDBTypeOverride),
+			client.Timeouts{}), nil
 	}
 
 	// Production DB setup
-	dbType := database.ResolveType(config.GetCDSRuntime().Config.DataSource.Type)
+	dataSource := config.GetCDSRuntime().Config.DataSource
+	dbType := database.ResolveType(dataSource.Type)
 
 	db, err := getDB(dbType)
 	if err != nil {
 		return nil, err
 	}
 
-	return client.NewSharedDBClient(db, dbType), nil
+	return client.NewSharedDBClient(db, dbType, resolveTimeouts(dataSource)), nil
+}
+
+// resolveTimeouts reads the configured deadlines. A value the operator left
+// empty falls back to a default inside the client.
+func resolveTimeouts(dataSource config.DataSourceConfig) client.Timeouts {
+
+	return client.Timeouts{
+		Query: time.Duration(dataSource.QueryTimeoutSeconds) * time.Second,
+		Tx:    time.Duration(dataSource.TxTimeoutSeconds) * time.Second,
+	}
 }
 
 // getDB returns the process-wide pool for the given datasource type.
