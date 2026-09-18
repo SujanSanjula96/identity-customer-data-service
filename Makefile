@@ -53,7 +53,8 @@ endif
 #
 # The race detector runs here because the process shares one connection pool
 # across every request and every worker. The tests that open, share and close
-# that pool from several goroutines are only a real check under -race.
+# that pool from several goroutines check its behaviour either way. -race is
+# what reports an unsafe access between them.
 unit-test:
 	go test -race ./internal/... ./dbscripts/...
 

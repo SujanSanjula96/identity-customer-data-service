@@ -140,9 +140,6 @@ jobs:
       - name: Install system deps
         run: sudo apt-get install -y make zip
 
-      # The unit tests run under the race detector. The process shares one
-      # connection pool across every request and worker, so the tests that
-      # open, share and close it concurrently need -race to mean anything.
       - name: Run Unit Tests
         run: make unit-test
 
