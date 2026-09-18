@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-stomp/stomp/v3"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/queue/activemq"
@@ -113,7 +115,56 @@ func Test_ActiveMQ_keepsAJobRefusedAtShutdown(t *testing.T) {
 			t.Fatalf("expected the same message back, got %q", got)
 		}
 	case <-time.After(redeliveryWait):
-		t.Fatal("the refused message was lost: the broker never sent it again")
+		// Say where the message went, not only that it never arrived. A
+		// message in the dead letter queue means the broker took it out of
+		// the rotation rather than losing it, which is a different fault with
+		// a different fix.
+		dead := deadLetterBodies(t, 5*time.Second)
+		t.Fatalf("the refused message was lost: the broker never sent it again. "+
+			"the dead letter queue holds %d message(s): %v", len(dead), dead)
+	}
+}
+
+// deadLetterBodies reports what is waiting in the dead letter queue.
+//
+// It reads with AckAuto, so it consumes what it finds. That is deliberate: the
+// test is already failing, and a message left behind would confuse the next
+// run.
+func deadLetterBodies(t *testing.T, wait time.Duration) []string {
+
+	t.Helper()
+
+	broker := config.GetCDSRuntime().Config.MessageQueue.Broker
+	conn, err := stomp.Dial("tcp", broker.Addr,
+		stomp.ConnOpt.Login(broker.Username, broker.Password))
+	if err != nil {
+		t.Logf("could not reach the broker to read the dead letter queue: %v", err)
+		return nil
+	}
+	defer func() { _ = conn.Disconnect() }()
+
+	sub, err := conn.Subscribe("/queue/ActiveMQ.DLQ", stomp.AckAuto)
+	if err != nil {
+		t.Logf("could not subscribe to the dead letter queue: %v", err)
+		return nil
+	}
+
+	var bodies []string
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	for {
+		select {
+		case msg, ok := <-sub.C:
+			if !ok {
+				return bodies
+			}
+			if msg.Err == nil {
+				bodies = append(bodies, string(msg.Body))
+			}
+		case <-timer.C:
+			return bodies
+		}
 	}
 }
 

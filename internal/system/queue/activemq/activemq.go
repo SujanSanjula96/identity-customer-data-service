@@ -298,19 +298,38 @@ func ack(msg *stomp.Message, queueName string) {
 	}
 }
 
-// nack leaves the message with the broker, which sends it again.
+// keepForRedelivery leaves the message unacknowledged, so the broker still
+// owns it.
 //
-// The redelivery policy of the broker bounds how often. When the retries run
-// out the message goes to the dead letter queue, so a message that can never
-// be processed does not circle for ever.
-func nack(msg *stomp.Message, queueName string) {
+// Nothing is sent. An unacknowledged message returns to the queue when this
+// consumer's connection closes, which is what shutdown does, and another
+// instance or the next start of this one receives it.
+//
+// A NACK is deliberately not sent here. ActiveMQ does not treat a STOMP NACK
+// as "try again": the message did not come back at all in the integration
+// test, while an acknowledged one behaved as expected. Silence is what keeps
+// the work.
+func keepForRedelivery(queueName string) {
+
+	log.GetLogger().Debug(fmt.Sprintf(
+		"activemq: leaving a %s message unacknowledged, so the broker keeps it", queueName))
+}
+
+// sendToDeadLetter hands the message back with a NACK, which takes it out of
+// the rotation rather than returning it to the queue.
+//
+// This is for a message that can never be processed, a body that does not
+// parse. Leaving such a message unacknowledged would have it delivered again
+// at every start, for ever. A NACK ends that, and the message becomes visible
+// to an operator instead of disappearing into a log line.
+func sendToDeadLetter(msg *stomp.Message, queueName string) {
 
 	if msg.Conn == nil {
 		return
 	}
 	if err := msg.Conn.Nack(msg); err != nil {
 		log.GetLogger().Error(fmt.Sprintf(
-			"activemq: failed to return a %s message to the broker: %v", queueName, err))
+			"activemq: failed to hand back an unreadable %s message: %v", queueName, err))
 	}
 }
 
@@ -441,10 +460,9 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: failed to unmarshal profile message: %v", err,
 				))
-				// A message that cannot be read will never be read. The
-				// redelivery policy of the broker bounds the retries and then
-				// moves it to the dead letter queue, where an operator sees it.
-				nack(msg, "profile")
+				// A message that cannot be read will never be read, so it
+				// must not come back at every start.
+				sendToDeadLetter(msg, "profile")
 				continue
 			}
 
@@ -452,7 +470,7 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: leaving a profile message for redelivery: %v", err,
 				))
-				nack(msg, "profile")
+				keepForRedelivery("profile")
 				continue
 			}
 			ack(msg, "profile")
@@ -576,14 +594,14 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) erro
 			if err := json.Unmarshal(msg.Body, &sync); err != nil {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: failed to unmarshal schema sync message: %v", err))
-				nack(msg, "schema sync")
+				sendToDeadLetter(msg, "schema sync")
 				continue
 			}
 
 			if err := handler(sync); err != nil {
 				log.GetLogger().Error(fmt.Sprintf(
 					"activemq: leaving a schema sync message for redelivery: %v", err))
-				nack(msg, "schema sync")
+				keepForRedelivery("schema sync")
 				continue
 			}
 			ack(msg, "schema sync")
