@@ -56,7 +56,7 @@ func Test_stop_waitsForARunningJob(t *testing.T) {
 	<-started
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- lifecycle.stop(context.Background(), func() error { return nil }) }()
+	go func() { stopped <- lifecycle.stop(context.Background(), func(context.Context) error { return nil }) }()
 
 	select {
 	case <-stopped:
@@ -87,7 +87,7 @@ func Test_stop_dropsAJobThatHasNotStarted(t *testing.T) {
 
 	lifecycle := newJobLifecycle()
 
-	if err := lifecycle.stop(context.Background(), func() error { return nil }); err != nil {
+	if err := lifecycle.stop(context.Background(), func(context.Context) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +130,7 @@ func Test_stop_cancelsAJobThatOutlastsTheBudget(t *testing.T) {
 	<-started
 
 	start := time.Now()
-	err := lifecycle.stop(context.Background(), func() error { return nil })
+	err := lifecycle.stop(context.Background(), func(context.Context) error { return nil })
 	elapsed := time.Since(start)
 
 	// The job unwound, so shutdown is safe. It is still reported, because its
@@ -264,7 +264,7 @@ func Test_stop_returnsInsideTheShutdownDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	err := lifecycle.stop(ctx, func() error { return nil })
+	err := lifecycle.stop(ctx, func(context.Context) error { return nil })
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, ErrForcedShutdown) {
@@ -274,5 +274,38 @@ func Test_stop_returnsInsideTheShutdownDeadline(t *testing.T) {
 	// wait is unbounded.
 	if elapsed > 2*deadline {
 		t.Errorf("stop took %v, so it waited past the shutdown deadline of %v", elapsed, deadline)
+	}
+}
+
+// Test_stop_returnsWhenTheQueueCloseBlocks covers the other way shutdown could
+// overrun: not a job that will not stop, but a queue that will not close.
+//
+// stop closes the queue before it waits for anything, so a close that ignored
+// the deadline would hold shutdown open before the bounded waits were even
+// reached. The close is therefore given the same context.
+func Test_stop_returnsWhenTheQueueCloseBlocks(t *testing.T) {
+
+	lifecycle := newJobLifecycle()
+
+	const deadline = 400 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	// A close that waits on its own context, as a broker disconnect does once
+	// it is given one.
+	closeQueue := func(closeCtx context.Context) error {
+		<-closeCtx.Done()
+		return closeCtx.Err()
+	}
+
+	start := time.Now()
+	err := lifecycle.stop(ctx, closeQueue)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("expected stop to report the close that did not finish")
+	}
+	if elapsed > 2*deadline {
+		t.Errorf("stop took %v, so the close was not bounded by the deadline of %v", elapsed, deadline)
 	}
 }

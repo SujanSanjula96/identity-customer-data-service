@@ -23,6 +23,7 @@
 package inmemory
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -87,7 +88,7 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 // Close marks the queue as closed and closes the underlying channel, which
 // causes the consumer goroutine started by Start to exit. It is safe to call
 // Close more than once.
-func (q *ProfileQueue) Close() error {
+func (q *ProfileQueue) Close(context.Context) error {
 	q.mu.Lock()
 	q.closed = true
 	q.mu.Unlock()
@@ -151,7 +152,7 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) erro
 // Close marks the queue as closed and closes the underlying channel, which
 // causes the consumer goroutine started by Start to exit. It is safe to call
 // Close more than once.
-func (q *SchemaSyncQueue) Close() error {
+func (q *SchemaSyncQueue) Close(context.Context) error {
 	q.mu.Lock()
 	q.closed = true
 	q.mu.Unlock()

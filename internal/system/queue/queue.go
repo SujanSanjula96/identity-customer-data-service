@@ -19,6 +19,8 @@
 package queue
 
 import (
+	"context"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 )
@@ -52,7 +54,11 @@ type ProfileUnificationQueue interface {
 	// Close performs a graceful shutdown of the queue, flushing any
 	// in-flight items and releasing underlying resources (connections,
 	// channels, goroutines). It is safe to call Close more than once.
-	Close() error
+	//
+	// The context bounds the shutdown. A provider that waits on a broker must
+	// stop waiting when it ends and release what it holds by force, because
+	// shutdown as a whole has a deadline.
+	Close(ctx context.Context) error
 }
 
 // SchemaSyncQueue defines the contract for enqueuing schema synchronisation
@@ -78,5 +84,9 @@ type SchemaSyncQueue interface {
 	// Close performs a graceful shutdown of the queue, flushing any
 	// in-flight items and releasing underlying resources (connections,
 	// channels, goroutines). It is safe to call Close more than once.
-	Close() error
+	//
+	// The context bounds the shutdown. A provider that waits on a broker must
+	// stop waiting when it ends and release what it holds by force, because
+	// shutdown as a whole has a deadline.
+	Close(ctx context.Context) error
 }

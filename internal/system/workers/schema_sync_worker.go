@@ -59,7 +59,7 @@ func StartSchemaSyncWorker() error {
 			return processSchemaSyncJob(ctx, schemaSync)
 		})
 	}); err != nil {
-		_ = q.Close()
+		_ = q.Close(context.Background())
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
 	}
 	schemaSyncQueueMu.Lock()
@@ -98,7 +98,7 @@ func StopSchemaSyncWorker(ctx context.Context) error {
 		return nil
 	}
 	if lifecycle == nil {
-		return q.Close()
+		return q.Close(ctx)
 	}
 	// Returns only when no schema sync job is still at work, so that the
 	// caller can close the database pool.

@@ -82,7 +82,7 @@ func StartProfileWorker() error {
 			return nil
 		})
 	}); err != nil {
-		_ = q.Close()
+		_ = q.Close(context.Background())
 		return fmt.Errorf("workers: failed to start profile unification queue: %w", err)
 	}
 	profileQueueMu.Lock()
@@ -132,7 +132,7 @@ func StopProfileWorker(ctx context.Context) error {
 		return nil
 	}
 	if lifecycle == nil {
-		return q.Close()
+		return q.Close(ctx)
 	}
 	// Returns only when no unification job is still at work, so that the
 	// caller can close the database pool.

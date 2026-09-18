@@ -19,6 +19,7 @@
 package activemqintegration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -90,13 +91,13 @@ func Test_ActiveMQ_keepsAJobRefusedAtShutdown(t *testing.T) {
 	}
 
 	// Shutdown finishes. The message was never acknowledged.
-	if err := stopping.Close(); err != nil {
+	if err := stopping.Close(context.Background()); err != nil {
 		t.Logf("close reported %v", err)
 	}
 
 	// A new instance starts, and this one processes the job.
 	restarted := newRedeliveryQueue(t, destination)
-	t.Cleanup(func() { _ = restarted.Close() })
+	t.Cleanup(func() { _ = restarted.Close(context.Background()) })
 
 	processed := make(chan string, 8)
 	if err := restarted.Start(func(profile profileModel.Profile) error {
@@ -198,13 +199,13 @@ func Test_ActiveMQ_doesNotRepeatAJobThatWasProcessed(t *testing.T) {
 		t.Fatal("the message never reached the consumer")
 	}
 
-	if err := first.Close(); err != nil {
+	if err := first.Close(context.Background()); err != nil {
 		t.Logf("close reported %v", err)
 	}
 
 	// Nothing is left on the queue for the next instance.
 	second := newRedeliveryQueue(t, destination)
-	t.Cleanup(func() { _ = second.Close() })
+	t.Cleanup(func() { _ = second.Close(context.Background()) })
 
 	again := make(chan string, 8)
 	if err := second.Start(func(profile profileModel.Profile) error {

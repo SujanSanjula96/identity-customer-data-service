@@ -135,13 +135,16 @@ var (
 // through ErrForcedShutdown rather than waited for.
 //
 // The caller closes the database pool after this returns.
-func (l *jobLifecycle) stop(ctx context.Context, closeQueue func() error) error {
+func (l *jobLifecycle) stop(ctx context.Context, closeQueue func(context.Context) error) error {
 
 	l.mu.Lock()
 	l.draining = true
 	l.mu.Unlock()
 
-	closeErr := closeQueue()
+	// The close is given the same deadline. A broker that has stopped
+	// answering must not hold shutdown open here, before the waits below are
+	// even reached.
+	closeErr := closeQueue(ctx)
 
 	if waitWithin(ctx, &l.running, l.budget) {
 		l.cancel()

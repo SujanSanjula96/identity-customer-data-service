@@ -19,6 +19,7 @@
 package activemq
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -44,6 +45,15 @@ const (
 	initialBackoff    = 2 * time.Second
 	maxBackoff        = 60 * time.Second
 	backoffMultiplier = 2
+
+	// disconnectReceiptTimeout bounds the wait for the broker to confirm a
+	// graceful disconnect.
+	//
+	// The library allows 30 seconds by default, which is longer than the whole
+	// shutdown grace period of the service. A broker that has stopped
+	// answering would therefore hold shutdown open until Kubernetes killed the
+	// process. Three seconds is long enough for a broker that is healthy.
+	disconnectReceiptTimeout = 3 * time.Second
 )
 
 func init() {
@@ -122,6 +132,8 @@ func (mc *managedConn) dial() error {
 		// the negotiated interval. TCP keepalive (set below) provides
 		// equivalent liveness detection for half-open connections.
 		stomp.ConnOpt.HeartBeat(0, 0),
+		// Shutdown has a deadline, and the default of 30 seconds is past it.
+		stomp.ConnOpt.DisconnectReceiptTimeout(disconnectReceiptTimeout),
 	}
 
 	// Use a dialer with an explicit connect timeout and TCP keepalive.
@@ -283,6 +295,35 @@ func (mc *managedConn) subscribeCurrent(destination string) (*stomp.Subscription
 	}
 
 	return sub, generation, nil
+}
+
+// disconnect ends the broker connection, and waits no longer than the caller
+// allows.
+//
+// A graceful STOMP disconnect waits for a receipt. That wait is bounded twice
+// over: by disconnectReceiptTimeout inside the library, and by the caller's
+// context here. When the caller runs out of time the socket is closed without
+// a receipt, because a process that will not stop is worse than a broker that
+// is not told why.
+func disconnect(ctx context.Context, conn *stomp.Conn) error {
+
+	if conn == nil {
+		return nil
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- conn.Disconnect() }()
+
+	select {
+	case err := <-done:
+		return err
+
+	case <-ctx.Done():
+		if err := conn.MustDisconnect(); err != nil {
+			return fmt.Errorf("activemq: closed the connection by force after the shutdown deadline: %w", err)
+		}
+		return fmt.Errorf("activemq: closed the connection by force after the shutdown deadline")
+	}
 }
 
 // ack tells the broker that the message was processed, so that it is not sent
@@ -482,9 +523,9 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 
 // Close signals the consumer goroutine to stop and gracefully disconnects
 // from ActiveMQ. Safe to call more than once.
-func (q *ProfileQueue) Close() error {
+func (q *ProfileQueue) Close(ctx context.Context) error {
 	q.mc.shutdown()
-	return q.mc.getConn().Disconnect()
+	return disconnect(ctx, q.mc.getConn())
 }
 
 // -----------------------------------------------------------------------
@@ -612,7 +653,7 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) erro
 
 // Close signals the consumer goroutine to stop and gracefully disconnects
 // from ActiveMQ. Safe to call more than once.
-func (q *SchemaSyncQueue) Close() error {
+func (q *SchemaSyncQueue) Close(ctx context.Context) error {
 	q.mc.shutdown()
-	return q.mc.getConn().Disconnect()
+	return disconnect(ctx, q.mc.getConn())
 }
