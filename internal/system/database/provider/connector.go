@@ -21,6 +21,7 @@ package provider
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -47,9 +48,19 @@ import (
 //
 // So the attempt is both ended and counted:
 //
-//   - A slot is taken before the attempt starts and given back only when the
-//     attempt really finishes, so the number of sockets in a handshake never
-//     passes the configured open limit.
+//   - A slot is taken before the attempt starts and held for as long as the
+//     socket lives: through the handshake, and then for the whole life of the
+//     connection it produced. The connection gives its slot back when it is
+//     closed. The invariant is therefore
+//
+//     established connections + attempts in flight <= max_open_conns
+//
+//     which is what an operator sizing max_connections relies on. Counting
+//     only the handshakes was not enough: 14 established connections
+//     alongside 15 abandoned handshakes is 29 sockets against a limit of 15,
+//     because database/sql had stopped counting the abandoned ones and the
+//     connector was not counting the established ones.
+//
 //   - The socket of the attempt is closed when the caller gives up, so the
 //     handshake fails at once rather than at the connect timeout. The slot
 //     therefore comes back in microseconds, not seconds, and the next caller
@@ -89,15 +100,19 @@ func (c *boundedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, ctx.Err()
 	}
 
+	// The slot goes back exactly once, whichever path gets there first.
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { <-c.slots }) }
+
 	socket := &attemptSocket{}
 	done := make(chan connectResult, 1)
 
 	go func() {
-		// The slot is held until the handshake really ends, whether or not a
-		// caller is still waiting for it.
-		defer func() { <-c.slots }()
-
 		conn, err := c.inner.Connect(withAttemptSocket(ctx, socket))
+		if conn == nil {
+			// The attempt produced no socket, so nothing is left to count.
+			release()
+		}
 		done <- connectResult{conn: conn, err: err}
 	}()
 
@@ -105,7 +120,11 @@ func (c *boundedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	case result := <-done:
 		// The connection belongs to the pool now, so stop watching its socket.
 		socket.release()
-		return result.conn, result.err
+		if result.conn == nil {
+			return nil, result.err
+		}
+		// The connection keeps the slot until the pool closes it.
+		return &boundedConn{Conn: result.conn, release: release}, result.err
 
 	case <-ctx.Done():
 		// Close the socket, so the handshake fails now rather than at the
@@ -115,6 +134,7 @@ func (c *boundedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		go func() {
 			if result := <-done; result.conn != nil {
 				_ = result.conn.Close()
+				release()
 			}
 		}()
 		return nil, ctx.Err()
@@ -229,4 +249,96 @@ func (d attemptDialer) DialContext(ctx context.Context, network, address string)
 		socket.set(conn)
 	}
 	return conn, nil
+}
+
+// boundedConn is a driver connection that holds a connector slot for as long
+// as it is open.
+//
+// Every optional interface the driver implements is declared here and
+// delegated. An embedded interface exposes only its own methods, so a wrapper
+// that stayed silent about the rest would hide them from database/sql: the
+// context would stop reaching queries, a transaction would lose its options,
+// and a ping would no longer reach the server.
+type boundedConn struct {
+	driver.Conn
+	release func()
+}
+
+// Close closes the connection and gives the slot back.
+func (c *boundedConn) Close() error {
+
+	defer c.release()
+	return c.Conn.Close()
+}
+
+// QueryContext runs a query when the driver supports one without a statement.
+func (c *boundedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (
+	driver.Rows, error) {
+
+	if inner, ok := c.Conn.(driver.QueryerContext); ok {
+		return inner.QueryContext(ctx, query, args)
+	}
+	// ErrSkip asks database/sql to fall back to a prepared statement.
+	return nil, driver.ErrSkip
+}
+
+// ExecContext runs a statement when the driver supports one without a
+// statement handle.
+func (c *boundedConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (
+	driver.Result, error) {
+
+	if inner, ok := c.Conn.(driver.ExecerContext); ok {
+		return inner.ExecContext(ctx, query, args)
+	}
+	return nil, driver.ErrSkip
+}
+
+// PrepareContext prepares a statement under the caller's context.
+func (c *boundedConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+
+	if inner, ok := c.Conn.(driver.ConnPrepareContext); ok {
+		return inner.PrepareContext(ctx, query)
+	}
+	return c.Conn.Prepare(query)
+}
+
+// BeginTx starts a transaction under the caller's context.
+func (c *boundedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+
+	if inner, ok := c.Conn.(driver.ConnBeginTx); ok {
+		return inner.BeginTx(ctx, opts)
+	}
+	// A refusal, rather than a fall back to the deprecated Begin. A
+	// transaction that cannot carry the context would hold its connection past
+	// every deadline, which is the defect this whole change removes. lib/pq
+	// implements ConnBeginTx, so this is unreachable with the driver in use.
+	return nil, errors.New("provider: the driver cannot start a transaction under a context")
+}
+
+// Ping reaches the server, so that a check of the pool is a real round trip.
+func (c *boundedConn) Ping(ctx context.Context) error {
+
+	if inner, ok := c.Conn.(driver.Pinger); ok {
+		return inner.Ping(ctx)
+	}
+	// A driver with no Pinger is one database/sql would not have pinged.
+	return nil
+}
+
+// ResetSession is called before the pool hands the connection out again.
+func (c *boundedConn) ResetSession(ctx context.Context) error {
+
+	if inner, ok := c.Conn.(driver.SessionResetter); ok {
+		return inner.ResetSession(ctx)
+	}
+	return nil
+}
+
+// IsValid reports whether the pool may reuse the connection.
+func (c *boundedConn) IsValid() bool {
+
+	if inner, ok := c.Conn.(driver.Validator); ok {
+		return inner.IsValid()
+	}
+	return true
 }
