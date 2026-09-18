@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
@@ -155,24 +157,54 @@ func getPostgresDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
+	// A connector, rather than sql.Open with a driver name. lib/pq does not
+	// implement OpenConnector, so sql.Open wraps it in a connector whose
+	// Connect discards the context. The pool would then ignore every deadline
+	// while it opens a connection.
+	//
+	// boundedConnector covers what the pq connector still does not: the
+	// startup handshake after the dial, which reads the connect_timeout of the
+	// DSN and no context at all. With both, the whole attempt ends at whichever
+	// comes first, the caller's deadline or the connect timeout.
+	connector, err := pq.NewConnector(dbConfig.dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to read the datasource settings: %w", err)
 	}
+	// The dialer reports each socket to the attempt that opened it, so that an
+	// attempt the caller gave up on can be ended rather than left running.
+	connector.Dialer(attemptDialer{})
+
+	settings := resolvePostgresPoolSettings(runtimeConfig.DataSource.Postgres)
+	db := sql.OpenDB(newBoundedConnector(connector, settings.maxOpenConns))
 
 	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
 
 	// Verify before the handle is published. A pool that no caller can reach
 	// must not become the handle every later call returns.
-	if err := db.Ping(); err != nil {
+	timeout := resolveConnectTimeout(runtimeConfig.DataSource.Postgres)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
-			return nil, fmt.Errorf("failed to ping database: %v (close error: %v)", err, closeErr)
+			return nil, fmt.Errorf("failed to reach the database within %s: %w (close error: %v)",
+				timeout, err, closeErr)
 		}
-		return nil, fmt.Errorf("failed to ping database: %v", err)
+		return nil, fmt.Errorf("failed to reach the database within %s: %w", timeout, err)
 	}
 
 	postgresHandle = db
 	return postgresHandle, nil
+}
+
+// resolveConnectTimeout returns the bound on one connection attempt.
+func resolveConnectTimeout(cfg config.PostgresConfig) time.Duration {
+
+	timeout := time.Duration(cfg.ConnectTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = database.DefaultPostgresConnectTimeout
+	}
+	return timeout
 }
 
 // postgresPoolSettings holds the resolved bounds of the PostgreSQL pool.
@@ -343,10 +375,13 @@ func getDBConfig(dataSource config.Config) (DBConfig, error) {
 		}, nil
 
 	default:
+		// PostgreSQL. connect_timeout bounds the startup handshake that follows
+		// the dial, which no context can reach.
+		connectTimeout := int(resolveConnectTimeout(ds.Postgres).Seconds())
 		return DBConfig{
 			driverName: ds.Type,
-			dsn: fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-				ds.Hostname, ds.Port, ds.Username, ds.Password, ds.Name, ds.SSLMode),
+			dsn: fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
+				ds.Hostname, ds.Port, ds.Username, ds.Password, ds.Name, ds.SSLMode, connectTimeout),
 		}, nil
 	}
 }

@@ -141,6 +141,7 @@ datasource:
   #   max_idle_conns: 25              # unused connections kept open
   #   conn_max_lifetime_seconds: 1800 # retire a connection at this age
   #   conn_max_idle_time_seconds: 300 # close a connection unused this long
+  #   connect_timeout_seconds: 10     # bound one connection attempt, handshake included
   # Applies only when type is "sqlite". Leave a value empty to use its default.
   # sqlite:
   #   path: "repository/database/cds.db" # Relative to the CDS home directory

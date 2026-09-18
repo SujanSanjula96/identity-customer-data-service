@@ -74,8 +74,8 @@ func validateNumericSettings(ds config.DataSourceConfig) error {
 			numericSetting{"datasource.postgres.max_idle_conns", ds.Postgres.MaxIdleConns})
 		durations = append(durations,
 			numericSetting{"datasource.postgres.conn_max_lifetime_seconds", ds.Postgres.ConnMaxLifetimeSeconds},
-			numericSetting{"datasource.postgres.conn_max_idle_time_seconds", ds.Postgres.ConnMaxIdleTimeSeconds})
-
+			numericSetting{"datasource.postgres.conn_max_idle_time_seconds", ds.Postgres.ConnMaxIdleTimeSeconds},
+			numericSetting{"datasource.postgres.connect_timeout_seconds", ds.Postgres.ConnectTimeoutSeconds})
 	}
 
 	var problems []string

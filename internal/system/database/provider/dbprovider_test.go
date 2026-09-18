@@ -49,7 +49,8 @@ func postgresDataSource(dbType string) config.Config {
 // must not change.
 func Test_getDBConfig_postgres(t *testing.T) {
 
-	expectedDSN := "host=localhost port=5432 user=cdsuser password=cdspwd dbname=cdsdb sslmode=disable"
+	expectedDSN := "host=localhost port=5432 user=cdsuser password=cdspwd dbname=cdsdb sslmode=disable" +
+		" connect_timeout=10"
 
 	t.Run("configured as postgres", func(t *testing.T) {
 		dbConfig, err := getDBConfig(postgresDataSource("postgres"))
