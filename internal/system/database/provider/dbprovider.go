@@ -20,6 +20,7 @@ package provider
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -48,14 +49,30 @@ func SetTestDB(db *sql.DB, dbType string) {
 	testDBTypeOverride = dbType
 }
 
-// sqliteHandle is the single pooled handle for the inbuilt database, opened
-// once and kept open. The client treats Close as a no-op, so the file's locks
-// are held for the process rather than re-acquired on every query.
+// The process holds one pool per datasource, opened on the first use and kept
+// open. Every store shares it, so a request reuses a connection instead of a
+// new TCP, TLS and authentication round trip. The client treats Close as a
+// no-op, so a store that closes its client leaves the pool open.
+//
+// A mutex rather than a sync.Once guards the handles. A sync.Once would cache
+// the failure of the first attempt for the life of the process, so a database
+// that is briefly unreachable at start would break the instance for ever. A
+// handle is published only after it is verified, so a failed attempt leaves
+// nothing behind and the next call builds a fresh pool.
 var (
-	sqliteHandle *sql.DB
-	sqliteOnce   sync.Once
-	sqliteErr    error
+	dbMu           sync.Mutex
+	sqliteHandle   *sql.DB
+	postgresHandle *sql.DB
+	// closed records that CloseDB ran. The handles are cleared at that point,
+	// so without this flag a late caller would open a fresh pool that nothing
+	// would ever close.
+	closed bool
 )
+
+// ErrDatabaseClosed is returned to a caller that asks for a pool after CloseDB
+// ran. Shutdown closes the pools once, after the HTTP server and the workers
+// stop, so a pool opened after that would leak for the rest of the process.
+var ErrDatabaseClosed = errors.New("the database is closed: the server has shut down")
 
 // DBProviderInterface defines the interface for getting database clients.
 type DBProviderInterface interface {
@@ -72,7 +89,9 @@ func NewDBProvider() DBProviderInterface {
 	return &DBProvider{}
 }
 
-// GetDBClient returns a database client for the configured datasource.
+// GetDBClient returns a database client for the configured datasource. Every
+// call shares the one pool the process holds, so the client is cheap to build
+// and its Close is a no-op.
 func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 
 	// The suite owns the test handle, so Close must leave it open.
@@ -81,16 +100,42 @@ func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 	}
 
 	// Production DB setup
-	runtimeConfig := config.GetCDSRuntime().Config
-	dbType := database.ResolveType(runtimeConfig.DataSource.Type)
+	dbType := database.ResolveType(config.GetCDSRuntime().Config.DataSource.Type)
+
+	db, err := getDB(dbType)
+	if err != nil {
+		return nil, err
+	}
+
+	return client.NewSharedDBClient(db, dbType), nil
+}
+
+// getDB returns the process-wide pool for the given datasource type.
+func getDB(dbType string) (*sql.DB, error) {
 
 	if dbType == database.TypeSQLite {
-		db, err := getSQLiteDB()
-		if err != nil {
-			return nil, err
-		}
-		return client.NewSharedDBClient(db, dbType), nil
+		return getSQLiteDB()
 	}
+	return getPostgresDB()
+}
+
+// getPostgresDB opens the PostgreSQL pool once and returns it on every later
+// call. sql.Open builds the pool without a network call, so the first
+// connection is made by the first query. EnsureDatabase pings at start, so a
+// wrong setting still fails before the server accepts traffic.
+func getPostgresDB() (*sql.DB, error) {
+
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
+	if closed {
+		return nil, ErrDatabaseClosed
+	}
+	if postgresHandle != nil {
+		return postgresHandle, nil
+	}
+
+	runtimeConfig := config.GetCDSRuntime().Config
 
 	dbConfig, err := getDBConfig(runtimeConfig)
 	if err != nil {
@@ -102,60 +147,103 @@ func (d *DBProvider) GetDBClient() (client.DBClientInterface, error) {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	// Test the database connection.
+	// Verify before the handle is published. A pool that no caller can reach
+	// must not become the handle every later call returns.
 	if err := db.Ping(); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to ping database: %v (close error: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
 
-	return client.NewDBClient(db, dbType), nil
+	postgresHandle = db
+	return postgresHandle, nil
 }
 
-// getSQLiteDB opens the inbuilt database once and initializes its schema.
+// CloseDB closes the pools the process holds. Call it at shutdown, after the
+// HTTP server and the workers stop.
+//
+// It is safe to call more than once: the second call finds no handle and
+// returns nil. After it runs, a request for a pool returns ErrDatabaseClosed
+// rather than a new pool, so a worker that has not stopped yet cannot open
+// connections that nothing will close.
+func CloseDB() error {
+
+	dbMu.Lock()
+	postgres, sqlite := postgresHandle, sqliteHandle
+	postgresHandle, sqliteHandle = nil, nil
+	closed = true
+	dbMu.Unlock()
+
+	var firstErr error
+	if postgres != nil {
+		firstErr = postgres.Close()
+	}
+	if sqlite != nil {
+		if err := sqlite.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+// getSQLiteDB opens the inbuilt database once and initializes its schema. Like
+// the PostgreSQL pool, the handle is published only after the database answers
+// and the schema is applied, so a failed attempt leaves nothing behind.
 func getSQLiteDB() (*sql.DB, error) {
 
-	sqliteOnce.Do(func() {
-		runtimeConfig := config.GetCDSRuntime()
+	dbMu.Lock()
+	defer dbMu.Unlock()
 
-		dbConfig, err := getDBConfig(runtimeConfig.Config)
-		if err != nil {
-			sqliteErr = err
-			return
+	if closed {
+		return nil, ErrDatabaseClosed
+	}
+	if sqliteHandle != nil {
+		return sqliteHandle, nil
+	}
+
+	runtimeConfig := config.GetCDSRuntime()
+
+	dbConfig, err := getDBConfig(runtimeConfig.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ensureSQLiteDir(runtimeConfig.Config.DataSource.SQLite.Path); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the inbuilt database: %v", err)
+	}
+
+	maxOpenConns := runtimeConfig.Config.DataSource.SQLite.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = database.DefaultSQLiteMaxOpenConns
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+
+	// The inbuilt database is a local file, so the open needs no deadline of
+	// its own. The DSN carries busy_timeout, which bounds a wait for the lock.
+	if err := db.Ping(); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to ping the inbuilt database: %v (close error: %v)", err, closeErr)
 		}
+		return nil, fmt.Errorf("failed to ping the inbuilt database: %v", err)
+	}
 
-		if err := ensureSQLiteDir(runtimeConfig.Config.DataSource.SQLite.Path); err != nil {
-			sqliteErr = err
-			return
+	if err := initializeSQLiteSchema(db); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("%v (close error: %v)", err, closeErr)
 		}
+		return nil, err
+	}
 
-		db, err := sql.Open(dbConfig.driverName, dbConfig.dsn)
-		if err != nil {
-			sqliteErr = fmt.Errorf("failed to open the inbuilt database: %v", err)
-			return
-		}
-
-		maxOpenConns := runtimeConfig.Config.DataSource.SQLite.MaxOpenConns
-		if maxOpenConns <= 0 {
-			maxOpenConns = database.DefaultSQLiteMaxOpenConns
-		}
-		db.SetMaxOpenConns(maxOpenConns)
-		db.SetMaxIdleConns(maxOpenConns)
-
-		if err := db.Ping(); err != nil {
-			_ = db.Close()
-			sqliteErr = fmt.Errorf("failed to ping the inbuilt database: %v", err)
-			return
-		}
-
-		if err := initializeSQLiteSchema(db); err != nil {
-			_ = db.Close()
-			sqliteErr = err
-			return
-		}
-
-		sqliteHandle = db
-	})
-
-	return sqliteHandle, sqliteErr
+	sqliteHandle = db
+	return sqliteHandle, nil
 }
 
 // getDBConfig returns the database configuration based on the provided data source.
@@ -184,7 +272,6 @@ func getDBConfig(dataSource config.Config) (DBConfig, error) {
 		}, nil
 
 	default:
-		// PostgreSQL.
 		return DBConfig{
 			driverName: ds.Type,
 			dsn: fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",

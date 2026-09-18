@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -215,4 +216,115 @@ func Test_ValidateDataSource(t *testing.T) {
 			}
 		}
 	})
+}
+
+// resetPools closes whatever the process holds and clears the shutdown state.
+//
+// CloseDB marks the process as shut down, so that a late caller cannot open a
+// pool nothing would close. A test opens a pool after it closes one, so it
+// clears that mark at both ends of the test.
+func resetPools(t *testing.T) {
+
+	t.Helper()
+
+	if err := CloseDB(); err != nil {
+		t.Error(err)
+	}
+
+	dbMu.Lock()
+	closed = false
+	dbMu.Unlock()
+}
+
+// isolatePools gives the test a process that holds no pool, and leaves one
+// behind for the next test.
+func isolatePools(t *testing.T) {
+
+	t.Helper()
+
+	resetPools(t)
+	t.Cleanup(func() { resetPools(t) })
+}
+
+// seedPostgresHandle publishes a pool as the process-wide PostgreSQL handle.
+//
+// getPostgresDB verifies a pool before it publishes one, so it needs a server.
+// A test that checks what happens to an already published handle supplies that
+// handle instead. Only the pointer matters here, so the pool is an inbuilt one.
+func seedPostgresHandle(t *testing.T) *sql.DB {
+
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "cds.db")
+	db, err := sql.Open(database.DriverSQLite, path+"?"+database.DefaultSQLiteOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	isolatePools(t)
+
+	dbMu.Lock()
+	postgresHandle = db
+	dbMu.Unlock()
+
+	return db
+}
+
+// Test_getPostgresDB_reusesOnePool pins the fix for the connection churn: the
+// process opens one PostgreSQL pool and hands it to every caller.
+func Test_getPostgresDB_reusesOnePool(t *testing.T) {
+
+	config.OverrideCDSRuntime(postgresDataSource("postgres"))
+	seeded := seedPostgresHandle(t)
+
+	first, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first != seeded || first != second {
+		t.Error("expected every call to return the same pool")
+	}
+
+	// A client must not close the shared pool, so that the stores can keep
+	// their `defer dbClient.Close()`.
+	dbClient, err := NewDBProvider().GetDBClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	third, err := getPostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third != first {
+		t.Error("expected closing a client to leave the shared pool in place")
+	}
+}
+
+// Test_CloseDB_releasesThePool checks that shutdown drops the handle, so a
+// later call builds a new pool rather than one that is closed.
+func Test_CloseDB_releasesThePool(t *testing.T) {
+
+	config.OverrideCDSRuntime(postgresDataSource("postgres"))
+	seedPostgresHandle(t)
+
+	if err := CloseDB(); err != nil {
+		t.Fatal(err)
+	}
+
+	dbMu.Lock()
+	published := postgresHandle
+	dbMu.Unlock()
+
+	if published != nil {
+		t.Error("expected CloseDB to drop the handle")
+	}
 }

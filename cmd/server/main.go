@@ -48,9 +48,15 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 		return err
 	}
 
+	// This opens the shared connection pool that every request reuses. For the
+	// inbuilt database it also creates the file and applies the schema.
+	if err := provider.EnsureDatabase(); err != nil {
+		return err
+	}
+
 	ds := cdsConfig.DataSource
 	if database.ResolveType(ds.Type) == database.TypeSQLite {
-		return provider.EnsureDatabase()
+		return nil
 	}
 
 	log.GetLogger().Info(fmt.Sprintf("Database initialized successfully for configurations - db name:%s, "+
@@ -197,6 +203,14 @@ func main() {
 	}
 
 	workers.StopCookieCleanupWorker()
+
+	// The pool is deliberately left open. The stops above end the intake of each
+	// worker, but they do not wait for a job that is already running, so closing
+	// the pool here would take the database away from a merge that is half done.
+	// The process exits instead and the operating system releases the
+	// connections, which is what happened before the pool was shared. The worker
+	// lifecycle change that follows this one waits for the jobs to finish, or
+	// cancels them at a deadline, and only then calls provider.CloseDB.
 
 	logger.Info("Shutdown complete")
 }

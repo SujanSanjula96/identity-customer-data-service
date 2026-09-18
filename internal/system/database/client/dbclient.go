@@ -47,28 +47,15 @@ type DBClient struct {
 	db *sql.DB
 	// dbType is the datasource type this client is connected to.
 	dbType string
-	// shared marks a connection pool owned by the caller, which Close must
-	// leave open.
-	shared bool
 }
 
-// NewDBClient creates a new instance of DBClient with the provided database connection.
-func NewDBClient(db *sql.DB, dbType string) DBClientInterface {
-
-	return &DBClient{
-		db:     db,
-		dbType: dbType,
-	}
-}
-
-// NewSharedDBClient creates a client over a connection pool owned by the
-// caller. Close is a no-op, so the pool outlives the client.
+// NewSharedDBClient creates a client over the connection pool the process
+// owns. Close is a no-op, so the pool outlives the client.
 func NewSharedDBClient(db *sql.DB, dbType string) DBClientInterface {
 
 	return &DBClient{
 		db:     db,
 		dbType: dbType,
-		shared: true,
 	}
 }
 
@@ -153,11 +140,10 @@ func (client *DBClient) DBType() string {
 	return client.dbType
 }
 
-// Close closes the database connection, unless the pool is owned by the caller.
+// Close releases the client. The connection pool belongs to the process, not
+// to the client, so this is a no-op. The process closes the pool at shutdown
+// through provider.CloseDB.
 func (client *DBClient) Close() error {
 
-	if client.shared {
-		return nil
-	}
-	return client.db.Close()
+	return nil
 }
