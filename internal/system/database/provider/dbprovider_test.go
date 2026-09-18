@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -309,6 +310,25 @@ func Test_getPostgresDB_reusesOnePool(t *testing.T) {
 	}
 }
 
+// Test_applyPostgresPoolSettings_boundsThePool checks that the resolved limits
+// reach the pool.
+func Test_applyPostgresPoolSettings_boundsThePool(t *testing.T) {
+
+	path := filepath.Join(t.TempDir(), "cds.db")
+	db, err := sql.Open(database.DriverSQLite, path+"?"+database.DefaultSQLiteOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	applyPostgresPoolSettings(db, config.PostgresConfig{})
+
+	if got := db.Stats().MaxOpenConnections; got != database.DefaultPostgresMaxOpenConns {
+		t.Errorf("expected the pool to be bounded at %d, got %d",
+			database.DefaultPostgresMaxOpenConns, got)
+	}
+}
+
 // Test_CloseDB_releasesThePool checks that shutdown drops the handle, so a
 // later call builds a new pool rather than one that is closed.
 func Test_CloseDB_releasesThePool(t *testing.T) {
@@ -326,5 +346,76 @@ func Test_CloseDB_releasesThePool(t *testing.T) {
 
 	if published != nil {
 		t.Error("expected CloseDB to drop the handle")
+	}
+}
+
+func Test_resolvePostgresPoolSettings(t *testing.T) {
+
+	testCases := []struct {
+		name     string
+		cfg      config.PostgresConfig
+		expected postgresPoolSettings
+	}{
+		{
+			name: "an empty configuration uses every default",
+			cfg:  config.PostgresConfig{},
+			expected: postgresPoolSettings{
+				maxOpenConns:    database.DefaultPostgresMaxOpenConns,
+				maxIdleConns:    database.DefaultPostgresMaxIdleConns,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+		{
+			name: "configured values replace the defaults",
+			cfg: config.PostgresConfig{
+				MaxOpenConns:           10,
+				MaxIdleConns:           4,
+				ConnMaxLifetimeSeconds: 60,
+				ConnMaxIdleTimeSeconds: 30,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    10,
+				maxIdleConns:    4,
+				connMaxLifetime: 60 * time.Second,
+				connMaxIdleTime: 30 * time.Second,
+			},
+		},
+		{
+			name: "an idle limit above the open limit is lowered to it",
+			cfg: config.PostgresConfig{
+				MaxOpenConns: 5,
+				MaxIdleConns: 50,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    5,
+				maxIdleConns:    5,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+		{
+			name: "a negative value falls back to its default",
+			cfg: config.PostgresConfig{
+				MaxOpenConns:           -1,
+				MaxIdleConns:           -1,
+				ConnMaxLifetimeSeconds: -1,
+				ConnMaxIdleTimeSeconds: -1,
+			},
+			expected: postgresPoolSettings{
+				maxOpenConns:    database.DefaultPostgresMaxOpenConns,
+				maxIdleConns:    database.DefaultPostgresMaxIdleConns,
+				connMaxLifetime: database.DefaultPostgresConnMaxLifetime,
+				connMaxIdleTime: database.DefaultPostgresConnMaxIdleTime,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := resolvePostgresPoolSettings(testCase.cfg); got != testCase.expected {
+				t.Errorf("expected %+v, got %+v", testCase.expected, got)
+			}
+		})
 	}
 }

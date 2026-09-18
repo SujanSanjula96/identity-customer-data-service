@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -147,6 +148,8 @@ func getPostgresDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
+	applyPostgresPoolSettings(db, runtimeConfig.DataSource.Postgres)
+
 	// Verify before the handle is published. A pool that no caller can reach
 	// must not become the handle every later call returns.
 	if err := db.Ping(); err != nil {
@@ -158,6 +161,62 @@ func getPostgresDB() (*sql.DB, error) {
 
 	postgresHandle = db
 	return postgresHandle, nil
+}
+
+// postgresPoolSettings holds the resolved bounds of the PostgreSQL pool.
+type postgresPoolSettings struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+	connMaxIdleTime time.Duration
+}
+
+// resolvePostgresPoolSettings applies a default to every value the operator
+// left empty, and lowers an idle limit that is above the open limit.
+//
+// ValidateDataSource rejects a negative value and a contradictory pair before
+// the server starts, so the corrections below are a safety net rather than the
+// place a configuration mistake is handled. The function stays total, because
+// a test may build a pool from any configuration.
+func resolvePostgresPoolSettings(cfg config.PostgresConfig) postgresPoolSettings {
+
+	settings := postgresPoolSettings{
+		maxOpenConns:    cfg.MaxOpenConns,
+		maxIdleConns:    cfg.MaxIdleConns,
+		connMaxLifetime: time.Duration(cfg.ConnMaxLifetimeSeconds) * time.Second,
+		connMaxIdleTime: time.Duration(cfg.ConnMaxIdleTimeSeconds) * time.Second,
+	}
+
+	if settings.maxOpenConns <= 0 {
+		settings.maxOpenConns = database.DefaultPostgresMaxOpenConns
+	}
+	if settings.maxIdleConns <= 0 {
+		settings.maxIdleConns = database.DefaultPostgresMaxIdleConns
+	}
+	// An idle limit above the open limit reserves connections the pool can
+	// never hold, so lower it.
+	if settings.maxIdleConns > settings.maxOpenConns {
+		settings.maxIdleConns = settings.maxOpenConns
+	}
+	if settings.connMaxLifetime <= 0 {
+		settings.connMaxLifetime = database.DefaultPostgresConnMaxLifetime
+	}
+	if settings.connMaxIdleTime <= 0 {
+		settings.connMaxIdleTime = database.DefaultPostgresConnMaxIdleTime
+	}
+
+	return settings
+}
+
+// applyPostgresPoolSettings bounds the pool.
+func applyPostgresPoolSettings(db *sql.DB, cfg config.PostgresConfig) {
+
+	settings := resolvePostgresPoolSettings(cfg)
+
+	db.SetMaxOpenConns(settings.maxOpenConns)
+	db.SetMaxIdleConns(settings.maxIdleConns)
+	db.SetConnMaxLifetime(settings.connMaxLifetime)
+	db.SetConnMaxIdleTime(settings.connMaxIdleTime)
 }
 
 // CloseDB closes the pools the process holds. Call it at shutdown, after the

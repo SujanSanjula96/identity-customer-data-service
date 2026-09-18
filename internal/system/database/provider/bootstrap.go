@@ -31,6 +31,91 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
+// maxConfigurableSeconds is the largest value a seconds setting may take. One
+// year is far above any sensible deadline or connection lifetime, so a larger
+// value is a typo. It is also well below the point where the conversion to a
+// time.Duration overflows, which would turn the value into a negative duration
+// and then into a default.
+const maxConfigurableSeconds = 365 * 24 * 60 * 60
+
+// numericSetting is one configuration value and the key an operator sees.
+type numericSetting struct {
+	key   string
+	value int
+}
+
+// validateNumericSettings reports every numeric datasource setting CDS cannot
+// use.
+//
+// Zero keeps its meaning: the setting is not configured, so its default
+// applies. A negative value is a typo. To turn a typo into the default would
+// hide it, and the instance would then run with a capacity nobody chose.
+//
+// Only the settings that apply to the configured type are read, so PostgreSQL
+// values are ignored on the inbuilt database. The Helm chart renders the
+// PostgreSQL block whatever the type is.
+func validateNumericSettings(ds config.DataSourceConfig) error {
+
+	dbType := database.ResolveType(ds.Type)
+
+	var durations []numericSetting
+	var counts []numericSetting
+
+	if dbType == database.TypeSQLite {
+		counts = append(counts,
+			numericSetting{"datasource.sqlite.max_open_conns", ds.SQLite.MaxOpenConns})
+	} else {
+		counts = append(counts,
+			numericSetting{"datasource.postgres.max_open_conns", ds.Postgres.MaxOpenConns},
+			numericSetting{"datasource.postgres.max_idle_conns", ds.Postgres.MaxIdleConns})
+		durations = append(durations,
+			numericSetting{"datasource.postgres.conn_max_lifetime_seconds", ds.Postgres.ConnMaxLifetimeSeconds},
+			numericSetting{"datasource.postgres.conn_max_idle_time_seconds", ds.Postgres.ConnMaxIdleTimeSeconds})
+	}
+
+	var problems []string
+	for _, group := range [][]numericSetting{counts, durations} {
+		for _, setting := range group {
+			if setting.value < 0 {
+				problems = append(problems, fmt.Sprintf("%s is %d, which is below zero",
+					setting.key, setting.value))
+			}
+		}
+	}
+	for _, setting := range durations {
+		if setting.value > maxConfigurableSeconds {
+			problems = append(problems, fmt.Sprintf("%s is %d, which is above the limit of %d seconds",
+				setting.key, setting.value, maxConfigurableSeconds))
+		}
+	}
+
+	// An idle limit above the open limit reserves connections the pool can
+	// never hold, so the two settings contradict each other.
+	//
+	// The comparison is against the limit the pool really uses. An open limit
+	// the operator left empty becomes the default, not zero, so an idle limit
+	// of 30 with no open limit is rejected rather than lowered to 25 in
+	// silence.
+	if dbType != database.TypeSQLite && ds.Postgres.MaxIdleConns > 0 {
+		openLimit, openSource := ds.Postgres.MaxOpenConns, "datasource.postgres.max_open_conns"
+		if openLimit <= 0 {
+			openLimit = database.DefaultPostgresMaxOpenConns
+			openSource = "the default datasource.postgres.max_open_conns"
+		}
+		if ds.Postgres.MaxIdleConns > openLimit {
+			problems = append(problems, fmt.Sprintf(
+				"datasource.postgres.max_idle_conns is %d, which is above %s of %d",
+				ds.Postgres.MaxIdleConns, openSource, openLimit))
+		}
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("invalid datasource settings: %s", strings.Join(problems, "; "))
+	}
+
+	return nil
+}
+
 // ValidateDataSource reports whether the datasource configuration is one CDS
 // can run on. The server refuses to start when it is not.
 func ValidateDataSource(ds config.DataSourceConfig) error {
@@ -39,6 +124,10 @@ func ValidateDataSource(ds config.DataSourceConfig) error {
 	if !database.IsSupportedType(dbType) {
 		return fmt.Errorf("unsupported datasource.type %q: supported types are %s",
 			ds.Type, strings.Join(database.SupportedTypes, ", "))
+	}
+
+	if err := validateNumericSettings(ds); err != nil {
+		return err
 	}
 
 	// The inbuilt database needs no connection settings.
