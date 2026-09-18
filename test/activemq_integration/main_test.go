@@ -97,8 +97,8 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// ── Teardown ──────────────────────────────────────────────────────────────
-	_ = workers.StopProfileWorker()
-	_ = workers.StopSchemaSyncWorker()
+	_ = workers.StopProfileWorker(ctx)
+	_ = workers.StopSchemaSyncWorker(ctx)
 	_ = pg.Container.Terminate(ctx)
 	_ = amq.Container.Terminate(ctx)
 

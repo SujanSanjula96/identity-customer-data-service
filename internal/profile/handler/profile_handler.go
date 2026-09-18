@@ -1540,7 +1540,7 @@ func getCallerClientIDFromRequest(r *http.Request) string {
 	identityClient := client.NewIdentityClient(cfg)
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
 
-	introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+	introspectionClaims, err := identityClient.IntrospectToken(r.Context(), token, orgHandle)
 	if err != nil {
 		logger.Debug("Failed to introspect token for app ID extraction", log.Error(err))
 		return ""

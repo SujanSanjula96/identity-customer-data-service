@@ -121,7 +121,7 @@ func (q *ProfileWorkerQueue) Enqueue(profile profileModel.Profile) {
 // It nils out the global reference under a write lock before calling Close,
 // ensuring no concurrent Enqueue can send on a closed queue. It should be
 // called during application shutdown.
-func StopProfileWorker() error {
+func StopProfileWorker(ctx context.Context) error {
 	profileQueueMu.Lock()
 	q := activeProfileQueue
 	lifecycle := profileLifecycle
@@ -136,7 +136,7 @@ func StopProfileWorker() error {
 	}
 	// Returns only when no unification job is still at work, so that the
 	// caller can close the database pool.
-	return lifecycle.stop(q.Close)
+	return lifecycle.stop(ctx, q.Close)
 }
 
 // unifyProfiles unifies profiles based on unification rules

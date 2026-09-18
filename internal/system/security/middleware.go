@@ -101,7 +101,9 @@ func AuthnAndAuthz(r *http.Request, operation string) error {
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	//  Validate token
-	claims, err := authn.ValidateAuthenticationAndReturnClaims(token, orgHandle)
+	// The request context travels with the call, so a client that goes away
+	// ends the introspection it started.
+	claims, err := authn.ValidateAuthenticationAndReturnClaims(r.Context(), token, orgHandle)
 	if err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
 			Code:        errors.UN_AUTHORIZED.Code,

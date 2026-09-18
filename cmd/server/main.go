@@ -27,12 +27,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -188,25 +190,42 @@ func main() {
 	<-quit
 	logger.Info("Shutdown signal received, draining connections...")
 
-	// Give in-flight requests up to 15 seconds to complete
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	// One deadline for the whole sequence, rather than one for each stage.
+	// The stages used to add up: 15 seconds of HTTP drain, then 10 for each
+	// worker in turn, so the process could take far longer than any single
+	// number in the configuration said.
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), constants.ShutdownGracePeriod)
+	defer cancelShutdown()
 
-	if err := server.Shutdown(ctx); err != nil {
+	// Stop taking requests first, so the workers drain against a system that
+	// is no longer given work.
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP server shutdown error.", log.Error(err))
 	}
-	// The order below is the shutdown contract. Each Stop returns only when
-	// its worker has no job at work, so the pool is closed under nobody.
-	if err := workers.StopProfileWorker(); err != nil {
-		logger.Error("Failed to stop profile worker.", log.Error(err))
-	}
-	if err := workers.StopSchemaSyncWorker(); err != nil {
-		logger.Error("Failed to stop schema sync worker.", log.Error(err))
+
+	// The workers do not depend on each other, so they stop at the same time
+	// rather than one after another.
+	var stopping sync.WaitGroup
+	stopWorker := func(name string, stop func() error) {
+		stopping.Add(1)
+		go func() {
+			defer stopping.Done()
+			if err := stop(); err != nil {
+				logger.Error(fmt.Sprintf("Failed to stop the %s worker.", name), log.Error(err))
+			}
+		}()
 	}
 
-	workers.StopCookieCleanupWorker()
+	stopWorker("profile", func() error { return workers.StopProfileWorker(shutdownCtx) })
+	stopWorker("schema sync", func() error { return workers.StopSchemaSyncWorker(shutdownCtx) })
+	stopWorker("cookie cleanup", func() error { return workers.StopCookieCleanupWorker(shutdownCtx) })
 
-	// The pool is shared, so it is closed here rather than by any store.
+	stopping.Wait()
+
+	// Every worker has stopped, or has said that it could not within the
+	// deadline. The pool closes either way: a job that is still running has
+	// already had its context cancelled, so its statements fail rather than
+	// hang, and a process that never stops is worse.
 	if err := provider.CloseDB(); err != nil {
 		logger.Error("Failed to close the database connections.", log.Error(err))
 	}

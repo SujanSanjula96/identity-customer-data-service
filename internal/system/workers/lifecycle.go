@@ -21,7 +21,6 @@ package workers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -105,16 +104,38 @@ func (l *jobLifecycle) run(work func(ctx context.Context) error) error {
 	return work(ctx)
 }
 
-// stop ends the worker and returns only when no job is running.
+// The three outcomes of a worker shutdown. Nil means every job finished on its
+// own, which is the graceful case. The other two are worth a log line, and they
+// are not the same event.
+var (
+	// ErrJobsCancelled says the jobs that were running did not finish inside
+	// the worker's budget, so they were cancelled. They unwound, and their
+	// transactions rolled back, so closing the pool is safe. Their work did
+	// not complete, and a broker still holds those messages.
+	ErrJobsCancelled = errors.New("workers: jobs were cancelled because they did not finish within the budget")
+
+	// ErrForcedShutdown says a job was still running when the shutdown
+	// deadline passed. The caller closes the database pool anyway, because a
+	// process that never stops is worse. A statement from that job then fails
+	// rather than hangs.
+	ErrForcedShutdown = errors.New("workers: a job was still running when the shutdown deadline passed")
+)
+
+// stop ends the worker and returns when no job is running, or when the
+// shutdown deadline passes.
 //
 // The order matters. Intake stops first, so nothing new arrives. Jobs that
-// have not started are dropped. The jobs that are running keep their context,
-// because a merge cut in half is worse than a slow shutdown, and they are given
-// the budget to finish. Only when the budget runs out are they cancelled, and
-// their transactions then roll back.
+// have not started are refused, and the error keeps their message. The jobs
+// that are running keep their context, because a merge cut in half is worse
+// than a slow shutdown, and they are given the budget to finish. Only when the
+// budget runs out are they cancelled, and their transactions then roll back.
+//
+// Both waits are bounded by ctx, so this returns inside the shutdown deadline
+// whatever a job does. A job that ignores its own cancellation is reported
+// through ErrForcedShutdown rather than waited for.
 //
 // The caller closes the database pool after this returns.
-func (l *jobLifecycle) stop(closeQueue func() error) error {
+func (l *jobLifecycle) stop(ctx context.Context, closeQueue func() error) error {
 
 	l.mu.Lock()
 	l.draining = true
@@ -122,7 +143,7 @@ func (l *jobLifecycle) stop(closeQueue func() error) error {
 
 	closeErr := closeQueue()
 
-	if waitWithin(&l.running, l.budget) {
+	if waitWithin(ctx, &l.running, l.budget) {
 		l.cancel()
 		return closeErr
 	}
@@ -130,16 +151,15 @@ func (l *jobLifecycle) stop(closeQueue func() error) error {
 	// Out of time. End the jobs that are still running and wait for them to
 	// unwind, so that the pool is not closed under them.
 	l.cancel()
-	l.running.Wait()
-
-	if closeErr != nil {
-		return closeErr
+	if !waitWithin(ctx, &l.running, l.budget) {
+		return errors.Join(closeErr, ErrForcedShutdown)
 	}
-	return fmt.Errorf("workers: a job did not finish within %s and was cancelled", l.budget)
+	return errors.Join(closeErr, ErrJobsCancelled)
 }
 
-// waitWithin reports whether the group finished within the timeout.
-func waitWithin(group *sync.WaitGroup, timeout time.Duration) bool {
+// waitWithin reports whether the group finished before the budget ran out and
+// before the shutdown deadline passed.
+func waitWithin(ctx context.Context, group *sync.WaitGroup, budget time.Duration) bool {
 
 	done := make(chan struct{})
 	go func() {
@@ -147,13 +167,15 @@ func waitWithin(group *sync.WaitGroup, timeout time.Duration) bool {
 		close(done)
 	}()
 
-	timer := time.NewTimer(timeout)
+	timer := time.NewTimer(budget)
 	defer timer.Stop()
 
 	select {
 	case <-done:
 		return true
 	case <-timer.C:
+		return false
+	case <-ctx.Done():
 		return false
 	}
 }

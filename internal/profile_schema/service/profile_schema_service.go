@@ -319,7 +319,7 @@ func defaultValidateApplicationIdentifier(ctx context.Context, appIdentifier, or
 	}
 
 	identityClient := client.NewIdentityClient(config.GetCDSRuntime().Config)
-	res, err := identityClient.FetchApplicationIdentifier(appIdentifier, orgHandle)
+	res, err := identityClient.FetchApplicationIdentifier(ctx, appIdentifier, orgHandle)
 	if err != nil {
 		return err, false
 	}
@@ -699,7 +699,7 @@ func (s *ProfileSchemaService) SyncProfileSchema(ctx context.Context, orgHandle 
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
-	claims, err := identityClient.GetProfileSchema(orgHandle)
+	claims, err := identityClient.GetProfileSchema(ctx, orgHandle)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to fetch profile schema from identity server for organization %s:", orgHandle)

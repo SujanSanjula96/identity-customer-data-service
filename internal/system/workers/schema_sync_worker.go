@@ -87,7 +87,7 @@ func EnqueueSchemaSyncJob(schemaSync model.ProfileSchemaSync) error {
 // out the global reference under a write lock before calling Close, ensuring
 // no concurrent Enqueue can send on a closed queue. It should be called
 // during application shutdown.
-func StopSchemaSyncWorker() error {
+func StopSchemaSyncWorker(ctx context.Context) error {
 	schemaSyncQueueMu.Lock()
 	q := activeSchemaSyncQueue
 	lifecycle := schemaSyncLifecycle
@@ -102,7 +102,7 @@ func StopSchemaSyncWorker() error {
 	}
 	// Returns only when no schema sync job is still at work, so that the
 	// caller can close the database pool.
-	return lifecycle.stop(q.Close)
+	return lifecycle.stop(ctx, q.Close)
 }
 
 // processSchemaSyncJob processes a schema sync job

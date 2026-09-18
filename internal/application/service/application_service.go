@@ -52,7 +52,7 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
-	app, exists, err := identityClient.GetApplication(appIdentifier, orgHandle)
+	app, exists, err := identityClient.GetApplication(ctx, appIdentifier, orgHandle)
 	if err != nil {
 		return false, err
 	}

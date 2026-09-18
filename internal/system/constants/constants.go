@@ -227,10 +227,19 @@ const (
 	// inactive cookie records in batches.
 	CookieCleanupJobTimeout = 10 * time.Minute
 
-	// WorkerShutdownTimeout bounds the wait for the jobs that are running when
-	// the server stops. A job that is still running when it expires is
-	// cancelled, so that the database pool can close. It is below the 15
-	// seconds the HTTP server takes to drain, so that shutdown as a whole
-	// stays predictable.
+	// WorkerShutdownTimeout bounds the wait for the jobs of one worker. A job
+	// that is still running when it expires is cancelled, so that the database
+	// pool can close.
+	//
+	// It is a bound on one worker, not on shutdown. ShutdownGracePeriod bounds
+	// the whole sequence, and whichever of the two ends first wins.
 	WorkerShutdownTimeout = 10 * time.Second
+
+	// ShutdownGracePeriod bounds the whole shutdown sequence: the drain of the
+	// HTTP server and the stop of every worker share it.
+	//
+	// One deadline for the sequence, rather than one for each stage, is what
+	// makes the total predictable. Kubernetes sends SIGKILL after
+	// terminationGracePeriodSeconds, 30 by default, so this stays below it.
+	ShutdownGracePeriod = 25 * time.Second
 )

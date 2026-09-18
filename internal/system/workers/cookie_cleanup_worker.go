@@ -86,8 +86,16 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 }
 
 // StopCookieCleanupWorker stops the worker and returns when its goroutine has
-// gone, so that the caller can close the database pool. The wait is bounded.
-func StopCookieCleanupWorker() {
+// gone, so that the caller can close the database pool.
+//
+// A sweep deletes in batches and is safe to cut short, because the next start
+// continues where it stopped. It is therefore cancelled at once rather than
+// given time to finish.
+//
+// The wait shares the shutdown deadline with every other worker. It reports
+// ErrForcedShutdown rather than returning while its goroutine still runs,
+// which is the same contract the queue workers follow.
+func StopCookieCleanupWorker(ctx context.Context) error {
 
 	cookieCleanupMu.Lock()
 	cancel, done := cookieCleanupCancel, cookieCleanupDone
@@ -95,12 +103,12 @@ func StopCookieCleanupWorker() {
 	cookieCleanupMu.Unlock()
 
 	if cancel == nil {
-		return
+		return nil
 	}
 	cancel()
 
 	if done == nil {
-		return
+		return nil
 	}
 
 	timer := time.NewTimer(constants.WorkerShutdownTimeout)
@@ -108,10 +116,12 @@ func StopCookieCleanupWorker() {
 
 	select {
 	case <-done:
+		return nil
 	case <-timer.C:
-		log.GetLogger().Error(fmt.Sprintf("Cookie cleanup worker did not stop within %s",
-			constants.WorkerShutdownTimeout))
+	case <-ctx.Done():
 	}
+
+	return ErrForcedShutdown
 }
 
 // runCookieCleanup deletes the inactive cookie records in batches.

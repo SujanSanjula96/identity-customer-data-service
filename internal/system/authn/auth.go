@@ -19,6 +19,7 @@
 package authn
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -36,7 +37,8 @@ var (
 )
 
 // ValidateAuthenticationAndReturnClaims validates Authorization: Bearer token from the HTTP request
-func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]interface{}, error) {
+func ValidateAuthenticationAndReturnClaims(ctx context.Context, token, orgHandle string) (
+	map[string]interface{}, error) {
 
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
@@ -60,7 +62,7 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 		}
 
 		// Introspect to check if token is still active (not revoked)
-		introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+		introspectionClaims, err := identityClient.IntrospectToken(ctx, token, orgHandle)
 		if err != nil {
 			logger.Error(fmt.Sprintf("JWT token introspection failed for organization: '%s'", orgHandle),
 				log.Error(err))
@@ -81,7 +83,7 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 	logger.Debug(fmt.Sprintf("Token is identified as opaque. Validating opaque token for organization: '%s' "+
 		"using introspection", orgHandle))
 
-	introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+	introspectionClaims, err := identityClient.IntrospectToken(ctx, token, orgHandle)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Opaque token introspection failed for organization: '%s'", orgHandle),
 			log.Error(err))

@@ -56,7 +56,7 @@ func Test_stop_waitsForARunningJob(t *testing.T) {
 	<-started
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- lifecycle.stop(func() error { return nil }) }()
+	go func() { stopped <- lifecycle.stop(context.Background(), func() error { return nil }) }()
 
 	select {
 	case <-stopped:
@@ -87,7 +87,7 @@ func Test_stop_dropsAJobThatHasNotStarted(t *testing.T) {
 
 	lifecycle := newJobLifecycle()
 
-	if err := lifecycle.stop(func() error { return nil }); err != nil {
+	if err := lifecycle.stop(context.Background(), func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,11 +130,16 @@ func Test_stop_cancelsAJobThatOutlastsTheBudget(t *testing.T) {
 	<-started
 
 	start := time.Now()
-	err := lifecycle.stop(func() error { return nil })
+	err := lifecycle.stop(context.Background(), func() error { return nil })
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Error("expected stop to report that a job had to be cancelled")
+	// The job unwound, so shutdown is safe. It is still reported, because its
+	// work did not complete.
+	if !errors.Is(err, ErrJobsCancelled) {
+		t.Errorf("expected ErrJobsCancelled, got %v", err)
+	}
+	if errors.Is(err, ErrForcedShutdown) {
+		t.Error("the job did unwind, so this is not a forced shutdown")
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("stop took %v, so the budget did not bound it", elapsed)
@@ -189,7 +194,7 @@ func Test_stop_waitsForARunningJobOnTheRealQueue(t *testing.T) {
 	<-started
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- lifecycle.stop(q.Close) }()
+	go func() { stopped <- lifecycle.stop(context.Background(), q.Close) }()
 
 	select {
 	case <-stopped:
@@ -223,5 +228,51 @@ func Test_stop_waitsForARunningJobOnTheRealQueue(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Error("expected the buffered items to be refused with an error")
+	}
+}
+
+// Test_stop_returnsInsideTheShutdownDeadline covers the job that will not stop.
+//
+// The wait after the cancellation used to have no deadline of its own, so a job
+// that ignored its context held shutdown open for as long as it liked. Schema
+// sync could do exactly that: its requests to the Identity Server carried no
+// context, so nothing could end them.
+//
+// Shutdown now reports the job rather than waiting for it. The caller closes
+// the pool, and a statement from that job fails instead of hanging.
+func Test_stop_returnsInsideTheShutdownDeadline(t *testing.T) {
+
+	lifecycle := newJobLifecycle()
+	lifecycle.budget = 100 * time.Millisecond
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	go func() {
+		_ = lifecycle.run(func(context.Context) error {
+			close(started)
+			// Ignores its context entirely, as an HTTP call without one does.
+			<-release
+			return nil
+		})
+	}()
+	<-started
+
+	const deadline = 500 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	start := time.Now()
+	err := lifecycle.stop(ctx, func() error { return nil })
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrForcedShutdown) {
+		t.Errorf("expected ErrForcedShutdown, got %v", err)
+	}
+	// Twice the deadline leaves room for a slow machine and still fails if the
+	// wait is unbounded.
+	if elapsed > 2*deadline {
+		t.Errorf("stop took %v, so it waited past the shutdown deadline of %v", elapsed, deadline)
 	}
 }
