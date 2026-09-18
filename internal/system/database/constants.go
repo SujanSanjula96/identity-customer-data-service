@@ -150,8 +150,11 @@ const (
 //
 // A bounded pool makes a database call wait when every connection is in use.
 // Go's short forms, db.Query and db.Begin, pass context.Background(), which has
-// no deadline, so that wait would never end. The client therefore gives every
-// call a deadline when the caller supplies none.
+// no deadline, so that wait would never end.
+//
+// These are maximums rather than fallbacks. The client applies one to every
+// call, so a caller with no deadline gets it and a caller asking for longer is
+// held to it. A caller with an earlier deadline keeps its own.
 const (
 	// DefaultQueryTimeout bounds one statement, from the wait for a free
 	// connection to the last row.

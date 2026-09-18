@@ -48,9 +48,10 @@ cloud:
           port: 5432
           name: "cds_db"
           sslmode: require
-          # Deadlines for database calls, in seconds. The pool is bounded, so a
-          # call that finds every connection in use waits. These values end that
-          # wait.
+          # Maximum durations for database calls, in seconds. The pool is
+          # bounded, so a call that finds every connection in use waits. These
+          # values end that wait, and they are enforced: no caller can ask for
+          # longer.
           queryTimeoutSeconds: 30
           txTimeoutSeconds: 30
           # Connection pool bounds for ONE pod. The deployment-wide demand is

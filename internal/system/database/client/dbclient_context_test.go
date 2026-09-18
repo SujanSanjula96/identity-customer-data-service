@@ -272,22 +272,41 @@ func Test_Timeouts_resolve(t *testing.T) {
 	}
 }
 
-// Test_withDeadline_keepsTheCallersDeadline checks that the client does not
-// shorten a deadline the caller set. A background job may need longer than the
-// default.
-func Test_withDeadline_keepsTheCallersDeadline(t *testing.T) {
+// Test_withDeadline_capsALongerCallerDeadline is the operator's guarantee. The
+// configured timeout is a maximum, so a caller that asks for an hour is held to
+// it. Without this, a background job would silently exceed the value an
+// operator set, and later context propagation would widen that hole.
+func Test_withDeadline_capsALongerCallerDeadline(t *testing.T) {
 
-	want := time.Now().Add(time.Hour)
-	parent, cancelParent := context.WithDeadline(context.Background(), want)
+	parent, cancelParent := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
 	defer cancelParent()
 
 	ctx, cancel := withDeadline(parent, time.Second)
-	if cancel != nil {
-		t.Fatal("want no cancel function when the caller owns the context")
+	defer cancel()
+
+	got, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("want a deadline on the returned context")
 	}
+	if remaining := time.Until(got); remaining > 2*time.Second {
+		t.Fatalf("the deadline is %v away, so the configured maximum of 1s was not applied", remaining)
+	}
+}
+
+// Test_withDeadline_keepsAnEarlierCallerDeadline is the other half. A request
+// that will be abandoned sooner than the maximum must not be held open to it.
+func Test_withDeadline_keepsAnEarlierCallerDeadline(t *testing.T) {
+
+	want := time.Now().Add(50 * time.Millisecond)
+	parent, cancelParent := context.WithDeadline(context.Background(), want)
+	defer cancelParent()
+
+	ctx, cancel := withDeadline(parent, time.Hour)
+	defer cancel()
+
 	got, ok := ctx.Deadline()
 	if !ok || !got.Equal(want) {
-		t.Fatalf("got deadline %v, want %v", got, want)
+		t.Fatalf("got deadline %v, want the caller's %v", got, want)
 	}
 }
 

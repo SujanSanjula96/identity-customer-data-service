@@ -96,16 +96,22 @@ func NewSharedDBClient(db *sql.DB, dbType string, timeouts Timeouts) DBClientInt
 	}
 }
 
-// withDeadline returns a context that is certain to end.
+// withDeadline applies the configured timeout as a maximum.
 //
 // The pool is bounded, so a call waits when every connection is in use. That
 // wait ends only when the context ends, so a call without a deadline would wait
-// without a limit. A caller that set its own deadline keeps it.
+// without a limit.
+//
+// The timeout is a limit an operator sets, not a default a caller may raise.
+// context.WithTimeout keeps whichever deadline comes first, so a caller that
+// asks for less keeps its own, and a caller that asks for more, or for none at
+// all, is held to this value. A statement that legitimately needs longer is a
+// reason to raise datasource.query_timeout_seconds, not a reason for one call
+// site to exempt itself.
+//
+// The returned cancel is never nil, so every caller must call it.
 func withDeadline(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, nil
-	}
 	return context.WithTimeout(ctx, timeout)
 }
 
@@ -124,9 +130,7 @@ func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQ
 	[]map[string]interface{}, error) {
 
 	ctx, cancel := withDeadline(ctx, client.timeouts.Query)
-	if cancel != nil {
-		defer cancel()
-	}
+	defer cancel()
 
 	isSQLite := client.dbType == database.TypeSQLite
 	if isSQLite {
@@ -207,9 +211,7 @@ func (client *DBClient) BeginTxContext(ctx context.Context) (*model.Tx, error) {
 
 	tx, err := client.db.BeginTx(ctx, nil)
 	if err != nil {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		return nil, err
 	}
 	return model.NewTx(ctx, cancel, tx, client.dbType), nil

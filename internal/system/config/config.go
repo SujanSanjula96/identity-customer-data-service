@@ -103,15 +103,19 @@ type DataSourceConfig struct {
 	// PostgreSQL connection pool settings. Read only when Type is "postgres".
 	Postgres PostgresConfig `yaml:"postgres"`
 
-	// QueryTimeoutSeconds bounds one statement, from the wait for a free
-	// connection to the last row. It applies to both datasource types,
-	// because both bound their pool. Optional, and it falls back to a default.
+	// QueryTimeoutSeconds is the maximum a single statement may take, from the
+	// wait for a free connection to the last row. It applies to both datasource
+	// types, because both bound their pool. It is enforced, not a default a
+	// caller can raise: a caller that asks for longer is held to this value,
+	// and a caller that asks for less keeps its own deadline. Optional, and it
+	// falls back to a default.
 	QueryTimeoutSeconds int `yaml:"query_timeout_seconds"`
 
-	// TxTimeoutSeconds bounds a whole transaction. A transaction holds its
-	// connection until it ends, so this value also bounds how long an
-	// abandoned transaction keeps that connection. Optional, and it falls back
-	// to a default.
+	// TxTimeoutSeconds is the maximum a whole transaction may take. A
+	// transaction holds its connection until it ends, so this value also bounds
+	// how long an abandoned transaction keeps that connection. It is enforced
+	// in the same way as QueryTimeoutSeconds. Optional, and it falls back to a
+	// default.
 	TxTimeoutSeconds int `yaml:"tx_timeout_seconds"`
 
 	// SQLite settings. Read only when Type is "sqlite".
