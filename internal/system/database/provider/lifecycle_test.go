@@ -43,8 +43,8 @@ func sqliteDataSource(t *testing.T) config.Config {
 	}
 }
 
-// Test_CloseDB_isSafeToRepeat pins the shutdown contract. The server calls
-// CloseDB once, but a second call must not fail or panic.
+// Test_CloseDB_isSafeToRepeat pins the shutdown contract. The caller that owns
+// shutdown calls CloseDB once, but a second call must not fail or panic.
 func Test_CloseDB_isSafeToRepeat(t *testing.T) {
 
 	config.OverrideCDSRuntime(sqliteDataSource(t))

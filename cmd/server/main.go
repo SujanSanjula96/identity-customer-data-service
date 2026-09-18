@@ -204,10 +204,13 @@ func main() {
 
 	workers.StopCookieCleanupWorker()
 
-	// The pool is shared, so it is closed here rather than by any store.
-	if err := provider.CloseDB(); err != nil {
-		logger.Error("Failed to close the database connections.", log.Error(err))
-	}
+	// The pool is deliberately left open. The stops above end the intake of each
+	// worker, but they do not wait for a job that is already running, so closing
+	// the pool here would take the database away from a merge that is half done.
+	// The process exits instead and the operating system releases the
+	// connections, which is what happened before the pool was shared. The worker
+	// lifecycle change that follows this one waits for the jobs to finish, or
+	// cancels them at a deadline, and only then calls provider.CloseDB.
 
 	logger.Info("Shutdown complete")
 }
