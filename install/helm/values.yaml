@@ -123,9 +123,14 @@ cloud:
       livenessProbe:
         initialDelaySeconds: 20
         periodSeconds: 10
+        timeoutSeconds: 5
       readinessProbe:
         initialDelaySeconds: 20
         periodSeconds: 10
+        # Longer than the two seconds the readiness check allows its own
+        # database query, so the instance answers "not ready" itself instead
+        # of the probe timing out.
+        timeoutSeconds: 5
       imagePullPolicy: Always
       resources:
         requests:

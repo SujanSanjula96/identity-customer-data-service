@@ -19,6 +19,7 @@
 package client
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -35,6 +36,11 @@ import (
 // selects a dialect and the stores stay datasource-agnostic.
 type DBClientInterface interface {
 	ExecuteQuery(query model.DBQuery, args ...interface{}) ([]map[string]interface{}, error)
+	// ExecuteQueryContext runs a query under the caller's context, and under no
+	// deadline of its own. The caller ends the wait for a free connection, and
+	// the query itself, by ending that context.
+	ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
+		[]map[string]interface{}, error)
 	BeginTx() (*model.Tx, error)
 	// DBType is for the few statements a store builds at runtime, whose bind
 	// arguments differ per datasource. It is not for selecting a statement.
@@ -59,8 +65,19 @@ func NewSharedDBClient(db *sql.DB, dbType string) DBClientInterface {
 	}
 }
 
-// ExecuteQuery executes a query and returns the result as a slice of maps.
+// ExecuteQuery executes a query and returns the result as a slice of maps. It
+// runs under context.Background, so the caller that needs a deadline calls
+// ExecuteQueryContext instead.
 func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
+	[]map[string]interface{}, error) {
+
+	return client.ExecuteQueryContext(context.Background(), query, args...)
+}
+
+// ExecuteQueryContext executes a query under the caller's context and returns
+// the result as a slice of maps. Every row is read before it returns, so the
+// context covers the whole call.
+func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 	[]map[string]interface{}, error) {
 
 	isSQLite := client.dbType == database.TypeSQLite
@@ -70,7 +87,7 @@ func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 
 	sqlText := query.GetQuery(client.dbType)
 
-	rows, err := client.db.Query(sqlText, args...)
+	rows, err := client.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
 	}
