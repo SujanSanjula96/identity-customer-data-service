@@ -200,6 +200,7 @@ func Test_ProductionProvider(t *testing.T) {
 
 		var done sync.WaitGroup
 		pids := make([]string, callers)
+		failures := make([]error, callers)
 
 		for i := 0; i < callers; i++ {
 			done.Add(1)
@@ -207,21 +208,39 @@ func Test_ProductionProvider(t *testing.T) {
 				defer done.Done()
 				rows, err := dbClient.ExecuteQueryContext(context.Background(),
 					model.DBQuery{ID: "PROVIDER-IT-02", Query: "SELECT pg_sleep(0.2), pg_backend_pid() AS pid"})
-				if err == nil && len(rows) == 1 {
-					pids[index] = fmt.Sprint(rows[0]["pid"])
+				if err != nil {
+					failures[index] = err
+					return
 				}
+				if len(rows) != 1 {
+					failures[index] = fmt.Errorf("got %d rows, want 1", len(rows))
+					return
+				}
+				pids[index] = fmt.Sprint(rows[0]["pid"])
 			}(i)
 		}
 		done.Wait()
 
-		distinct := map[string]bool{}
-		for _, pid := range pids {
-			if pid != "" {
-				distinct[pid] = true
+		// Every caller must answer. A bounded pool makes a caller wait for a
+		// free connection, and waiting is correct; failing is not. Ignoring a
+		// failure here would let the test pass on a pool that served one query
+		// and refused the other eleven.
+		for index, err := range failures {
+			if err != nil {
+				t.Errorf("concurrent caller %d failed: %v", index, err)
 			}
 		}
-		if len(distinct) == 0 {
-			t.Fatal("expected the concurrent queries to answer")
+
+		distinct := map[string]bool{}
+		for index, pid := range pids {
+			if pid == "" {
+				t.Errorf("concurrent caller %d reported no backend process", index)
+				continue
+			}
+			distinct[pid] = true
+		}
+		if t.Failed() {
+			t.FailNow()
 		}
 		t.Logf("%d concurrent queries used %d server processes", callers, len(distinct))
 		if len(distinct) > providerPoolLimit {
