@@ -65,6 +65,11 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 			expectKey:  "datasource.postgres.conn_max_idle_time_seconds",
 		},
 		{
+			name:       "a negative connect timeout",
+			dataSource: withPostgres(config.PostgresConfig{ConnectTimeoutSeconds: -1}),
+			expectKey:  "datasource.postgres.connect_timeout_seconds",
+		},
+		{
 			name: "an idle limit above the open limit",
 			dataSource: withPostgres(config.PostgresConfig{
 				MaxOpenConns: 5,
@@ -116,7 +121,7 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 
 	ds := postgresDataSource("postgres").DataSource
-	ds.Postgres = config.PostgresConfig{MaxOpenConns: -1, ConnMaxLifetimeSeconds: -1}
+	ds.Postgres = config.PostgresConfig{MaxOpenConns: -1, ConnectTimeoutSeconds: -1}
 
 	err := ValidateDataSource(ds)
 	if err == nil {
@@ -125,7 +130,7 @@ func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 
 	for _, key := range []string{
 		"datasource.postgres.max_open_conns",
-		"datasource.postgres.conn_max_lifetime_seconds",
+		"datasource.postgres.connect_timeout_seconds",
 	} {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("expected the error to name %q, got %v", key, err)
@@ -147,6 +152,7 @@ func Test_ValidateDataSource_acceptsValidNumbers(t *testing.T) {
 				MaxIdleConns:           25,
 				ConnMaxLifetimeSeconds: 1800,
 				ConnMaxIdleTimeSeconds: 300,
+				ConnectTimeoutSeconds:  10,
 			}
 			return ds
 		}(),

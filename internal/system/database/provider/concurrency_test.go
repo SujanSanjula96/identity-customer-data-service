@@ -103,6 +103,47 @@ func Test_getSQLiteDB_opensOnePoolUnderConcurrency(t *testing.T) {
 	}
 }
 
+// Test_getPostgresDB_concurrentFailuresPublishNoHandle checks that simultaneous
+// failures leave the process as they found it.
+//
+// A failed attempt must not be cached, and it must not publish a pool nobody
+// can reach. The port refuses the connection, so each attempt ends at once.
+// Run it with -race.
+func Test_getPostgresDB_concurrentFailuresPublishNoHandle(t *testing.T) {
+
+	config.OverrideCDSRuntime(unreachableDataSource("127.0.0.1", refusedPort(t), 1))
+	isolatePools(t)
+
+	pools := make([]*sql.DB, concurrentCallers)
+	failures := make([]error, concurrentCallers)
+
+	atOnce(func(index int) {
+		pools[index], failures[index] = getPostgresDB()
+	})
+
+	for i := 0; i < concurrentCallers; i++ {
+		if failures[i] == nil {
+			t.Errorf("caller %d expected an error from a port that refuses the connection", i)
+		}
+		if pools[i] != nil {
+			t.Errorf("caller %d got a pool from a failed attempt", i)
+		}
+	}
+
+	dbMu.Lock()
+	published := postgresHandle
+	dbMu.Unlock()
+
+	if published != nil {
+		t.Error("expected no handle after concurrent failures")
+	}
+
+	// The failures are not cached, so a call after them still tries.
+	if _, err := getPostgresDB(); err == nil {
+		t.Error("expected a later call to try again and fail again")
+	}
+}
+
 // Test_GetDBClient_sharesOnePoolUnderConcurrency runs the whole path a store
 // takes: ask the provider for a client, run a statement, close the client.
 //
