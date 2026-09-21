@@ -122,6 +122,8 @@ func UpdateAdminConfig(ctx context.Context, config model.AdminConfig, orgHandle 
 		}, err)
 	}
 
+	defer tx.RollbackUnlessDone()
+
 	query := scripts.UpdateOrgConfiguration
 
 	cdsEnabledValue := "false"
@@ -205,6 +207,8 @@ func UpdateInitialSchemaSyncConfig(ctx context.Context, state bool, orgHandle st
 			Description: errorMsg,
 		}, err)
 	}
+
+	defer tx.RollbackUnlessDone()
 
 	stateValue := "false"
 	if state {

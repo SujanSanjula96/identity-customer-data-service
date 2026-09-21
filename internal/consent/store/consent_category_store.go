@@ -59,19 +59,12 @@ func AddConsentCategory(ctx context.Context, category model.ConsentCategory) err
 		}, err)
 		return serverError
 	}
+
+	defer tx.RollbackUnlessDone()
+
 	_, err = tx.ExecContext(ctx, query, category.CategoryName, category.CategoryIdentifier, category.OrgHandle, category.Purpose,
 		scripts.EncodeStringArray(dbType, category.Destinations), category.IsMandatory)
 	if err != nil {
-		errRollback := tx.Rollback()
-		if errRollback != nil {
-			errorMsg := fmt.Sprintf("Failed to rollback inserting consent category: %s", category.CategoryIdentifier)
-			logger.Debug(errorMsg, log.Error(errRollback))
-			return errors2.NewServerError(errors2.ErrorMessage{
-				Code:        errors2.ADD_CONSENT_CATEGORY.Code,
-				Message:     errors2.ADD_CONSENT_CATEGORY.Message,
-				Description: errorMsg,
-			}, errRollback)
-		}
 		errorMsg := fmt.Sprintf("Failed to execute query for inserting consent category: %s", category.CategoryIdentifier)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -302,6 +295,8 @@ func UpdateConsentCategory(ctx context.Context, category model.ConsentCategory) 
 		return serverError
 	}
 
+	defer tx.RollbackUnlessDone()
+
 	dbType := dbClient.DBType()
 	query := scripts.UpdateConsentCategory
 	_, err = tx.ExecContext(ctx, query, category.CategoryName, category.Purpose,
@@ -370,6 +365,8 @@ func DeleteConsentCategory(ctx context.Context, categoryId string) error {
 		}, err)
 		return serverError
 	}
+
+	defer tx.RollbackUnlessDone()
 
 	query := scripts.DeleteConsentCategory
 	_, err = tx.ExecContext(ctx, query, categoryId)

@@ -1453,22 +1453,14 @@ func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, c
 		}, err)
 		return serverError
 	}
+
+	defer tx.RollbackUnlessDone()
+
 	query := scripts.UpdateProfileReference
 
 	for _, child := range children {
 		_, err := tx.ExecContext(ctx, query, parentProfile.ProfileId, child.Reason, constants.MergedTo, child.ProfileId)
 		if err != nil {
-			errRoll := tx.Rollback()
-			if errRoll != nil {
-				errorMsg := fmt.Sprintf("Failed to rollback transaction after error: %s", err)
-				logger.Debug(errorMsg, log.Error(err))
-				serverError := errors2.NewServerError(errors2.ErrorMessage{
-					Code:        errors2.UPDATE_PROFILE.Code,
-					Message:     errors2.UPDATE_PROFILE.Message,
-					Description: errorMsg,
-				}, errRoll)
-				return serverError
-			}
 			errorMsg := fmt.Sprintf("Failed to insert referenced profile: %s for parent profile: %s", child.ProfileId, parentProfile.ProfileId)
 			logger.Debug(errorMsg, log.Error(err))
 			serverError := errors2.NewServerError(errors2.ErrorMessage{
@@ -2007,12 +1999,13 @@ func UpdateProfileConsents(ctx context.Context, profileId string, consents []mod
 		return serverError
 	}
 
+	defer tx.RollbackUnlessDone()
+
 	// First, delete existing consents for this profile to ensure a clean slate
 
 	deleteQuery := scripts.DeleteProfileConsentsByProfileId
 	_, err = tx.ExecContext(ctx, deleteQuery, profileId)
 	if err != nil {
-		_ = tx.Rollback()
 		errorMsg := fmt.Sprintf("Failed to delete existing consents for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
@@ -2034,7 +2027,6 @@ func UpdateProfileConsents(ctx context.Context, profileId string, consents []mod
 			consent.ConsentedAt)
 
 		if err != nil {
-			_ = tx.Rollback()
 			errorMsg := fmt.Sprintf("Failed to insert consent for profile: %s, category: %s",
 				profileId, consent.CategoryIdentifier)
 			logger.Debug(errorMsg, log.Error(err))

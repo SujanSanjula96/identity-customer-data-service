@@ -481,6 +481,8 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 		}, err)
 	}
 
+	defer tx.RollbackUnlessDone()
+
 	stmt := scripts.UpdateProfileSchemaAttributesForSchema
 
 	for _, attr := range updates {
@@ -521,16 +523,6 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 		}
 
 		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
-			err := tx.Rollback()
-			if err != nil {
-				errorMsg := fmt.Sprintf("Failed to rollback updating attribute %s for organization %s", attr.AttributeId, orgId)
-				logger.Debug(errorMsg, log.Error(err))
-				return errors.NewServerError(errors.ErrorMessage{
-					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
-					Description: errorMsg,
-				}, err)
-			}
 			errorMsg := fmt.Sprintf("Failed to update attribute %s for organization %s", attr.AttributeId, orgId)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
@@ -651,11 +643,8 @@ func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.P
 			Description: errorMsg,
 		}, err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+
+	defer tx.RollbackUnlessDone()
 
 	// Step 1: Upsert incoming attributes in-place so that existing attribute_id rows
 	// are updated rather than deleted and re-created. This preserves FK references
