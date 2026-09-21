@@ -40,6 +40,12 @@ func (e *ServerError) Error() string {
 	return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Err)
 }
 
+// Unwrap exposes the cause to errors.Is and errors.As, so that a caller can
+// tell a cancelled or expired context from a real failure.
+func (e *ServerError) Unwrap() error {
+	return e.Err
+}
+
 func (e *ClientError) Error() string {
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }

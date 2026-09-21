@@ -41,6 +41,10 @@ type DBClientInterface interface {
 	// the query itself, by ending that context.
 	ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 		[]map[string]interface{}, error)
+	// BeginTxContext starts a transaction under the caller's context. When that
+	// context ends, database/sql rolls the transaction back and returns its
+	// connection to the pool.
+	BeginTxContext(ctx context.Context) (*model.Tx, error)
 	BeginTx() (*model.Tx, error)
 	// DBType is for the few statements a store builds at runtime, whose bind
 	// arguments differ per datasource. It is not for selecting a statement.
@@ -138,6 +142,19 @@ func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQ
 	}
 
 	return results, nil
+}
+
+// BeginTxContext starts a new database transaction under the caller's context.
+//
+// A transaction holds its connection until it ends. When the context ends
+// first, database/sql rolls the transaction back and returns that connection.
+func (client *DBClient) BeginTxContext(ctx context.Context) (*model.Tx, error) {
+
+	tx, err := client.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return model.NewTx(tx, client.dbType), nil
 }
 
 // BeginTx starts a new database transaction.
