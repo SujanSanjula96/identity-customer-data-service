@@ -19,6 +19,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
@@ -29,7 +30,7 @@ import (
 )
 
 // UpsertApplication persists the application information, refreshing the clientId on re-validation.
-func UpsertApplication(app model.Application) error {
+func UpsertApplication(ctx context.Context, app model.Application) error {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -51,7 +52,7 @@ func UpsertApplication(app model.Application) error {
 	}
 
 	query := scripts.UpsertApplication
-	_, err = dbClient.ExecuteQuery(query, app.AppID, app.OrgHandle, clientID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, app.OrgHandle, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
@@ -67,7 +68,7 @@ func UpsertApplication(app model.Application) error {
 }
 
 // GetAppIdentifierByClientID resolves an OAuth clientId to the app ID.
-func GetAppIdentifierByClientID(orgHandle, clientID string) (string, error) {
+func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error) {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -83,7 +84,7 @@ func GetAppIdentifierByClientID(orgHandle, clientID string) (string, error) {
 	defer dbClient.Close()
 
 	query := scripts.GetAppIdentifierByClientID
-	results, err := dbClient.ExecuteQuery(query, orgHandle, clientID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))

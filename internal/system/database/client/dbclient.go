@@ -35,6 +35,8 @@ import (
 // Statements are passed as a model.DBQuery, so the client is the only place that
 // selects a dialect and the stores stay datasource-agnostic.
 type DBClientInterface interface {
+	// Deprecated: use ExecuteQueryContext. A query without a context waits for
+	// a free connection without a limit, and cannot be ended by its caller.
 	ExecuteQuery(query model.DBQuery, args ...interface{}) ([]map[string]interface{}, error)
 	// ExecuteQueryContext runs a query under the caller's context, and under no
 	// deadline of its own. The caller ends the wait for a free connection, and
@@ -45,6 +47,8 @@ type DBClientInterface interface {
 	// context ends, database/sql rolls the transaction back and returns its
 	// connection to the pool.
 	BeginTxContext(ctx context.Context) (*model.Tx, error)
+	// Deprecated: use BeginTxContext. A transaction without a context holds
+	// its connection until some code ends it.
 	BeginTx() (*model.Tx, error)
 	// DBType is for the few statements a store builds at runtime, whose bind
 	// arguments differ per datasource. It is not for selecting a statement.
@@ -69,8 +73,10 @@ func NewSharedDBClient(db *sql.DB, dbType string) DBClientInterface {
 	}
 }
 
-// ExecuteQuery executes a query under context.Background and returns the result
-// as a slice of maps. A caller that needs a deadline uses ExecuteQueryContext.
+// ExecuteQuery executes a query under context.Background.
+//
+// Deprecated: use ExecuteQueryContext. A query without a context waits for a
+// free connection without a limit, and cannot be ended by its caller.
 func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 	[]map[string]interface{}, error) {
 
@@ -157,14 +163,13 @@ func (client *DBClient) BeginTxContext(ctx context.Context) (*model.Tx, error) {
 	return model.NewTx(tx, client.dbType), nil
 }
 
-// BeginTx starts a new database transaction.
+// BeginTx starts a new database transaction under context.Background.
+//
+// Deprecated: use BeginTxContext. A transaction without a context holds its
+// connection until some code ends it.
 func (client *DBClient) BeginTx() (*model.Tx, error) {
 
-	tx, err := client.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	return model.NewTx(tx, client.dbType), nil
+	return client.BeginTxContext(context.Background())
 }
 
 // DBType returns the datasource type this client is connected to.

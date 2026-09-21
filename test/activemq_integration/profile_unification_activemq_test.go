@@ -19,6 +19,7 @@
 package activemqintegration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -44,7 +45,7 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	// Bypass the IDP app-identifier check so tests don't need a live identity
 	// server.
 	restoreValidation := schemaService.OverrideValidateApplicationIdentifierForTest(
-		func(appID, org string) (error, bool) { return nil, true },
+		func(context.Context, string, string) (error, bool) { return nil, true },
 	)
 	defer restoreValidation()
 
@@ -74,9 +75,9 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 			MultiValued:   true,
 		},
 	}
-	_, err := schemaSvc.AddProfileSchemaAttributesForScope(identityAttrs, constants.IdentityAttributes, orgHandle)
+	_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, orgHandle)
 	require.NoError(t, err)
-	_, err = schemaSvc.AddProfileSchemaAttributesForScope(traitAttrs, constants.Traits, orgHandle)
+	_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, orgHandle)
 	require.NoError(t, err)
 
 	// ── Unification rule: match on email ─────────────────────────────────────
@@ -91,7 +92,7 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
-	require.NoError(t, unificationSvc.AddUnificationRule(emailRule, orgHandle))
+	require.NoError(t, unificationSvc.AddUnificationRule(context.Background(), emailRule, orgHandle))
 
 	// ── Create two profiles that share an email ───────────────────────────────
 	profileSvc := profileService.GetProfilesService()
@@ -99,18 +100,18 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	p1Req := mustUnmarshalProfileReq(`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["music"]}}`)
 	p2Req := mustUnmarshalProfileReq(`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["sports"]}}`)
 
-	p1, err := profileSvc.CreateProfile(p1Req, orgHandle)
+	p1, err := profileSvc.CreateProfile(context.Background(), p1Req, orgHandle)
 	require.NoError(t, err)
-	p2, err := profileSvc.CreateProfile(p2Req, orgHandle)
+	p2, err := profileSvc.CreateProfile(context.Background(), p2Req, orgHandle)
 	require.NoError(t, err)
 
 	// Allow enough time for the ActiveMQ messages to be consumed and processed.
 	time.Sleep(5 * time.Second)
 
 	// ── Assertions ───────────────────────────────────────────────────────────
-	merged1, err := profileSvc.GetProfile(p1.ProfileId)
+	merged1, err := profileSvc.GetProfile(context.Background(), p1.ProfileId)
 	require.NoError(t, err)
-	merged2, err := profileSvc.GetProfile(p2.ProfileId)
+	merged2, err := profileSvc.GetProfile(context.Background(), p2.ProfileId)
 	require.NoError(t, err)
 
 	// Both profiles should point to the same master profile.
@@ -120,7 +121,7 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 		"both profiles should be unified into the same master profile")
 
 	// The master profile should carry the combined interests.
-	master, err := profileSvc.GetProfile(merged1.MergedTo.ProfileId)
+	master, err := profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileId)
 	require.NoError(t, err)
 	interests, ok := master.Traits["interests"].([]interface{})
 	require.True(t, ok, "interests should be a slice")
@@ -129,13 +130,13 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 
 	// ── Cleanup ───────────────────────────────────────────────────────────────
 	t.Cleanup(func() {
-		_ = unificationSvc.DeleteUnificationRule(emailRule.RuleId)
-		profiles, _, _ := profileSvc.GetAllProfilesCursor(orgHandle, 20, nil)
+		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRule.RuleId)
+		profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), orgHandle, 20, nil)
 		for _, p := range profiles {
-			_ = profileSvc.DeleteProfile(p.ProfileId)
+			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId)
 		}
-		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(orgHandle, constants.IdentityAttributes)
-		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(orgHandle, constants.Traits)
+		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), orgHandle, constants.IdentityAttributes)
+		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), orgHandle, constants.Traits)
 	})
 }
 

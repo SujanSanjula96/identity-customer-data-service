@@ -19,6 +19,7 @@
 package client
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"sync"
@@ -70,12 +71,12 @@ func Test_Close_leavesTheSharedPoolOpen(t *testing.T) {
 
 	// The other client must still answer. This is the check the pointer
 	// comparison alone does not make.
-	if _, err := second.ExecuteQuery(testPing); err != nil {
+	if _, err := second.ExecuteQueryContext(context.Background(), testPing); err != nil {
 		t.Errorf("expected the second client to keep working: %v", err)
 	}
 
 	// The closed client answers too, because Close released nothing.
-	if _, err := first.ExecuteQuery(testPing); err != nil {
+	if _, err := first.ExecuteQueryContext(context.Background(), testPing); err != nil {
 		t.Errorf("expected the closed client to keep working: %v", err)
 	}
 
@@ -108,7 +109,7 @@ func Test_Close_leavesTheSharedPoolOpenUnderConcurrency(t *testing.T) {
 			defer func() { _ = dbClient.Close() }()
 
 			start.Wait()
-			_, failures[index] = dbClient.ExecuteQuery(testPing)
+			_, failures[index] = dbClient.ExecuteQueryContext(context.Background(), testPing)
 		}(i)
 	}
 

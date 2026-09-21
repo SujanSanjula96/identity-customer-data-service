@@ -19,6 +19,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -48,7 +49,13 @@ func StartSchemaSyncWorker() error {
 	if err != nil {
 		return fmt.Errorf("workers: failed to create schema sync queue: %w", err)
 	}
-	if err := q.Start(processSchemaSyncJob); err != nil {
+	// A queue message has no caller, so the worker is the context boundary for
+	// the work one message causes.
+	workerCtx := context.Background()
+
+	if err := q.Start(func(schemaSync model.ProfileSchemaSync) {
+		processSchemaSyncJob(workerCtx, schemaSync)
+	}); err != nil {
 		_ = q.Close()
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
 	}
@@ -88,7 +95,7 @@ func StopSchemaSyncWorker() error {
 }
 
 // processSchemaSyncJob processes a schema sync job
-func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
+func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))
@@ -96,7 +103,7 @@ func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err := schemaService.SyncProfileSchema(schemaSync.OrgId)
+	err := schemaService.SyncProfileSchema(ctx, schemaSync.OrgId)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
 		return

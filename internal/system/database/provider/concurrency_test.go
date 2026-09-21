@@ -19,6 +19,7 @@
 package provider
 
 import (
+	"context"
 	"database/sql"
 	"sync"
 	"testing"
@@ -166,7 +167,7 @@ func Test_GetDBClient_sharesOnePoolUnderConcurrency(t *testing.T) {
 		// Every store does exactly this.
 		defer func() { _ = dbClient.Close() }()
 
-		_, failures[index] = dbClient.ExecuteQuery(ping)
+		_, failures[index] = dbClient.ExecuteQueryContext(context.Background(), ping)
 	})
 
 	for i := 0; i < concurrentCallers; i++ {

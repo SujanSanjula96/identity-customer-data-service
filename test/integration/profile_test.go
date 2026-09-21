@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -42,7 +43,7 @@ func Test_Profile(t *testing.T) {
 	unificationSvc := unificationService.GetUnificationRuleService()
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(appID, org string) (error, bool) { return nil, true })
+		func(context.Context, string, string) (error, bool) { return nil, true })
 	defer restore()
 
 	t.Run("PreRequisite_AddProfileSchemaAttributes", func(t *testing.T) {
@@ -84,13 +85,13 @@ func Test_Profile(t *testing.T) {
 			},
 		}
 
-		_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(identityAttributes, constants.IdentityAttributes, SuperTenantOrg)
+		_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttributes, constants.IdentityAttributes, SuperTenantOrg)
 		require.NoError(t, err, "Failed to add identity schema attributes")
 
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(traits, constants.Traits, SuperTenantOrg)
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traits, constants.Traits, SuperTenantOrg)
 		require.NoError(t, err, "Failed to add traits schema attributes")
 
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(appData, constants.ApplicationData, SuperTenantOrg)
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), appData, constants.ApplicationData, SuperTenantOrg)
 		require.NoError(t, err, "Failed to add app data schema attributes")
 	})
 
@@ -105,7 +106,7 @@ func Test_Profile(t *testing.T) {
 	_ = json.Unmarshal(jsonData, &profileRequest)
 
 	t.Run("Create_Profile_Success", func(t *testing.T) {
-		profile, err := profileSvc.CreateProfile(profileRequest, SuperTenantOrg)
+		profile, err := profileSvc.CreateProfile(context.Background(), profileRequest, SuperTenantOrg)
 		require.NoError(t, err)
 		require.NotNil(t, profile)
 		require.Equal(t, email, profile.IdentityAttributes["email"].([]interface{})[0])
@@ -113,17 +114,17 @@ func Test_Profile(t *testing.T) {
 	})
 
 	t.Run("Get_Profile_Success", func(t *testing.T) {
-		profiles, _, err := profileSvc.GetAllProfilesCursor(SuperTenantOrg, 10, nil)
+		profiles, _, err := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg, 10, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, profiles)
-		profile, err := profileSvc.GetProfile(profiles[0].ProfileId)
+		profile, err := profileSvc.GetProfile(context.Background(), profiles[0].ProfileId)
 		require.NoError(t, err)
 		require.NotNil(t, profile)
 		require.Contains(t, profile.IdentityAttributes["email"], email)
 	})
 
 	t.Run("Update_Profile_Success", func(t *testing.T) {
-		_, err := profileSvc.CreateProfile(profileRequest, SuperTenantOrg)
+		_, err := profileSvc.CreateProfile(context.Background(), profileRequest, SuperTenantOrg)
 		require.NoError(t, err)
 
 		var updatedRequest profileModel.ProfileRequest
@@ -137,38 +138,38 @@ func Test_Profile(t *testing.T) {
 	}`)
 		_ = json.Unmarshal(jsonData, &updatedRequest)
 
-		profiles, _, err := profileSvc.GetAllProfilesCursor(SuperTenantOrg, 10, nil)
+		profiles, _, err := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg, 10, nil)
 		require.NoError(t, err)
 		p := profiles[0]
 
-		updated, err := profileSvc.UpdateProfile(p.ProfileId, SuperTenantOrg, updatedRequest)
+		updated, err := profileSvc.UpdateProfile(context.Background(), p.ProfileId, SuperTenantOrg, updatedRequest)
 		require.NoError(t, err)
 		require.Contains(t, updated.Traits["interests"], "travel")
 		require.Equal(t, "updated@wso2.com", updated.IdentityAttributes["email"].([]interface{})[0])
 	})
 
 	t.Run("Delete_Profile_Success", func(t *testing.T) {
-		profiles, _, err := profileSvc.GetAllProfilesCursor(SuperTenantOrg, 10, nil)
+		profiles, _, err := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg, 10, nil)
 		require.NoError(t, err)
 		p := profiles[0]
 
-		err = profileSvc.DeleteProfile(p.ProfileId)
+		err = profileSvc.DeleteProfile(context.Background(), p.ProfileId)
 		require.NoError(t, err)
 
-		_, err = profileSvc.GetProfile(p.ProfileId)
+		_, err = profileSvc.GetProfile(context.Background(), p.ProfileId)
 		require.Error(t, err)
 	})
 
 	t.Cleanup(func() {
-		rules, _ := unificationSvc.GetUnificationRules(SuperTenantOrg)
+		rules, _ := unificationSvc.GetUnificationRules(context.Background(), SuperTenantOrg)
 		for _, r := range rules {
-			_ = unificationSvc.DeleteUnificationRule(r.RuleId)
+			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleId)
 		}
-		profiles, _, _ := profileSvc.GetAllProfilesCursor(SuperTenantOrg, 10, nil)
+		profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg, 10, nil)
 		for _, p := range profiles {
-			_ = profileSvc.DeleteProfile(p.ProfileId)
+			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId)
 		}
-		_ = profileSchemaSvc.DeleteProfileSchema(SuperTenantOrg)
-		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(SuperTenantOrg, constants.IdentityAttributes)
+		_ = profileSchemaSvc.DeleteProfileSchema(context.Background(), SuperTenantOrg)
+		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), SuperTenantOrg, constants.IdentityAttributes)
 	})
 }

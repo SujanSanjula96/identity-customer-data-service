@@ -19,6 +19,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -34,7 +35,7 @@ import (
 // Mandatory categories (e.g. identity-data) are always merged into the allowed set
 // regardless of whether the caller listed them in consentCategoryIds.
 // If consentCategoryIds is empty, only mandatory identity fields are returned.
-func FilterProfileByConsent(response model.ProfileResponse, profileId string, orgHandle string, consentIds []string) (model.ProfileResponse, error) {
+func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse, profileId string, orgHandle string, consentIds []string) (model.ProfileResponse, error) {
 
 	filtered := model.ProfileResponse{
 		ProfileId:  response.ProfileId,
@@ -46,7 +47,7 @@ func FilterProfileByConsent(response model.ProfileResponse, profileId string, or
 
 	// Always include mandatory categories in the allowed set regardless of what
 	// the caller requested.  This ensures identity attributes are never stripped.
-	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(orgHandle)
+	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, orgHandle)
 	if err != nil {
 		return filtered, err
 	}
@@ -69,7 +70,7 @@ func FilterProfileByConsent(response model.ProfileResponse, profileId string, or
 	}
 
 	// Fetch attributes for categories the profile has actively consented to (mandatory categories always included).
-	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileId(profileId, orgHandle, merged)
+	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileId(ctx, profileId, orgHandle, merged)
 	if err != nil {
 		return filtered, err
 	}

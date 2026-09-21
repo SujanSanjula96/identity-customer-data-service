@@ -19,6 +19,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -28,7 +29,9 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-var cookieCleanupDone chan struct{}
+// cookieCleanupCancel stops the worker and cancels the database work that a
+// sweep has in flight.
+var cookieCleanupCancel context.CancelFunc
 
 func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 
@@ -45,7 +48,8 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 		batchSize = 500
 	}
 
-	cookieCleanupDone = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cookieCleanupCancel = cancel
 
 	logger.Info(fmt.Sprintf("Cookie cleanup worker started. Interval: %s, Batch size: %d",
 		interval, batchSize))
@@ -57,8 +61,8 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 		for {
 			select {
 			case <-ticker.C:
-				runCookieCleanup(batchSize)
-			case <-cookieCleanupDone:
+				runCookieCleanup(ctx, batchSize)
+			case <-ctx.Done():
 				logger.Info("Cookie cleanup worker stopped")
 				return
 			}
@@ -67,18 +71,20 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 }
 
 func StopCookieCleanupWorker() {
-	if cookieCleanupDone != nil {
-		close(cookieCleanupDone)
+	if cookieCleanupCancel != nil {
+		cookieCleanupCancel()
 	}
 }
 
-func runCookieCleanup(batchSize int) {
+// runCookieCleanup deletes the inactive cookie records in batches. The sweep
+// runs under the worker's context, so it stops when the worker stops.
+func runCookieCleanup(ctx context.Context, batchSize int) {
 
 	logger := log.GetLogger()
 	total := 0
 
 	for {
-		deleted, err := store.DeleteInactiveCookieProfiles(batchSize)
+		deleted, err := store.DeleteInactiveCookieProfiles(ctx, batchSize)
 		if err != nil {
 			logger.Debug("Cookie cleanup batch error", log.Error(err))
 			break

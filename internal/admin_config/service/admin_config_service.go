@@ -19,6 +19,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -33,35 +34,35 @@ import (
 
 // AdminConfigServiceInterface defines the service interface.
 type AdminConfigServiceInterface interface {
-	GetAdminConfig(orgHandle string) (model.AdminConfig, error)
-	IsCDSEnabled(orgHandle string) bool
-	IsInitialSchemaSyncDone(orgHandle string) bool
-	IsSystemApplication(orgHandle, appId string) (bool, error)
-	UpdateAdminConfig(category model.AdminConfig, orgHandle string) error
-	UpdateInitialSchemaSync(state bool, orgHandle string) error
+	GetAdminConfig(ctx context.Context, orgHandle string) (model.AdminConfig, error)
+	IsCDSEnabled(ctx context.Context, orgHandle string) bool
+	IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool
+	IsSystemApplication(ctx context.Context, orgHandle, appId string) (bool, error)
+	UpdateAdminConfig(ctx context.Context, category model.AdminConfig, orgHandle string) error
+	UpdateInitialSchemaSync(ctx context.Context, state bool, orgHandle string) error
 }
 
 // AdminConfigService is the default implementation.
 type AdminConfigService struct{}
 
-func (a AdminConfigService) IsCDSEnabled(orgHandle string) bool {
-	config, err := store.GetAdminConfig(orgHandle)
+func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgHandle string) bool {
+	config, err := store.GetAdminConfig(ctx, orgHandle)
 	if err != nil || config == nil {
 		return false
 	}
 	return config.CDSEnabled
 }
 
-func (a AdminConfigService) IsInitialSchemaSyncDone(orgHandle string) bool {
-	config, err := store.GetAdminConfig(orgHandle)
+func (a AdminConfigService) IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool {
+	config, err := store.GetAdminConfig(ctx, orgHandle)
 	if err != nil || config == nil {
 		return false
 	}
 	return config.InitialSchemaSyncDone
 }
 
-func (a AdminConfigService) IsSystemApplication(orgHandle, appId string) (bool, error) {
-	config, err := store.GetAdminConfig(orgHandle)
+func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgHandle, appId string) (bool, error) {
+	config, err := store.GetAdminConfig(ctx, orgHandle)
 	if err != nil {
 		return false, err
 	}
@@ -76,7 +77,7 @@ func (a AdminConfigService) IsSystemApplication(orgHandle, appId string) (bool, 
 	return false, nil
 }
 
-func (a AdminConfigService) GetAdminConfig(orgHandle string) (model.AdminConfig, error) {
+func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgHandle string) (model.AdminConfig, error) {
 
 	defaultConfig := model.AdminConfig{
 		OrgHandle:             orgHandle,
@@ -84,16 +85,17 @@ func (a AdminConfigService) GetAdminConfig(orgHandle string) (model.AdminConfig,
 		InitialSchemaSyncDone: false,
 		SystemApplications:    []string{},
 	}
-	config, err := store.GetAdminConfig(orgHandle)
+	config, err := store.GetAdminConfig(ctx, orgHandle)
 	if err != nil || config == nil {
 		return defaultConfig, err
 	}
 	return *config, nil
 }
 
-func (a AdminConfigService) UpdateAdminConfig(updatedConfig model.AdminConfig, orgHandle string) error {
-	isCDSEnabledInitialState := a.IsCDSEnabled(orgHandle)
-	isInitialSchemaSyncDoneInitialState := a.IsInitialSchemaSyncDone(orgHandle)
+func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
+	updatedConfig model.AdminConfig, orgHandle string) error {
+	isCDSEnabledInitialState := a.IsCDSEnabled(ctx, orgHandle)
+	isInitialSchemaSyncDoneInitialState := a.IsInitialSchemaSyncDone(ctx, orgHandle)
 
 	// Schema sync status should not be changed via this method.
 	updatedConfig.InitialSchemaSyncDone = isInitialSchemaSyncDoneInitialState
@@ -101,12 +103,12 @@ func (a AdminConfigService) UpdateAdminConfig(updatedConfig model.AdminConfig, o
 	schemaService := service.GetProfileSchemaService()
 	if !isCDSEnabledInitialState && !isInitialSchemaSyncDoneInitialState && updatedConfig.CDSEnabled {
 		// CDS is being enabled for the first time. Trigger initial schema sync.
-		err := schemaService.SyncProfileSchema(orgHandle)
+		err := schemaService.SyncProfileSchema(ctx, orgHandle)
 		if err != nil {
 			return err
 		}
 		// Seed the mandatory "Identity Data" consent category after schema is ready.
-		if err := consentService.GetConsentCategoryService().SeedDefaultConsentCategory(orgHandle); err != nil {
+		if err := consentService.GetConsentCategoryService().SeedDefaultConsentCategory(ctx, orgHandle); err != nil {
 			return err
 		}
 		updatedConfig.InitialSchemaSyncDone = true
@@ -116,7 +118,7 @@ func (a AdminConfigService) UpdateAdminConfig(updatedConfig model.AdminConfig, o
 	if sysconfig.GetCDSRuntime().Config.UsesAppIDIdentifier() {
 		appService := appProvider.NewApplicationProvider().GetApplicationService()
 		for _, appID := range updatedConfig.SystemApplications {
-			exists, err := appService.ResolveAndRegisterApplication(appID, orgHandle)
+			exists, err := appService.ResolveAndRegisterApplication(ctx, appID, orgHandle)
 			if err != nil {
 				return err
 			}
@@ -130,12 +132,12 @@ func (a AdminConfigService) UpdateAdminConfig(updatedConfig model.AdminConfig, o
 		}
 	}
 
-	return store.UpdateAdminConfig(updatedConfig, orgHandle)
+	return store.UpdateAdminConfig(ctx, updatedConfig, orgHandle)
 }
 
-func (a AdminConfigService) UpdateInitialSchemaSync(state bool, orgHandle string) error {
+func (a AdminConfigService) UpdateInitialSchemaSync(ctx context.Context, state bool, orgHandle string) error {
 
-	return store.UpdateInitialSchemaSyncConfig(state, orgHandle)
+	return store.UpdateInitialSchemaSyncConfig(ctx, state, orgHandle)
 }
 
 // GetAdminConfigService returns a new instance.

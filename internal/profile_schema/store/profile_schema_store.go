@@ -19,6 +19,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,7 +35,8 @@ import (
 )
 
 // AddProfileSchemaAttributesForScope adds multiple profile schema attributes.
-func AddProfileSchemaAttributesForScope(attrs []model.ProfileSchemaAttribute, scope, orgId string) error {
+func AddProfileSchemaAttributesForScope(ctx context.Context,
+	attrs []model.ProfileSchemaAttribute, scope, orgId string) error {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -87,7 +89,7 @@ func AddProfileSchemaAttributesForScope(attrs []model.ProfileSchemaAttribute, sc
 	}
 
 	query := scripts.InsertProfileSchemaAttributesForScope.Append(strings.Join(valueStrings, ", "))
-	_, err = dbClient.ExecuteQuery(query, valueArgs...)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, valueArgs...)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to insert profile schema attributes for org: %s", attrs[0].OrgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -103,7 +105,8 @@ func AddProfileSchemaAttributesForScope(attrs []model.ProfileSchemaAttribute, sc
 }
 
 // GetProfileSchemaAttributeById retrieves a profile schema attribute by its ID for a given organization.
-func GetProfileSchemaAttributeById(orgId, attributeId string) (model.ProfileSchemaAttribute, error) {
+func GetProfileSchemaAttributeById(ctx context.Context,
+	orgId, attributeId string) (model.ProfileSchemaAttribute, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -122,7 +125,7 @@ func GetProfileSchemaAttributeById(orgId, attributeId string) (model.ProfileSche
 
 	query := scripts.GetProfileSchemaAttributeById
 
-	results, err := dbClient.ExecuteQuery(query, orgId, attributeId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, attributeId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for the org:%s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -146,7 +149,8 @@ func GetProfileSchemaAttributeById(orgId, attributeId string) (model.ProfileSche
 }
 
 // GetProfileSchemaAttributesByScope retrieves all profile schema attributes for a given organization and scope.
-func GetProfileSchemaAttributesByScope(orgId, scope string) ([]model.ProfileSchemaAttribute, error) {
+func GetProfileSchemaAttributesByScope(ctx context.Context,
+	orgId, scope string) ([]model.ProfileSchemaAttribute, error) {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -163,7 +167,7 @@ func GetProfileSchemaAttributesByScope(orgId, scope string) ([]model.ProfileSche
 
 	query := scripts.GetProfileSchemaAttributeByScope
 
-	results, err := dbClient.ExecuteQuery(query, orgId, scope)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, scope)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error fetching profile schema attributes for org: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -188,7 +192,8 @@ func GetProfileSchemaAttributesByScope(orgId, scope string) ([]model.ProfileSche
 }
 
 // GetProfileSchemaAttributeByName retrieves a profile schema attribute by its name for a given organization.
-func GetProfileSchemaAttributeByName(orgId, attributeName string) (*model.ProfileSchemaAttribute, error) {
+func GetProfileSchemaAttributeByName(ctx context.Context,
+	orgId, attributeName string) (*model.ProfileSchemaAttribute, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -207,7 +212,7 @@ func GetProfileSchemaAttributeByName(orgId, attributeName string) (*model.Profil
 
 	query := scripts.GetProfileSchemaAttributeByName
 
-	results, err := dbClient.ExecuteQuery(query, orgId, attributeName)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, attributeName)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed in fetching schema attribute '%s' for organization '%s'", attributeName,
 			orgId)
@@ -276,7 +281,7 @@ func GetProfileSchemaAttributeByName(orgId, attributeName string) (*model.Profil
 }
 
 // GetProfileSchemaAttributesForOrg retrieves all profile schema attributes for a given organization.
-func GetProfileSchemaAttributesForOrg(orgId string) ([]model.ProfileSchemaAttribute, error) {
+func GetProfileSchemaAttributesForOrg(ctx context.Context, orgId string) ([]model.ProfileSchemaAttribute, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -294,7 +299,7 @@ func GetProfileSchemaAttributesForOrg(orgId string) ([]model.ProfileSchemaAttrib
 
 	query := scripts.GetProfileSchemaByOrg
 
-	results, err := dbClient.ExecuteQuery(query, orgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -315,7 +320,8 @@ func GetProfileSchemaAttributesForOrg(orgId string) ([]model.ProfileSchemaAttrib
 }
 
 // PatchProfileSchemaAttributeById updates a specific profile schema attribute for a given organization.
-func PatchProfileSchemaAttributeById(orgId, attributeId string, updates map[string]interface{}) error {
+func PatchProfileSchemaAttributeById(ctx context.Context,
+	orgId, attributeId string, updates map[string]interface{}) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -368,7 +374,7 @@ func PatchProfileSchemaAttributeById(orgId, attributeId string, updates map[stri
 	query := scripts.UpdateProfileSchemaAttributeFields.Append(strings.Join(setClauses, ", ") +
 		` WHERE org_handle = $` + strconv.Itoa(argIndex) + ` AND attribute_id = $` + strconv.Itoa(argIndex+1))
 
-	_, err = dbClient.ExecuteQuery(query, args...)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, args...)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while executing update for org: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -383,7 +389,7 @@ func PatchProfileSchemaAttributeById(orgId, attributeId string, updates map[stri
 }
 
 // DeleteProfileSchemaAttributeById deletes a specific profile schema attribute by its ID for a given organization.
-func DeleteProfileSchemaAttributeById(orgId, attributeId string) error {
+func DeleteProfileSchemaAttributeById(ctx context.Context, orgId, attributeId string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -400,7 +406,7 @@ func DeleteProfileSchemaAttributeById(orgId, attributeId string) error {
 	defer dbClient.Close()
 
 	query := scripts.DeleteProfileSchemaAttributeById
-	_, err = dbClient.ExecuteQuery(query, orgId, attributeId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, attributeId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema attribute with id: %s", attributeId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -416,7 +422,7 @@ func DeleteProfileSchemaAttributeById(orgId, attributeId string) error {
 }
 
 // DeleteProfileSchemaAttributes deletes all profile schema attributes for a given organization and scope.
-func DeleteProfileSchemaAttributes(orgId, scope string) error {
+func DeleteProfileSchemaAttributes(ctx context.Context, orgId, scope string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -433,7 +439,7 @@ func DeleteProfileSchemaAttributes(orgId, scope string) error {
 	defer dbClient.Close()
 
 	query := scripts.DeleteProfileSchemaAttributeForScope
-	_, err = dbClient.ExecuteQuery(query, orgId, scope)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, scope)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema attribute with scope: %s", scope)
 		logger.Debug(errorMsg, log.Error(err))
@@ -448,7 +454,8 @@ func DeleteProfileSchemaAttributes(orgId, scope string) error {
 	return nil
 }
 
-func PatchProfileSchemaAttributesForScope(orgId string, scope string, updates []model.ProfileSchemaAttribute) error {
+func PatchProfileSchemaAttributesForScope(ctx context.Context,
+	orgId string, scope string, updates []model.ProfileSchemaAttribute) error {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -463,7 +470,7 @@ func PatchProfileSchemaAttributesForScope(orgId string, scope string, updates []
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for update of profile schema attributes for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -513,7 +520,7 @@ func PatchProfileSchemaAttributesForScope(orgId string, scope string, updates []
 			scope,
 		}
 
-		if _, err := tx.Exec(stmt, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
 			err := tx.Rollback()
 			if err != nil {
 				errorMsg := fmt.Sprintf("Failed to rollback updating attribute %s for organization %s", attr.AttributeId, orgId)
@@ -549,7 +556,7 @@ func PatchProfileSchemaAttributesForScope(orgId string, scope string, updates []
 }
 
 // DeleteProfileSchema deletes all profile schema attributes for a given organization.
-func DeleteProfileSchema(orgId string) error {
+func DeleteProfileSchema(ctx context.Context, orgId string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -566,7 +573,7 @@ func DeleteProfileSchema(orgId string) error {
 	defer dbClient.Close()
 
 	query := scripts.DeleteProfileSchemaForOrg
-	_, err = dbClient.ExecuteQuery(query, orgId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while deleting all of profile schema attributes for org: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -618,7 +625,7 @@ func mapRowToProfileAttribute(row map[string]interface{}) model.ProfileSchemaAtt
 	}
 }
 
-func UpsertIdentityAttributes(orgID string, attrs []model.ProfileSchemaAttribute) error {
+func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.ProfileSchemaAttribute) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -634,7 +641,7 @@ func UpsertIdentityAttributes(orgID string, attrs []model.ProfileSchemaAttribute
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTx()
+	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to begin transaction for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
@@ -687,7 +694,7 @@ func UpsertIdentityAttributes(orgID string, attrs []model.ProfileSchemaAttribute
 	}
 
 	upsertQuery := scripts.UpsertIdentityClaimsForProfileSchema.Format(strings.Join(valueStrings, ","))
-	if _, err = tx.Exec(upsertQuery, valueArgs...); err != nil {
+	if _, err = tx.ExecContext(ctx, upsertQuery, valueArgs...); err != nil {
 		errorMsg := fmt.Sprintf("Failed to upsert identity attributes of profile schema for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
@@ -710,7 +717,7 @@ func UpsertIdentityAttributes(orgID string, attrs []model.ProfileSchemaAttribute
 		}
 		staleDeleteQuery := scripts.DeleteStaleIdentityClaimsForProfileSchema.Format(
 			strings.Join(notInPlaceholders, ","))
-		if _, err = tx.Exec(staleDeleteQuery, deleteArgs...); err != nil {
+		if _, err = tx.ExecContext(ctx, staleDeleteQuery, deleteArgs...); err != nil {
 			errorMsg := fmt.Sprintf("Failed to remove stale identity attributes of profile schema for organization: %s", orgID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
@@ -741,7 +748,8 @@ func extractClaimKeyFromURI(uri string) string {
 	return parts[len(parts)-1]
 }
 
-func GetProfileSchemaAttributesByScopeAndFilter(orgId, scope string, filters []string) ([]model.ProfileSchemaAttribute, error) {
+func GetProfileSchemaAttributesByScopeAndFilter(ctx context.Context,
+	orgId, scope string, filters []string) ([]model.ProfileSchemaAttribute, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -794,7 +802,7 @@ func GetProfileSchemaAttributesByScopeAndFilter(orgId, scope string, filters []s
 		baseSQL += " AND " + strings.Join(conditions, " AND ")
 	}
 
-	results, err := dbClient.ExecuteQuery(scripts.FilterProfileSchemaAttributes.WithSQL(baseSQL), args...)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.FilterProfileSchemaAttributes.WithSQL(baseSQL), args...)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to execute profile schema filter query for org: %s and scope: %s", orgId, scope)
 		logger.Debug(errorMsg, log.Error(err))

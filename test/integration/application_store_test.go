@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -40,50 +41,50 @@ func Test_ApplicationStore(t *testing.T) {
 	clientID := "PjR8xK2qClientId"
 
 	t.Run("Upsert_And_Resolve", func(t *testing.T) {
-		err := appStore.UpsertApplication(appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), appModel.Application{
 			AppID:     appUUID,
 			OrgHandle: org,
 			ClientID:  clientID,
 		})
 		require.NoError(t, err)
 
-		got, err := appStore.GetAppIdentifierByClientID(org, clientID)
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, got)
 	})
 
 	t.Run("Resolve_Miss_Returns_Empty", func(t *testing.T) {
-		got, err := appStore.GetAppIdentifierByClientID(org, "unknown-client")
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, "unknown-client")
 		require.NoError(t, err)
 		require.Equal(t, "", got)
 
 		// Service wrapper also returns empty on miss without surfacing an error.
-		resolved, err := appService.ResolveAppIdentifierByClientID(org, "unknown-client")
+		resolved, err := appService.ResolveAppIdentifierByClientID(context.Background(), org, "unknown-client")
 		require.NoError(t, err)
 		require.Equal(t, "", resolved)
 	})
 
 	t.Run("Org_Scoped", func(t *testing.T) {
 		otherUUID := "aaaa1111-e8bf-4d92-9545-bbbbbbbbbbbb"
-		err := appStore.UpsertApplication(appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), appModel.Application{
 			AppID:     otherUUID,
 			OrgHandle: otherOrg,
 			ClientID:  clientID, // same clientId, different org
 		})
 		require.NoError(t, err)
 
-		gotOrg, err := appStore.GetAppIdentifierByClientID(org, clientID)
+		gotOrg, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, gotOrg)
 
-		gotOther, err := appStore.GetAppIdentifierByClientID(otherOrg, clientID)
+		gotOther, err := appStore.GetAppIdentifierByClientID(context.Background(), otherOrg, clientID)
 		require.NoError(t, err)
 		require.Equal(t, otherUUID, gotOther)
 	})
 
 	t.Run("ClientId_Rotation_Updates_Mapping", func(t *testing.T) {
 		newClientID := "RotatedClientId"
-		err := appStore.UpsertApplication(appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), appModel.Application{
 			AppID:     appUUID, // same app
 			OrgHandle: org,
 			ClientID:  newClientID, // rotated clientId
@@ -91,12 +92,12 @@ func Test_ApplicationStore(t *testing.T) {
 		require.NoError(t, err)
 
 		// New clientId resolves to the app.
-		got, err := appStore.GetAppIdentifierByClientID(org, newClientID)
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, newClientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, got)
 
 		// Old clientId no longer resolves (single row per app was updated in place).
-		old, err := appStore.GetAppIdentifierByClientID(org, clientID)
+		old, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
 		require.NoError(t, err)
 		require.Equal(t, "", old)
 	})
@@ -106,7 +107,7 @@ func Test_ApplicationStore(t *testing.T) {
 		samlB := "saml-2222-e8bf-4d92-9545-dddddddddddd"
 
 		// SAML-only apps have no clientId; two of them in the same org must both persist without colliding.
-		require.NoError(t, appStore.UpsertApplication(appModel.Application{AppID: samlA, OrgHandle: org}))
-		require.NoError(t, appStore.UpsertApplication(appModel.Application{AppID: samlB, OrgHandle: org}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), appModel.Application{AppID: samlA, OrgHandle: org}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), appModel.Application{AppID: samlB, OrgHandle: org}))
 	})
 }

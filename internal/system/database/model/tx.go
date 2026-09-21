@@ -105,30 +105,21 @@ func (t *Tx) QueryContext(ctx context.Context, query DBQuery, args ...interface{
 	return rows, nil
 }
 
-// Exec runs a statement that returns no rows.
+// Exec runs a statement that returns no rows, under context.Background.
+//
+// Deprecated: use ExecContext. A statement without a context cannot be ended
+// with the caller that started the transaction.
 func (t *Tx) Exec(query DBQuery, args ...interface{}) (sql.Result, error) {
 
-	if t.dbType == database.TypeSQLite {
-		args = database.NormalizeSQLiteArgs(args)
-	}
-
-	result, err := t.internal.Exec(query.GetQuery(t.dbType), args...)
-	if err != nil {
-		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
-	}
-	return result, nil
+	return t.ExecContext(context.Background(), query, args...)
 }
 
-// Query runs a statement that returns rows. The caller must close them.
+// Query runs a statement that returns rows, under context.Background. The
+// caller must close them.
+//
+// Deprecated: use QueryContext. A statement without a context cannot be ended
+// with the caller that started the transaction.
 func (t *Tx) Query(query DBQuery, args ...interface{}) (*sql.Rows, error) {
 
-	if t.dbType == database.TypeSQLite {
-		args = database.NormalizeSQLiteArgs(args)
-	}
-
-	rows, err := t.internal.Query(query.GetQuery(t.dbType), args...)
-	if err != nil {
-		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
-	}
-	return rows, nil
+	return t.QueryContext(context.Background(), query, args...)
 }

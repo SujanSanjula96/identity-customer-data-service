@@ -19,6 +19,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -44,22 +45,27 @@ import (
 )
 
 type ProfilesServiceInterface interface {
-	DeleteProfile(profileId string) error
-	GetAllProfilesCursor(orgHandle string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
-	CreateProfile(profile profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error)
-	UpdateProfile(profileId, orgHandle string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
-	GetProfile(profileId string) (*profileModel.ProfileResponse, error)
-	FindProfileByUserId(userId string) (*profileModel.ProfileResponse, error)
-	GetAllProfilesWithFilterCursor(orgHandle string, filters []string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
-	GetProfileConsents(profileId string) ([]profileModel.ConsentRecord, error)
-	UpdateProfileConsents(profileId string, orgHandle string, consents []profileModel.ConsentRecord) error
-	PatchProfile(profileId, orgHandle string, data map[string]interface{}) (*profileModel.ProfileResponse, error)
-	GetProfileCookieByProfileId(profileId string) (*profileModel.ProfileCookie, error)
-	GetProfileCookieById(cookie string) (*profileModel.ProfileCookie, error)
-	CreateProfileCookie(profileId string) (*profileModel.ProfileCookie, error)
-	UpdateCookieStatusByCookieId(cookieId string, isActive bool) error
-	UpdateCookieStatusByProfileId(profileId string, isActive bool) error
-	DeleteCookieByProfileId(profileId string) error
+	DeleteProfile(ctx context.Context, profileId string) error
+	GetAllProfilesCursor(ctx context.Context,
+		orgHandle string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
+	CreateProfile(ctx context.Context,
+		profile profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error)
+	UpdateProfile(ctx context.Context,
+		profileId, orgHandle string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
+	GetProfile(ctx context.Context, profileId string) (*profileModel.ProfileResponse, error)
+	FindProfileByUserId(ctx context.Context, userId string) (*profileModel.ProfileResponse, error)
+	GetAllProfilesWithFilterCursor(ctx context.Context, orgHandle string, filters []string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
+	GetProfileConsents(ctx context.Context, profileId string) ([]profileModel.ConsentRecord, error)
+	UpdateProfileConsents(ctx context.Context,
+		profileId string, orgHandle string, consents []profileModel.ConsentRecord) error
+	PatchProfile(ctx context.Context,
+		profileId, orgHandle string, data map[string]interface{}) (*profileModel.ProfileResponse, error)
+	GetProfileCookieByProfileId(ctx context.Context, profileId string) (*profileModel.ProfileCookie, error)
+	GetProfileCookieById(ctx context.Context, cookie string) (*profileModel.ProfileCookie, error)
+	CreateProfileCookie(ctx context.Context, profileId string) (*profileModel.ProfileCookie, error)
+	UpdateCookieStatusByCookieId(ctx context.Context, cookieId string, isActive bool) error
+	UpdateCookieStatusByProfileId(ctx context.Context, profileId string, isActive bool) error
+	DeleteCookieByProfileId(ctx context.Context, profileId string) error
 }
 
 // ProfilesService is the default implementation of the ProfilesServiceInterface.
@@ -109,9 +115,10 @@ func WideAppDataMap(input map[string]map[string]interface{}) map[string]interfac
 }
 
 // CreateProfile creates a new profile.
-func (ps *ProfilesService) CreateProfile(profileRequest profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) CreateProfile(ctx context.Context,
+	profileRequest profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error) {
 
-	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(orgHandle)
+	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, orgHandle)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile schema for organization: %s", orgHandle)
@@ -165,11 +172,11 @@ func (ps *ProfilesService) CreateProfile(profileRequest profileModel.ProfileRequ
 		Location:  utils.BuildProfileLocation(orgHandle, profileId),
 	}
 
-	if err := profileStore.InsertProfile(profile); err != nil {
+	if err := profileStore.InsertProfile(ctx, profile); err != nil {
 		logger.Debug(fmt.Sprintf("Error inserting profile: %s", profile.ProfileId), log.Error(err))
 		return nil, err
 	}
-	profileFetched, errWait := ps.GetProfile(profileId)
+	profileFetched, errWait := ps.GetProfile(ctx, profileId)
 	if errWait != nil || profileFetched == nil {
 		logger.Warn(fmt.Sprintf("Profile: %s not available after insertion: %v", profile.ProfileId, errWait))
 		return nil, errWait
@@ -734,9 +741,10 @@ func isValidType(value interface{}, expected string, multiValued bool, subAttrs 
 }
 
 // UpdateProfile creates or updates a profile
-func (ps *ProfilesService) UpdateProfile(profileId, orgHandle string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) UpdateProfile(ctx context.Context,
+	profileId, orgHandle string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfile(profileId)
+	profile, err := profileStore.GetProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile for updatedProfile: %s", profileId)
@@ -758,7 +766,7 @@ func (ps *ProfilesService) UpdateProfile(profileId, orgHandle string, updatedPro
 		return nil, clientError
 	}
 
-	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(profile.OrgHandle)
+	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, profile.OrgHandle)
 	if err != nil {
 		return nil, err
 	}
@@ -803,7 +811,7 @@ func (ps *ProfilesService) UpdateProfile(profileId, orgHandle string, updatedPro
 		}
 	} else {
 		// If it is a child profile, we need to update the master profile
-		masterProfile, err := profileStore.GetProfile(profile.ProfileStatus.ReferenceProfileId)
+		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error fetching master profile for updatedProfile: %s", profile.ProfileId)
 			logger.Debug(errMsg, log.Error(err))
@@ -828,12 +836,12 @@ func (ps *ProfilesService) UpdateProfile(profileId, orgHandle string, updatedPro
 		}
 	}
 
-	if err := profileStore.UpdateProfile(profileToUpDate); err != nil {
+	if err := profileStore.UpdateProfile(ctx, profileToUpDate); err != nil {
 		logger.Error(fmt.Sprintf("Error updating profile: %s", profileToUpDate.ProfileId), log.Error(err))
 		return nil, err
 	}
 
-	profileFetched, errWait := ps.GetProfile(profile.ProfileId)
+	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileId)
 	if errWait != nil || profileFetched == nil {
 		return nil, errWait
 	}
@@ -872,9 +880,9 @@ func ConvertAppDataToMap(appDataList []profileModel.ApplicationData) map[string]
 }
 
 // GetProfile retrieves a profile
-func (ps *ProfilesService) GetProfile(ProfileId string) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId string) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfile(ProfileId)
+	profile, err := profileStore.GetProfile(ctx, ProfileId)
 	if err != nil {
 		return nil, err
 	}
@@ -889,7 +897,7 @@ func (ps *ProfilesService) GetProfile(ProfileId string) (*profileModel.ProfileRe
 
 	if profile.ProfileStatus.IsReferenceProfile {
 
-		alias, err := profileStore.FetchReferencedProfiles(ProfileId)
+		alias, err := profileStore.FetchReferencedProfiles(ctx, ProfileId)
 
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error fetching references for profile: %s", ProfileId)
@@ -922,13 +930,13 @@ func (ps *ProfilesService) GetProfile(ProfileId string) (*profileModel.ProfileRe
 		return profileResponse, nil
 	} else {
 		// fetching merged master profile
-		masterProfile, err := profileStore.GetProfile(profile.ProfileStatus.ReferenceProfileId)
+		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId)
 
 		if err != nil {
 			return nil, err
 		}
 		if masterProfile != nil {
-			masterProfile.ApplicationData, err = profileStore.FetchApplicationData(masterProfile.ProfileId)
+			masterProfile.ApplicationData, err = profileStore.FetchApplicationData(ctx, masterProfile.ProfileId)
 			if err != nil {
 				return nil, err
 			}
@@ -959,9 +967,10 @@ func (ps *ProfilesService) GetProfile(ProfileId string) (*profileModel.ProfileRe
 }
 
 // GetProfileConsents retrieves a profile
-func (ps *ProfilesService) GetProfileConsents(ProfileId string) ([]profileModel.ConsentRecord, error) {
+func (ps *ProfilesService) GetProfileConsents(ctx context.Context,
+	ProfileId string) ([]profileModel.ConsentRecord, error) {
 
-	consentRecords, err := profileStore.GetProfileConsents(ProfileId)
+	consentRecords, err := profileStore.GetProfileConsents(ctx, ProfileId)
 	if err != nil {
 		return nil, err
 	}
@@ -978,11 +987,12 @@ func (ps *ProfilesService) GetProfileConsents(ProfileId string) ([]profileModel.
 }
 
 // UpdateProfileConsents updates the consent records for a profile
-func (ps *ProfilesService) UpdateProfileConsents(profileId string, orgHandle string, consents []profileModel.ConsentRecord) error {
+func (ps *ProfilesService) UpdateProfileConsents(ctx context.Context,
+	profileId string, orgHandle string, consents []profileModel.ConsentRecord) error {
 	logger := log.GetLogger()
 
 	// Reject any attempt to modify a mandatory consent category.
-	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(orgHandle)
+	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, orgHandle)
 	if err != nil {
 		return err
 	}
@@ -1009,7 +1019,7 @@ func (ps *ProfilesService) UpdateProfileConsents(profileId string, orgHandle str
 	}
 
 	// Update the consents in the database
-	err = profileStore.UpdateProfileConsents(profileId, consents)
+	err = profileStore.UpdateProfileConsents(ctx, profileId, consents)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to update consents for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -1020,10 +1030,10 @@ func (ps *ProfilesService) UpdateProfileConsents(profileId string, orgHandle str
 }
 
 // DeleteProfile removes a profile from MongoDB by `perma_id`
-func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
+func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId string) error {
 
 	// Fetch the existing profile before deletion
-	profile, err := profileStore.GetProfile(ProfileId)
+	profile, err := profileStore.GetProfile(ctx, ProfileId)
 	logger := log.GetLogger()
 	if profile == nil {
 		logger.Warn(fmt.Sprintf("Profile with profile_id: %s that is requested for deletion is not found",
@@ -1043,13 +1053,13 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 
 	if profile.ProfileStatus.IsReferenceProfile {
 		// fetching the child if its parent
-		profile.ProfileStatus.References, _ = profileStore.FetchReferencedProfiles(profile.ProfileId)
+		profile.ProfileStatus.References, _ = profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
 	}
 
 	if profile.ProfileStatus.IsReferenceProfile && len(profile.ProfileStatus.References) == 0 {
 		logger.Info(fmt.Sprintf("Deleting parent profile: %s with no children", ProfileId))
 		// Delete the parent with no children
-		err = profileStore.DeleteProfile(ProfileId)
+		err = profileStore.DeleteProfile(ctx, ProfileId)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error deleting profile with profile_id: %s which is a parent and no children", ProfileId)
 			logger.Debug(errorMsg, log.Error(err))
@@ -1066,7 +1076,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 	if profile.ProfileStatus.IsReferenceProfile && len(profile.ProfileStatus.References) > 0 {
 		//get all child profiles and delete
 		for _, childProfile := range profile.ProfileStatus.References {
-			err = profileStore.DeleteProfile(childProfile.ProfileId)
+			err = profileStore.DeleteProfile(ctx, childProfile.ProfileId)
 			logger.Info(fmt.Sprintf("Deleting child  profile: %s with of parent: %s",
 				childProfile.ProfileId, ProfileId))
 
@@ -1082,7 +1092,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 			}
 		}
 		// now delete master
-		err = profileStore.DeleteProfile(ProfileId)
+		err = profileStore.DeleteProfile(ctx, ProfileId)
 		logger.Info(fmt.Sprintf("Deleting parent profile: %s with children", ProfileId))
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error while deleting parent profile: %s ", ProfileId)
@@ -1102,7 +1112,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 
 		logger.Info(fmt.Sprintf("Deleting child profile: %s with parent: %s", ProfileId,
 			profile.ProfileStatus.ReferenceProfileId))
-		parentProfile, err := profileStore.GetProfile(profile.ProfileStatus.ReferenceProfileId)
+		parentProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error while deleting the child profile: %s ", ProfileId)
 			logger.Debug(errorMsg, log.Error(err))
@@ -1113,13 +1123,13 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 			}, err)
 			return serverError
 		}
-		parentProfile.ProfileStatus.References, _ = profileStore.FetchReferencedProfiles(parentProfile.ProfileId)
+		parentProfile.ProfileStatus.References, _ = profileStore.FetchReferencedProfiles(ctx, parentProfile.ProfileId)
 
 		if len(parentProfile.ProfileStatus.References) == 1 {
 			// delete the parent as this is the only child
 			logger.Info(fmt.Sprintf("Deleting parent profile: %s with of current : %s",
 				profile.ProfileStatus.ReferenceProfileId, ProfileId))
-			err = profileStore.DeleteProfile(profile.ProfileStatus.ReferenceProfileId)
+			err = profileStore.DeleteProfile(ctx, profile.ProfileStatus.ReferenceProfileId)
 			if err != nil {
 				errorMsg := fmt.Sprintf("Error while deleting the master profile: %s ", ProfileId)
 				logger.Debug(errorMsg, log.Error(err))
@@ -1132,7 +1142,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 			}
 			//todo: Ensure the need to detach the referer profile from the reference
 			//err = profileStore.DetachRefererProfileFromReference(profile.ProfileStatus.ReferenceProfileId, ProfileId)
-			err = profileStore.DeleteProfile(ProfileId)
+			err = profileStore.DeleteProfile(ctx, ProfileId)
 			if err != nil {
 				errorMsg := fmt.Sprintf("Error while deleting the  profile: %s ", ProfileId)
 				logger.Debug(errorMsg, log.Error(err))
@@ -1146,7 +1156,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 			logger.Info(fmt.Sprintf("Deleted current profile: %s with parent: %s", ProfileId,
 				profile.ProfileStatus.ReferenceProfileId))
 		} else {
-			err = profileStore.DetachRefererProfileFromReference(profile.ProfileStatus.ReferenceProfileId, ProfileId)
+			err = profileStore.DetachRefererProfileFromReference(ctx, profile.ProfileStatus.ReferenceProfileId, ProfileId)
 			if err != nil {
 				errorMsg := fmt.Sprintf("Error while current profile from parent: %s ", ProfileId)
 				logger.Debug(errorMsg, log.Error(err))
@@ -1159,7 +1169,7 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 			}
 			logger.Debug(fmt.Sprintf("Detaching current profile: %s from parent: %s", ProfileId,
 				profile.ProfileStatus.ReferenceProfileId))
-			err = profileStore.DeleteProfile(ProfileId)
+			err = profileStore.DeleteProfile(ctx, ProfileId)
 			if err != nil {
 				errorMsg := fmt.Sprintf("Error while deleting the current profile: %s ", ProfileId)
 				logger.Debug(errorMsg, log.Error(err))
@@ -1181,13 +1191,13 @@ func (ps *ProfilesService) DeleteProfile(ProfileId string) error {
 
 // GetAllProfilesCursor retrieves all master profiles with pagination using cursor.
 // Merged profiles are not included in list but provided in the reference
-func (ps *ProfilesService) GetAllProfilesCursor(
+func (ps *ProfilesService) GetAllProfilesCursor(ctx context.Context,
 	orgHandle string,
 	limit int,
 	cursor *profileModel.ProfileCursor,
 ) ([]profileModel.ProfileResponse, bool, error) {
 
-	existingProfiles, hasMore, err := profileStore.GetAllProfiles(orgHandle, limit, cursor)
+	existingProfiles, hasMore, err := profileStore.GetAllProfiles(ctx, orgHandle, limit, cursor)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1211,7 +1221,7 @@ func (ps *ProfilesService) GetAllProfilesCursor(
 			Location:  profile.Location,
 		}
 
-		alias, err := profileStore.FetchReferencedProfiles(profile.ProfileId)
+		alias, err := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error fetching references for profile: %s", profile.ProfileId)
 			logger := log.GetLogger()
@@ -1246,7 +1256,7 @@ func (ps *ProfilesService) GetAllProfilesCursor(
 
 // GetAllProfilesWithFilterCursor retrieves filtered master profiles with pagination using cursor.
 // Merged profiles are not included in list but provided in the reference
-func (ps *ProfilesService) GetAllProfilesWithFilterCursor(
+func (ps *ProfilesService) GetAllProfilesWithFilterCursor(ctx context.Context,
 	orgHandle string,
 	filters []string,
 	limit int,
@@ -1306,7 +1316,7 @@ func (ps *ProfilesService) GetAllProfilesWithFilterCursor(
 	}
 
 	// Fetch matching profiles WITH cursor + limit
-	filteredProfiles, hasMore, err := profileStore.GetAllProfilesWithFilter(orgHandle, rewrittenFilters, limit, cursor)
+	filteredProfiles, hasMore, err := profileStore.GetAllProfilesWithFilter(ctx, orgHandle, rewrittenFilters, limit, cursor)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1331,7 +1341,7 @@ func (ps *ProfilesService) GetAllProfilesWithFilterCursor(
 			Location:  profile.Location,
 		}
 
-		alias, err := profileStore.FetchReferencedProfiles(profile.ProfileId)
+		alias, err := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
 		if err != nil {
 			return nil, false, err
 		}
@@ -1390,9 +1400,10 @@ func parseTypedValueForFilters(valueType string, raw string) interface{} {
 }
 
 // FindProfileByUserId retrieves a profile by user_id
-func (ps *ProfilesService) FindProfileByUserId(userId string) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) FindProfileByUserId(ctx context.Context,
+	userId string) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfileWithUserId(userId)
+	profile, err := profileStore.GetProfileWithUserId(ctx, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -1405,7 +1416,7 @@ func (ps *ProfilesService) FindProfileByUserId(userId string) (*profileModel.Pro
 		return nil, clientError
 	}
 
-	alias, err := profileStore.FetchReferencedProfiles(profile.ProfileId)
+	alias, err := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
 
 	if err != nil {
 		return nil, err
@@ -1430,9 +1441,10 @@ func (ps *ProfilesService) FindProfileByUserId(userId string) (*profileModel.Pro
 }
 
 // PatchProfile applies a partial update to an existing profile
-func (ps *ProfilesService) PatchProfile(profileId, orgHandle string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) PatchProfile(ctx context.Context,
+	profileId, orgHandle string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
 
-	existingProfile, err := profileStore.GetProfile(profileId)
+	existingProfile, err := profileStore.GetProfile(ctx, profileId)
 	if err != nil {
 		return nil, err
 	}
@@ -1450,12 +1462,12 @@ func (ps *ProfilesService) PatchProfile(profileId, orgHandle string, patch map[s
 	// accumulated merged data that only exists on the master.
 	profileForBase := existingProfile
 	if existingProfile.ProfileStatus != nil && !existingProfile.ProfileStatus.IsReferenceProfile && existingProfile.ProfileStatus.ReferenceProfileId != "" {
-		masterProfile, err := profileStore.GetProfile(existingProfile.ProfileStatus.ReferenceProfileId)
+		masterProfile, err := profileStore.GetProfile(ctx, existingProfile.ProfileStatus.ReferenceProfileId)
 		if err != nil {
 			return nil, err
 		}
 		if masterProfile != nil {
-			masterProfile.ApplicationData, err = profileStore.FetchApplicationData(masterProfile.ProfileId)
+			masterProfile.ApplicationData, err = profileStore.FetchApplicationData(ctx, masterProfile.ProfileId)
 			if err != nil {
 				return nil, err
 			}
@@ -1524,12 +1536,13 @@ func (ps *ProfilesService) PatchProfile(profileId, orgHandle string, patch map[s
 	}
 
 	// Reuse the PUT logic to update the profile
-	return ps.UpdateProfile(profileId, orgHandle, updatedProfileReq)
+	return ps.UpdateProfile(ctx, profileId, orgHandle, updatedProfileReq)
 }
 
-func (ps *ProfilesService) GetProfileCookieByProfileId(profileId string) (*profileModel.ProfileCookie, error) {
+func (ps *ProfilesService) GetProfileCookieByProfileId(ctx context.Context,
+	profileId string) (*profileModel.ProfileCookie, error) {
 
-	cookie, err := profileStore.GetProfileCookieByProfileId(profileId)
+	cookie, err := profileStore.GetProfileCookieByProfileId(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile cookie by profile_id: %s", profileId)
@@ -1552,9 +1565,10 @@ func (ps *ProfilesService) GetProfileCookieByProfileId(profileId string) (*profi
 	return cookie, nil
 }
 
-func (ps *ProfilesService) GetProfileCookieById(cookie string) (*profileModel.ProfileCookie, error) {
+func (ps *ProfilesService) GetProfileCookieById(ctx context.Context,
+	cookie string) (*profileModel.ProfileCookie, error) {
 
-	cookieObj, err := profileStore.GetProfileCookie(cookie)
+	cookieObj, err := profileStore.GetProfileCookie(ctx, cookie)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile cookie : %s", cookie)
@@ -1578,14 +1592,15 @@ func (ps *ProfilesService) GetProfileCookieById(cookie string) (*profileModel.Pr
 }
 
 // CreateProfileCookie creates a new profile cookie
-func (ps *ProfilesService) CreateProfileCookie(profileId string) (*profileModel.ProfileCookie, error) {
+func (ps *ProfilesService) CreateProfileCookie(ctx context.Context,
+	profileId string) (*profileModel.ProfileCookie, error) {
 
 	cookie := profileModel.ProfileCookie{
 		ProfileId: profileId,
 		CookieId:  uuid.New().String(),
 		IsActive:  true,
 	}
-	err := profileStore.CreateProfileCookie(cookie)
+	err := profileStore.CreateProfileCookie(ctx, cookie)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error creating profile cookie by profile_id: %s", cookie.ProfileId)
@@ -1601,9 +1616,9 @@ func (ps *ProfilesService) CreateProfileCookie(profileId string) (*profileModel.
 }
 
 // UpdateCookieStatusByProfileId updates the status of a profile cookie by profile_id
-func (ps *ProfilesService) UpdateCookieStatusByProfileId(profileId string, isActive bool) error {
+func (ps *ProfilesService) UpdateCookieStatusByProfileId(ctx context.Context, profileId string, isActive bool) error {
 
-	err := profileStore.UpdateProfileCookieByProfileId(profileId, isActive)
+	err := profileStore.UpdateProfileCookieByProfileId(ctx, profileId, isActive)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error updating profile cookie by profile_id: %s", profileId)
@@ -1619,9 +1634,9 @@ func (ps *ProfilesService) UpdateCookieStatusByProfileId(profileId string, isAct
 }
 
 // UpdateCookieStatusByCookieId updates the status of a profile cookie by cookie id
-func (ps *ProfilesService) UpdateCookieStatusByCookieId(cookieId string, isActive bool) error {
+func (ps *ProfilesService) UpdateCookieStatusByCookieId(ctx context.Context, cookieId string, isActive bool) error {
 
-	err := profileStore.UpdateProfileCookieByCookieId(cookieId, isActive)
+	err := profileStore.UpdateProfileCookieByCookieId(ctx, cookieId, isActive)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error updating profile cookie: %s", cookieId)
@@ -1637,9 +1652,9 @@ func (ps *ProfilesService) UpdateCookieStatusByCookieId(cookieId string, isActiv
 }
 
 // DeleteCookieByProfileId deletes a profile cookie by profile_id
-func (ps *ProfilesService) DeleteCookieByProfileId(profileId string) error {
+func (ps *ProfilesService) DeleteCookieByProfileId(ctx context.Context, profileId string) error {
 
-	err := profileStore.DeleteProfileCookieByProfile(profileId)
+	err := profileStore.DeleteProfileCookieByProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error deleting profile cookie by profile_id: %s", profileId)
