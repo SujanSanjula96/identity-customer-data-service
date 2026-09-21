@@ -18,7 +18,10 @@
 
 package errors
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type ErrorMessage struct {
 	Code        string `json:"error_code"`
@@ -68,4 +71,24 @@ func NewClientErrorWithoutCode(msg ErrorMessage) *ClientError {
 	return &ClientError{
 		ErrorMessage: msg,
 	}
+}
+
+// AsServerError returns err unchanged when it already carries a ServerError,
+// and wraps it in a new one otherwise.
+//
+// It is for a caller that receives an error from a layer with no error codes
+// of its own, such as the transaction helper: an error the caller itself
+// produced keeps its own code, and a failure of the layer below takes the
+// code of the operation that was running.
+func AsServerError(err error, msg ErrorMessage) error {
+
+	if err == nil {
+		return nil
+	}
+
+	var serverError *ServerError
+	if errors.As(err, &serverError) {
+		return err
+	}
+	return NewServerError(msg, err)
 }

@@ -24,6 +24,8 @@ import (
 	"fmt"
 	model "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
+	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -111,74 +113,70 @@ func UpdateAdminConfig(ctx context.Context, config model.AdminConfig, orgHandle 
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		query := scripts.UpdateOrgConfiguration
+
+		cdsEnabledValue := "false"
+		if config.CDSEnabled {
+			cdsEnabledValue = "true"
+		}
+		if _, err := tx.ExecContext(ctx, query, orgHandle, constants.ConfigCDSEnabled, cdsEnabledValue); err != nil {
+			errorMsg := fmt.Sprintf("Failed to update cds_enabled for organization: %s", orgHandle)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
+				Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
+				Description: errorMsg,
+			}, err)
+		}
+
+		schemaSyncValue := "false"
+		if config.InitialSchemaSyncDone {
+			schemaSyncValue = "true"
+		}
+		if _, err := tx.ExecContext(ctx, query, orgHandle, constants.ConfigInitialSchemaSyncDone,
+			schemaSyncValue); err != nil {
+			errorMsg := fmt.Sprintf("Failed to update initial_schema_sync_done for organization: %s", orgHandle)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
+				Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
+				Description: errorMsg,
+			}, err)
+		}
+
+		systemAppsValue, err := json.Marshal(config.SystemApplications)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Failed to marshal system_applications for organization: %s", orgHandle)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
+				Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
+				Description: errorMsg,
+			}, err)
+		}
+		if _, err := tx.ExecContext(ctx, query, orgHandle, constants.ConfigSystemApplications,
+			string(systemAppsValue)); err != nil {
+			errorMsg := fmt.Sprintf("Failed to update system_applications for organization: %s", orgHandle)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
+				Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
+				Description: errorMsg,
+			}, err)
+		}
+		return nil
+	})
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for updating configurations for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Failed to update configurations for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
+		return errors2.AsServerError(err, errors2.ErrorMessage{
 			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
 			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
 			Description: errorMsg,
-		}, err)
+		})
 	}
-
-	defer tx.RollbackUnlessDone()
-
-	query := scripts.UpdateOrgConfiguration
-
-	cdsEnabledValue := "false"
-	if config.CDSEnabled {
-		cdsEnabledValue = "true"
-	}
-	_, err = tx.ExecContext(ctx, query, orgHandle, constants.ConfigCDSEnabled, cdsEnabledValue)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to update cds_enabled for organization: %s", orgHandle)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
-			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
-			Description: errorMsg,
-		}, err)
-	}
-
-	schemaSyncValue := "false"
-	if config.InitialSchemaSyncDone {
-		schemaSyncValue = "true"
-	}
-	_, err = tx.ExecContext(ctx, query, orgHandle, constants.ConfigInitialSchemaSyncDone, schemaSyncValue)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to update initial_schema_sync_done for organization: %s", orgHandle)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
-			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
-			Description: errorMsg,
-		}, err)
-	}
-
-	systemAppsValue, err := json.Marshal(config.SystemApplications)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to marshal system_applications for organization: %s", orgHandle)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
-			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
-			Description: errorMsg,
-		}, err)
-	}
-	_, err = tx.ExecContext(ctx, query, orgHandle, constants.ConfigSystemApplications, string(systemAppsValue))
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to update system_applications for organization: %s", orgHandle)
-
-		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
-			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
-			Description: errorMsg,
-		}, err)
-	}
-
-	return tx.Commit()
+	return nil
 }
 
 // UpdateInitialSchemaSyncConfig updates organization-level admin configuration (e.g., CDS enablement, schema sync flags).
@@ -197,34 +195,32 @@ func UpdateInitialSchemaSyncConfig(ctx context.Context, state bool, orgHandle st
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		stateValue := "false"
+		if state {
+			stateValue = "true"
+		}
+
+		query := scripts.UpdateInitialSchemaSyncDoneConfig
+		if _, err := tx.ExecContext(ctx, query, orgHandle, stateValue); err != nil {
+			errorMsg := fmt.Sprintf("Failed to execute update for configurations for organization: %s", orgHandle)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
+				Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
+				Description: errorMsg,
+			}, err)
+		}
+		return nil
+	})
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for updating configurations for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Failed to update configurations for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
+		return errors2.AsServerError(err, errors2.ErrorMessage{
 			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
 			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
 			Description: errorMsg,
-		}, err)
+		})
 	}
-
-	defer tx.RollbackUnlessDone()
-
-	stateValue := "false"
-	if state {
-		stateValue = "true"
-	}
-
-	query := scripts.UpdateInitialSchemaSyncDoneConfig
-	_, err = tx.ExecContext(ctx, query, orgHandle, stateValue)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to execute update for configurations for organization: %s", orgHandle)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_ADMIN_CONFIG.Code,
-			Message:     errors2.UPDATE_ADMIN_CONFIG.Message,
-			Description: errorMsg,
-		}, err)
-	}
-	return tx.Commit()
+	return nil
 }

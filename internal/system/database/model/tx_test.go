@@ -22,24 +22,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	_ "modernc.org/sqlite"
 )
-
-// TestMain initializes the logger, which RollbackUnlessDone writes to.
-func TestMain(m *testing.M) {
-
-	if err := log.Init("ERROR"); err != nil {
-		panic(err)
-	}
-	os.Exit(m.Run())
-}
 
 var (
 	createItems = DBQuery{ID: "TST-TX-01", Query: `CREATE TABLE items (id INTEGER PRIMARY KEY)`}
@@ -120,75 +109,9 @@ func Test_QueryContext_usesTheSuppliedContext(t *testing.T) {
 	}
 }
 
-// Test_RollbackUnlessDone_releasesTheConnection is the case a bounded pool
-// turns into an outage. The pool holds one connection, an error path leaves
-// the transaction open, and the deferred rollback must return that connection.
-func Test_RollbackUnlessDone_releasesTheConnection(t *testing.T) {
-
-	db := openTestPool(t, 1)
-
-	// The store pattern: start, defer the rollback, then fail.
-	func() {
-		internal, err := db.BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx := NewTx(internal, database.TypeSQLite)
-		defer tx.RollbackUnlessDone()
-
-		if _, err := tx.ExecContext(context.Background(), insertItem, 1); err != nil {
-			t.Fatal(err)
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := db.PingContext(ctx); err != nil {
-		t.Fatalf("the abandoned transaction kept the only connection: %v", err)
-	}
-	if got := countRows(t, db); got != 0 {
-		t.Fatalf("the rollback left %d rows behind, want 0", got)
-	}
-}
-
-// Test_RollbackUnlessDone_keepsASuccessfulCommit checks that the deferred
-// rollback does not undo a commit and does not report a failure. Commit leaves
-// the transaction done, and sql.ErrTxDone says so.
-func Test_RollbackUnlessDone_keepsASuccessfulCommit(t *testing.T) {
-
-	db := openTestPool(t, 1)
-
-	err := func() error {
-		internal, err := db.BeginTx(context.Background(), nil)
-		if err != nil {
-			return err
-		}
-		tx := NewTx(internal, database.TypeSQLite)
-		defer tx.RollbackUnlessDone()
-
-		if _, err := tx.ExecContext(context.Background(), insertItem, 1); err != nil {
-			return err
-		}
-		return tx.Commit()
-	}()
-	if err != nil {
-		t.Fatalf("the successful path returned %v", err)
-	}
-
-	if got := countRows(t, db); got != 1 {
-		t.Fatalf("the committed row is missing: got %d rows, want 1", got)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		t.Fatalf("the committed transaction kept the only connection: %v", err)
-	}
-}
-
-// Test_Rollback_afterCommit_reportsErrTxDone pins the behaviour that
-// RollbackUnlessDone relies on.
+// Test_Rollback_afterCommit_reportsErrTxDone pins the behaviour that the
+// transaction helper relies on to tell a completed transaction from a failed
+// rollback.
 func Test_Rollback_afterCommit_reportsErrTxDone(t *testing.T) {
 
 	db := openTestPool(t, 2)

@@ -21,11 +21,9 @@ package model
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // Tx is a transaction that carries the dialect of the connection it started on,
@@ -55,23 +53,6 @@ func (t *Tx) Commit() error {
 func (t *Tx) Rollback() error {
 
 	return t.internal.Rollback()
-}
-
-// RollbackUnlessDone releases the transaction on every exit that did not
-// commit. A store defers it right after the transaction starts, so a
-// validation failure, a failed statement or an early return all return the
-// connection to the pool at once.
-//
-// A transaction that committed is already done, and sql.ErrTxDone says so.
-// Any other failure is logged rather than returned, so it cannot replace the
-// error the store reports to its caller.
-func (t *Tx) RollbackUnlessDone() {
-
-	err := t.internal.Rollback()
-	if err == nil || errors.Is(err, sql.ErrTxDone) {
-		return
-	}
-	log.GetLogger().Warn("Failed to roll back a transaction", log.Error(err))
 }
 
 // ExecContext runs a statement that returns no rows, under the caller's

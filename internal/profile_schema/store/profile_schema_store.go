@@ -28,6 +28,8 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
+	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -470,77 +472,66 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		stmt := scripts.UpdateProfileSchemaAttributesForSchema
+
+		for _, attr := range updates {
+			subAttrsJSON, err := json.Marshal(attr.SubAttributes)
+			if err != nil {
+				errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeId)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors.NewServerError(errors.ErrorMessage{
+					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
+					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+					Description: errorMsg,
+				}, err)
+			}
+			canonicalJSON, err := json.Marshal(attr.CanonicalValues)
+
+			if err != nil {
+				errorMsg := fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeId)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors.NewServerError(errors.ErrorMessage{
+					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
+					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+					Description: errorMsg,
+				}, err)
+			}
+			args := []interface{}{
+				attr.AttributeName,
+				attr.ValueType,
+				attr.MergeStrategy,
+				attr.Mutability,
+				attr.ApplicationIdentifier,
+				attr.MultiValued,
+				canonicalJSON,
+				subAttrsJSON,
+				attr.DisplayName,
+				orgId,
+				attr.AttributeId,
+				scope,
+			}
+
+			if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+				errorMsg := fmt.Sprintf("Failed to update attribute %s for organization %s", attr.AttributeId, orgId)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors.NewServerError(errors.ErrorMessage{
+					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
+					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+					Description: errorMsg,
+				}, err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for update of profile schema attributes for organization: %s", orgId)
+		errorMsg := fmt.Sprintf("Failed to update profile schema attributes for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
+		return errors.AsServerError(err, errors.ErrorMessage{
 			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
 			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
 			Description: errorMsg,
-		}, err)
-	}
-
-	defer tx.RollbackUnlessDone()
-
-	stmt := scripts.UpdateProfileSchemaAttributesForSchema
-
-	for _, attr := range updates {
-		subAttrsJSON, err := json.Marshal(attr.SubAttributes)
-		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeId)
-			logger.Debug(errorMsg, log.Error(err))
-			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
-				Description: errorMsg,
-			}, err)
-		}
-		canonicalJSON, err := json.Marshal(attr.CanonicalValues)
-
-		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeId)
-			logger.Debug(errorMsg, log.Error(err))
-			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
-				Description: errorMsg,
-			}, err)
-		}
-		args := []interface{}{
-			attr.AttributeName,
-			attr.ValueType,
-			attr.MergeStrategy,
-			attr.Mutability,
-			attr.ApplicationIdentifier,
-			attr.MultiValued,
-			canonicalJSON,
-			subAttrsJSON,
-			attr.DisplayName,
-			orgId,
-			attr.AttributeId,
-			scope,
-		}
-
-		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
-			errorMsg := fmt.Sprintf("Failed to update attribute %s for organization %s", attr.AttributeId, orgId)
-			logger.Debug(errorMsg, log.Error(err))
-			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
-				Description: errorMsg,
-			}, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		errorMsg := fmt.Sprintf("Failed to commit transaction for updating profile schema attributes for organization: %s", orgId)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
-			Description: errorMsg,
-		}, err)
+		})
 	}
 
 	logger.Info(fmt.Sprintf("Update completed for %d profile schema attributes of scope: %s of organization: %s )", len(updates), scope, orgId))
@@ -633,81 +624,46 @@ func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.P
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for organization: %s", orgID)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
-			Description: errorMsg,
-		}, err)
-	}
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		// Step 1: Upsert incoming attributes in-place so that existing attribute_id rows
+		// are updated rather than deleted and re-created. This preserves FK references
+		// in unification_rules (ON DELETE CASCADE) and any other dependent tables.
+		var valueStrings []string
+		var valueArgs []interface{}
+		argIndex := 1
+		incomingIDs := make([]string, 0, len(attrs))
 
-	defer tx.RollbackUnlessDone()
+		for _, attr := range attrs {
+			canonicalJSON, _ := json.Marshal(attr.CanonicalValues)
+			subAttrJSON, _ := json.Marshal(attr.SubAttributes)
+			attrKey := extractClaimKeyFromURI(attr.AttributeName)
+			attr.AttributeName = attrKey
+			incomingIDs = append(incomingIDs, attr.AttributeId)
 
-	// Step 1: Upsert incoming attributes in-place so that existing attribute_id rows
-	// are updated rather than deleted and re-created. This preserves FK references
-	// in unification_rules (ON DELETE CASCADE) and any other dependent tables.
-	var valueStrings []string
-	var valueArgs []interface{}
-	argIndex := 1
-	incomingIDs := make([]string, 0, len(attrs))
-
-	for _, attr := range attrs {
-		canonicalJSON, _ := json.Marshal(attr.CanonicalValues)
-		subAttrJSON, _ := json.Marshal(attr.SubAttributes)
-		attrKey := extractClaimKeyFromURI(attr.AttributeName)
-		attr.AttributeName = attrKey
-		incomingIDs = append(incomingIDs, attr.AttributeId)
-
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-			argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6,
-			argIndex+7, argIndex+8, argIndex+9, argIndex+10, argIndex+11, argIndex+12))
-		valueArgs = append(valueArgs,
-			orgID,
-			attr.AttributeId,
-			attr.AttributeName,
-			attr.ValueType,
-			attr.MergeStrategy,
-			attr.Mutability,
-			attr.ApplicationIdentifier,
-			attr.MultiValued,
-			string(canonicalJSON),
-			string(subAttrJSON),
-			attr.SCIMDialect,
-			constants.IdentityAttributes,
-			attr.DisplayName,
-		)
-		argIndex += 13
-	}
-
-	upsertQuery := scripts.UpsertIdentityClaimsForProfileSchema.Format(strings.Join(valueStrings, ","))
-	if _, err = tx.ExecContext(ctx, upsertQuery, valueArgs...); err != nil {
-		errorMsg := fmt.Sprintf("Failed to upsert identity attributes of profile schema for organization: %s", orgID)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
-			Description: errorMsg,
-		}, err)
-	}
-
-	// Step 2: Delete only attributes that are no longer present in the identity server.
-	// Using a targeted NOT IN delete instead of a blanket delete preserves rows (and
-	// their dependent FK entries) for attributes that still exist.
-	if len(incomingIDs) > 0 {
-		notInPlaceholders := make([]string, len(incomingIDs))
-		deleteArgs := make([]interface{}, 0, len(incomingIDs)+1)
-		deleteArgs = append(deleteArgs, orgID)
-		for i, id := range incomingIDs {
-			notInPlaceholders[i] = fmt.Sprintf("$%d", i+2)
-			deleteArgs = append(deleteArgs, id)
+			valueStrings = append(valueStrings, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+				argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6,
+				argIndex+7, argIndex+8, argIndex+9, argIndex+10, argIndex+11, argIndex+12))
+			valueArgs = append(valueArgs,
+				orgID,
+				attr.AttributeId,
+				attr.AttributeName,
+				attr.ValueType,
+				attr.MergeStrategy,
+				attr.Mutability,
+				attr.ApplicationIdentifier,
+				attr.MultiValued,
+				string(canonicalJSON),
+				string(subAttrJSON),
+				attr.SCIMDialect,
+				constants.IdentityAttributes,
+				attr.DisplayName,
+			)
+			argIndex += 13
 		}
-		staleDeleteQuery := scripts.DeleteStaleIdentityClaimsForProfileSchema.Format(
-			strings.Join(notInPlaceholders, ","))
-		if _, err = tx.ExecContext(ctx, staleDeleteQuery, deleteArgs...); err != nil {
-			errorMsg := fmt.Sprintf("Failed to remove stale identity attributes of profile schema for organization: %s", orgID)
+
+		upsertQuery := scripts.UpsertIdentityClaimsForProfileSchema.Format(strings.Join(valueStrings, ","))
+		if _, err := tx.ExecContext(ctx, upsertQuery, valueArgs...); err != nil {
+			errorMsg := fmt.Sprintf("Failed to upsert identity attributes of profile schema for organization: %s", orgID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
 				Code:        errors.SYNC_PROFILE_SCHEMA.Code,
@@ -715,16 +671,40 @@ func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.P
 				Description: errorMsg,
 			}, err)
 		}
-	}
 
-	if err = tx.Commit(); err != nil {
-		errorMsg := fmt.Sprintf("Failed to commit transaction for organization: %s", orgID)
+		// Step 2: Delete only attributes that are no longer present in the identity server.
+		// Using a targeted NOT IN delete instead of a blanket delete preserves rows (and
+		// their dependent FK entries) for attributes that still exist.
+		if len(incomingIDs) > 0 {
+			notInPlaceholders := make([]string, len(incomingIDs))
+			deleteArgs := make([]interface{}, 0, len(incomingIDs)+1)
+			deleteArgs = append(deleteArgs, orgID)
+			for i, id := range incomingIDs {
+				notInPlaceholders[i] = fmt.Sprintf("$%d", i+2)
+				deleteArgs = append(deleteArgs, id)
+			}
+			staleDeleteQuery := scripts.DeleteStaleIdentityClaimsForProfileSchema.Format(
+				strings.Join(notInPlaceholders, ","))
+			if _, err := tx.ExecContext(ctx, staleDeleteQuery, deleteArgs...); err != nil {
+				errorMsg := fmt.Sprintf("Failed to remove stale identity attributes of profile schema for organization: %s", orgID)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors.NewServerError(errors.ErrorMessage{
+					Code:        errors.SYNC_PROFILE_SCHEMA.Code,
+					Message:     errors.SYNC_PROFILE_SCHEMA.Message,
+					Description: errorMsg,
+				}, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to sync identity attributes of profile schema for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
+		return errors.AsServerError(err, errors.ErrorMessage{
 			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
 			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
 			Description: errorMsg,
-		}, err)
+		})
 	}
 	return nil
 }

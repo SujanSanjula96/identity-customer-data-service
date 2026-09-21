@@ -13,6 +13,8 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
+	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -1441,38 +1443,33 @@ func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, c
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		query := scripts.UpdateProfileReference
+
+		for _, child := range children {
+			_, err := tx.ExecContext(ctx, query, parentProfile.ProfileId, child.Reason, constants.MergedTo, child.ProfileId)
+			if err != nil {
+				errorMsg := fmt.Sprintf("Failed to insert referenced profile: %s for parent profile: %s", child.ProfileId, parentProfile.ProfileId)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors2.NewServerError(errors2.ErrorMessage{
+					Code:        errors2.UPDATE_PROFILE.Code,
+					Message:     errors2.UPDATE_PROFILE.Message,
+					Description: errorMsg,
+				}, err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for adding child profiles for parent: %s",
-			parentProfile.ProfileId)
+		errorMsg := fmt.Sprintf("Failed to add child profiles for parent: %s", parentProfile.ProfileId)
 		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
+		return errors2.AsServerError(err, errors2.ErrorMessage{
 			Code:        errors2.UPDATE_PROFILE.Code,
 			Message:     errors2.UPDATE_PROFILE.Message,
 			Description: errorMsg,
-		}, err)
-		return serverError
+		})
 	}
-
-	defer tx.RollbackUnlessDone()
-
-	query := scripts.UpdateProfileReference
-
-	for _, child := range children {
-		_, err := tx.ExecContext(ctx, query, parentProfile.ProfileId, child.Reason, constants.MergedTo, child.ProfileId)
-		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to insert referenced profile: %s for parent profile: %s", child.ProfileId, parentProfile.ProfileId)
-			logger.Debug(errorMsg, log.Error(err))
-			serverError := errors2.NewServerError(errors2.ErrorMessage{
-				Code:        errors2.UPDATE_PROFILE.Code,
-				Message:     errors2.UPDATE_PROFILE.Message,
-				Description: errorMsg,
-			}, err)
-			return serverError
-		}
-	}
-
-	return tx.Commit()
+	return nil
 }
 
 func FetchReferencedProfiles(ctx context.Context, referenceProfileId string) ([]model.Reference, error) {
@@ -1986,69 +1983,50 @@ func UpdateProfileConsents(ctx context.Context, profileId string, consents []mod
 	}
 	defer dbClient.Close()
 
-	// Start a transaction to ensure atomicity of consent updates
-	tx, err := dbClient.BeginTxContext(ctx)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for updating consents for profile: %s", profileId)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_PROFILE.Code,
-			Message:     errors2.UPDATE_PROFILE.Message,
-			Description: errorMsg,
-		}, err)
-		return serverError
-	}
-
-	defer tx.RollbackUnlessDone()
-
-	// First, delete existing consents for this profile to ensure a clean slate
-
-	deleteQuery := scripts.DeleteProfileConsentsByProfileId
-	_, err = tx.ExecContext(ctx, deleteQuery, profileId)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to delete existing consents for profile: %s", profileId)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_PROFILE.Code,
-			Message:     errors2.UPDATE_PROFILE.Message,
-			Description: errorMsg,
-		}, err)
-		return serverError
-	}
-
-	// Insert new consent records
-	insertQuery := scripts.InsertProfileConsentsByProfileId
-	for _, consent := range consents {
-
-		_, err = tx.ExecContext(ctx, insertQuery,
-			profileId,
-			consent.CategoryIdentifier,
-			consent.IsConsented,
-			consent.ConsentedAt)
-
-		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to insert consent for profile: %s, category: %s",
-				profileId, consent.CategoryIdentifier)
+	// One transaction keeps the delete and the inserts atomic.
+	err = client.WithTransaction(ctx, dbClient, func(tx *dbmodel.Tx) error {
+		// First, delete existing consents for this profile to ensure a clean slate
+		deleteQuery := scripts.DeleteProfileConsentsByProfileId
+		if _, err := tx.ExecContext(ctx, deleteQuery, profileId); err != nil {
+			errorMsg := fmt.Sprintf("Failed to delete existing consents for profile: %s", profileId)
 			logger.Debug(errorMsg, log.Error(err))
-			serverError := errors2.NewServerError(errors2.ErrorMessage{
+			return errors2.NewServerError(errors2.ErrorMessage{
 				Code:        errors2.UPDATE_PROFILE.Code,
 				Message:     errors2.UPDATE_PROFILE.Message,
 				Description: errorMsg,
 			}, err)
-			return serverError
 		}
-	}
 
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		errorMsg := fmt.Sprintf("Failed to commit transaction for updating consents for profile: %s", profileId)
+		// Insert new consent records
+		insertQuery := scripts.InsertProfileConsentsByProfileId
+		for _, consent := range consents {
+			_, err := tx.ExecContext(ctx, insertQuery,
+				profileId,
+				consent.CategoryIdentifier,
+				consent.IsConsented,
+				consent.ConsentedAt)
+
+			if err != nil {
+				errorMsg := fmt.Sprintf("Failed to insert consent for profile: %s, category: %s",
+					profileId, consent.CategoryIdentifier)
+				logger.Debug(errorMsg, log.Error(err))
+				return errors2.NewServerError(errors2.ErrorMessage{
+					Code:        errors2.UPDATE_PROFILE.Code,
+					Message:     errors2.UPDATE_PROFILE.Message,
+					Description: errorMsg,
+				}, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to update consents for profile: %s", profileId)
 		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
+		return errors2.AsServerError(err, errors2.ErrorMessage{
 			Code:        errors2.UPDATE_PROFILE.Code,
 			Message:     errors2.UPDATE_PROFILE.Message,
 			Description: errorMsg,
-		}, err)
-		return serverError
+		})
 	}
 
 	logger.Info(fmt.Sprintf("Successfully updated consents for profile: %s", profileId))
