@@ -305,6 +305,15 @@ var DeleteProfileByProfileId = newQuery("CDS-PRF-11",
 var DeleteProfile = newQuery("CDS-PRF-18",
 	`DELETE FROM profiles WHERE profile_id = $1`)
 
+// LockProfilesById holds the given profile rows until the transaction ends, so
+// that one merge of those profiles runs at a time. The rows are locked in the
+// order the statement returns them, which the caller sorts.
+var LockProfilesById = newQuery("CDS-PRF-19",
+	`SELECT profile_id FROM profiles WHERE profile_id IN (%s) ORDER BY profile_id FOR UPDATE`,
+	// The inbuilt database has no FOR UPDATE. It takes its write lock when the
+	// transaction begins, so the merge already holds it by this point.
+	`SELECT profile_id FROM profiles WHERE profile_id IN (%s) ORDER BY profile_id`)
+
 var InsertApplicationData = newQuery("CDS-PRF-12",
 	`
 		INSERT INTO application_data (profile_id, app_id, application_data)

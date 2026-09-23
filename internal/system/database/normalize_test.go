@@ -16,7 +16,7 @@
  * under the License.
  */
 
-package client
+package database
 
 import (
 	"reflect"
@@ -24,7 +24,7 @@ import (
 	"time"
 )
 
-func Test_normalizeSQLiteValue(t *testing.T) {
+func Test_NormalizeSQLiteValue(t *testing.T) {
 
 	reference := time.Date(2026, 7, 25, 6, 48, 58, 169070000, time.UTC)
 
@@ -58,14 +58,14 @@ func Test_normalizeSQLiteValue(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := normalizeSQLiteValue(testCase.value, testCase.declaredType)
+			actual := NormalizeSQLiteValue(testCase.value, testCase.declaredType)
 			if !reflect.DeepEqual(actual, testCase.expected) {
 				t.Fatalf("expected %#v, got %#v", testCase.expected, actual)
 			}
 
 			// Normalizing an already normalized value must not change it, since a
 			// column may already arrive with the target type.
-			again := normalizeSQLiteValue(actual, testCase.declaredType)
+			again := NormalizeSQLiteValue(actual, testCase.declaredType)
 			if !reflect.DeepEqual(again, actual) {
 				t.Fatalf("normalization is not idempotent: %#v became %#v", actual, again)
 			}
@@ -73,9 +73,9 @@ func Test_normalizeSQLiteValue(t *testing.T) {
 	}
 }
 
-func Test_normalizeSQLiteValue_timeIsUTC(t *testing.T) {
+func Test_NormalizeSQLiteValue_timeIsUTC(t *testing.T) {
 
-	normalized := normalizeSQLiteValue("2026-07-25 12:18:58.16907+05:30", "TIMESTAMP")
+	normalized := NormalizeSQLiteValue("2026-07-25 12:18:58.16907+05:30", "TIMESTAMP")
 
 	parsed, ok := normalized.(time.Time)
 	if !ok {

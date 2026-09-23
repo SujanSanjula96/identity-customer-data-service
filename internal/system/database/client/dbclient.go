@@ -22,7 +22,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	_ "github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -89,65 +88,16 @@ func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 	[]map[string]interface{}, error) {
 
-	isSQLite := client.dbType == database.TypeSQLite
-	if isSQLite {
+	if client.dbType == database.TypeSQLite {
 		args = database.NormalizeSQLiteArgs(args)
 	}
 
-	sqlText := query.GetQuery(client.dbType)
-
-	rows, err := client.db.QueryContext(ctx, sqlText, args...)
+	rows, err := client.db.QueryContext(ctx, query.GetQuery(client.dbType), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
 	}
-	defer rows.Close()
 
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	var declaredTypes []string
-	if isSQLite {
-		columnTypes, err := rows.ColumnTypes()
-		if err != nil {
-			return nil, err
-		}
-		declaredTypes = make([]string, len(columnTypes))
-		for i, columnType := range columnTypes {
-			declaredTypes[i] = columnType.DatabaseTypeName()
-		}
-	}
-
-	var results []map[string]interface{}
-	for rows.Next() {
-		row := make([]interface{}, len(columns))
-		rowPointers := make([]interface{}, len(columns))
-		for i := range row {
-			rowPointers[i] = &row[i]
-		}
-
-		if err := rows.Scan(rowPointers...); err != nil {
-			return nil, err
-		}
-
-		result := map[string]interface{}{}
-		for i, col := range columns {
-			value := row[i]
-			if isSQLite {
-				value = normalizeSQLiteValue(value, declaredTypes[i])
-			}
-			// Normalize column names to lowercase for consistency.
-			result[strings.ToLower(col)] = value
-		}
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return database.ScanRows(rows, client.dbType)
 }
 
 // BeginTxContext starts a new database transaction under the caller's context.

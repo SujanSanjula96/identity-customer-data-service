@@ -58,6 +58,7 @@ func AllQueries() map[string]model.DBQuery {
 		"UpdateProfileReference":                      UpdateProfileReference,
 		"GetProfilesByOrgId":                          GetProfilesByOrgId,
 		"DeleteProfileByProfileId":                    DeleteProfileByProfileId,
+		"LockProfilesById":                            LockProfilesById,
 		"DeleteProfile":                               DeleteProfile,
 		"InsertApplicationData":                       InsertApplicationData,
 		"DeleteProfileReference":                      DeleteProfileReference,

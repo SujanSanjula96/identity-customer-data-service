@@ -86,6 +86,21 @@ func (t *Tx) QueryContext(ctx context.Context, query DBQuery, args ...interface{
 	return rows, nil
 }
 
+// QueryRowsContext runs a statement that returns rows, reads every row into a
+// map, and closes the rows. It reads a row exactly as the client does outside a
+// transaction, so a store can take its reads and its writes into one
+// transaction without changing how it reads them.
+func (t *Tx) QueryRowsContext(ctx context.Context, query DBQuery, args ...interface{}) (
+	[]map[string]interface{}, error) {
+
+	rows, err := t.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return database.ScanRows(rows, t.dbType)
+}
+
 // Exec runs a statement that returns no rows, under context.Background.
 //
 // Deprecated: use ExecContext. A statement without a context cannot be ended

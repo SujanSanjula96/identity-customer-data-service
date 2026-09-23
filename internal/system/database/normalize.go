@@ -16,7 +16,7 @@
  * under the License.
  */
 
-package client
+package database
 
 import (
 	"strings"
@@ -44,9 +44,9 @@ var sqliteTimeLayouts = []string{
 	time.RFC3339Nano,
 }
 
-// normalizeSQLiteValue coerces a single scanned value based on its declared
+// NormalizeSQLiteValue coerces a single scanned value based on its declared
 // column type.
-func normalizeSQLiteValue(value interface{}, declaredType string) interface{} {
+func NormalizeSQLiteValue(value interface{}, declaredType string) interface{} {
 
 	if value == nil {
 		return nil
