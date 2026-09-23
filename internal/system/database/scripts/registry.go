@@ -65,6 +65,7 @@ func AllQueries() map[string]model.DBQuery {
 		"GetAllReferenceProfileExceptCurrent":         GetAllReferenceProfileExceptCurrent,
 		"FetchReferencedProfiles":                     FetchReferencedProfiles,
 		"GetProfileByUserId":                          GetProfileByUserId,
+		"LockProfile":                                 LockProfile,
 		"InsertConsentCategory":                       InsertConsentCategory,
 		"UpsertDefaultIdentityDataCategory":           UpsertDefaultIdentityDataCategory,
 		"GetAllConsentCategories":                     GetAllConsentCategories,

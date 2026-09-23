@@ -744,6 +744,24 @@ func isValidType(value interface{}, expected string, multiValued bool, subAttrs 
 func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 	profileId, orgHandle string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
 
+	var profileToUpDate *profileModel.Profile
+	err := profileStore.WithProfileLocked(ctx, profileId, func(ctx context.Context) error {
+		var err error
+		profileToUpDate, err = replaceProfile(ctx, profileId, updatedProfile)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ps.completeProfileUpdate(ctx, profileId, orgHandle, *profileToUpDate)
+}
+
+// replaceProfile validates the request against the stored profile and writes
+// it to the profile, or to its master when the profile is merged into one. It
+// returns what it wrote.
+func replaceProfile(ctx context.Context, profileId string,
+	updatedProfile profileModel.ProfileRequest) (*profileModel.Profile, error) {
+
 	profile, err := profileStore.GetProfile(ctx, profileId)
 	logger := log.GetLogger()
 	if err != nil {
@@ -840,8 +858,17 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		logger.Error(fmt.Sprintf("Error updating profile: %s", profileToUpDate.ProfileId), log.Error(err))
 		return nil, err
 	}
+	return &profileToUpDate, nil
+}
 
-	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileId)
+// completeProfileUpdate reads the updated profile back and queues it for
+// unification. It runs after the update commits, so the worker reads what the
+// update wrote.
+func (ps *ProfilesService) completeProfileUpdate(ctx context.Context, profileId, orgHandle string,
+	profileToUpDate profileModel.Profile) (*profileModel.ProfileResponse, error) {
+
+	logger := log.GetLogger()
+	profileFetched, errWait := ps.GetProfile(ctx, profileId)
 	if errWait != nil || profileFetched == nil {
 		return nil, errWait
 	}
@@ -1440,9 +1467,31 @@ func (ps *ProfilesService) FindProfileByUserId(ctx context.Context,
 	return profileResponse, nil
 }
 
-// PatchProfile applies a partial update to an existing profile
+// PatchProfile applies a partial update to an existing profile. The read of
+// the profile and the write of the result hold the lock of the profile, so a
+// concurrent write to it is not lost.
 func (ps *ProfilesService) PatchProfile(ctx context.Context,
 	profileId, orgHandle string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
+
+	var profileToUpDate *profileModel.Profile
+	err := profileStore.WithProfileLocked(ctx, profileId, func(ctx context.Context) error {
+		updatedProfileReq, err := patchedProfileRequest(ctx, profileId, patch)
+		if err != nil {
+			return err
+		}
+		profileToUpDate, err = replaceProfile(ctx, profileId, *updatedProfileReq)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ps.completeProfileUpdate(ctx, profileId, orgHandle, *profileToUpDate)
+}
+
+// patchedProfileRequest applies the patch to the stored profile and returns the
+// whole profile as a request.
+func patchedProfileRequest(ctx context.Context, profileId string,
+	patch map[string]interface{}) (*profileModel.ProfileRequest, error) {
 
 	existingProfile, err := profileStore.GetProfile(ctx, profileId)
 	if err != nil {
@@ -1535,8 +1584,7 @@ func (ps *ProfilesService) PatchProfile(ctx context.Context,
 		return nil, serverError
 	}
 
-	// Reuse the PUT logic to update the profile
-	return ps.UpdateProfile(ctx, profileId, orgHandle, updatedProfileReq)
+	return &updatedProfileReq, nil
 }
 
 func (ps *ProfilesService) GetProfileCookieByProfileId(ctx context.Context,

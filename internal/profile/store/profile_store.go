@@ -89,8 +89,16 @@ func scanProfileConsentRow(row map[string]interface{}) (model.ConsentRecord, err
 	return profileConsent, nil
 }
 
-// InsertProfile inserts a new profile into the database
+// InsertProfile inserts a new profile into the database, together with its
+// reference and its application data, in one transaction.
 func InsertProfile(ctx context.Context, profile model.Profile) error {
+
+	return RunInTransaction(ctx, func(ctx context.Context) error {
+		return insertProfile(ctx, profile)
+	})
+}
+
+func insertProfile(ctx context.Context, profile model.Profile) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -263,7 +271,10 @@ func GetProfile(ctx context.Context, profileId string) (*model.Profile, error) {
 		}, err)
 		return nil, serverError
 	}
-	profile.ApplicationData, _ = FetchApplicationData(ctx, profileId)
+	profile.ApplicationData, err = FetchApplicationData(ctx, profileId)
+	if err != nil {
+		return nil, err
+	}
 	return &profile, nil
 }
 
@@ -446,8 +457,16 @@ func FetchApplicationDataWithAppId(ctx context.Context, profileId string, appId 
 	return app, nil
 }
 
-// UpdateProfile updates the profile
+// UpdateProfile updates the profile, together with its reference and its
+// application data, in one transaction.
 func UpdateProfile(ctx context.Context, profile model.Profile) error {
+
+	return RunInTransaction(ctx, func(ctx context.Context) error {
+		return updateProfile(ctx, profile)
+	})
+}
+
+func updateProfile(ctx context.Context, profile model.Profile) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -777,7 +796,17 @@ func DeleteProfile(ctx context.Context, profileId string) error {
 	return nil
 }
 
+// UpsertAppDatum merges the updates into the application data the profile has
+// for the app. It holds the lock on the profile from the read to the write, so
+// a concurrent upsert for the same profile cannot overwrite it.
 func UpsertAppDatum(ctx context.Context, profileId string, appId string, updates map[string]interface{}) error {
+
+	return WithProfilesLocked(ctx, []string{profileId}, func(ctx context.Context) error {
+		return upsertAppDatum(ctx, profileId, appId, updates)
+	})
+}
+
+func upsertAppDatum(ctx context.Context, profileId string, appId string, updates map[string]interface{}) error {
 
 	// Fetch existing application_data for the given app
 	appData, err := FetchApplicationDataWithAppId(ctx, profileId, appId)
@@ -1415,7 +1444,10 @@ func GetAllReferenceProfilesExceptForCurrent(ctx context.Context,
 			return nil, serverError
 		}
 
-		profile.ApplicationData, _ = FetchApplicationData(ctx, profile.ProfileId)
+		profile.ApplicationData, err = FetchApplicationData(ctx, profile.ProfileId)
+		if err != nil {
+			return nil, err
+		}
 
 		profiles = append(profiles, profile)
 	}
@@ -1423,7 +1455,8 @@ func GetAllReferenceProfilesExceptForCurrent(ctx context.Context,
 	return profiles, nil
 }
 
-// UpdateProfileReferences updates the references of a parent profile with the provided child profiles.
+// UpdateProfileReferences updates the references of a parent profile with the
+// provided child profiles, in one transaction.
 func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, children []model.Reference) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -1441,46 +1474,26 @@ func UpdateProfileReferences(ctx context.Context, parentProfile model.Profile, c
 	}
 	defer dbClient.Close()
 
-	tx, err := dbClient.BeginTxContext(ctx)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for adding child profiles for parent: %s",
-			parentProfile.ProfileId)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPDATE_PROFILE.Code,
-			Message:     errors2.UPDATE_PROFILE.Message,
-			Description: errorMsg,
-		}, err)
-		return serverError
-	}
 	query := scripts.UpdateProfileReference
 
-	for _, child := range children {
-		_, err := tx.ExecContext(ctx, query, parentProfile.ProfileId, child.Reason, constants.MergedTo, child.ProfileId)
-		if err != nil {
-			errRoll := tx.Rollback()
-			if errRoll != nil {
-				errorMsg := fmt.Sprintf("Failed to rollback transaction after error: %s", err)
+	return dbClient.RunInTransaction(ctx, func(ctx context.Context) error {
+		for _, child := range children {
+			_, err := dbClient.ExecuteQueryContext(ctx, query, parentProfile.ProfileId, child.Reason,
+				constants.MergedTo, child.ProfileId)
+			if err != nil {
+				errorMsg := fmt.Sprintf("Failed to insert referenced profile: %s for parent profile: %s",
+					child.ProfileId, parentProfile.ProfileId)
 				logger.Debug(errorMsg, log.Error(err))
 				serverError := errors2.NewServerError(errors2.ErrorMessage{
 					Code:        errors2.UPDATE_PROFILE.Code,
 					Message:     errors2.UPDATE_PROFILE.Message,
 					Description: errorMsg,
-				}, errRoll)
+				}, err)
 				return serverError
 			}
-			errorMsg := fmt.Sprintf("Failed to insert referenced profile: %s for parent profile: %s", child.ProfileId, parentProfile.ProfileId)
-			logger.Debug(errorMsg, log.Error(err))
-			serverError := errors2.NewServerError(errors2.ErrorMessage{
-				Code:        errors2.UPDATE_PROFILE.Code,
-				Message:     errors2.UPDATE_PROFILE.Message,
-				Description: errorMsg,
-			}, err)
-			return serverError
 		}
-	}
-
-	return tx.Commit()
+		return nil
+	})
 }
 
 func FetchReferencedProfiles(ctx context.Context, referenceProfileId string) ([]model.Reference, error) {

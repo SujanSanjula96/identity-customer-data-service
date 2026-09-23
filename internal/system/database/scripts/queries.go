@@ -399,6 +399,12 @@ var GetProfileByUserId = newQuery("CDS-PRF-17",
 			p.user_id = $1
 			AND r.profile_status = 'REFERENCE_PROFILE';`)
 
+var LockProfile = newQuery("CDS-PRF-19",
+	`SELECT profile_id FROM profiles WHERE profile_id = $1 FOR UPDATE;`,
+	// SQLite has no row locks. The transaction holds the write lock of the
+	// whole database from its start, so the statement only reads the row.
+	`SELECT profile_id FROM profiles WHERE profile_id = $1;`)
+
 var InsertConsentCategory = newQuery("CDS-CON-04",
 	`INSERT INTO consent_categories (category_name, category_identifier, org_handle, purpose, destinations, is_mandatory)
 				VALUES ($1, $2, $3, $4, $5, $6)`)
