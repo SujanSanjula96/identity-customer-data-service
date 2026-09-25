@@ -102,6 +102,7 @@ func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.Unifica
 	for _, row := range results {
 		var rule model.UnificationRule
 		rule.RuleId = row["rule_id"].(string)
+		rule.OrgHandle, _ = row["org_handle"].(string)
 		rule.RuleName = row["rule_name"].(string)
 		rule.PropertyName = row["property_name"].(string)
 		rule.PropertyId = row["property_id"].(string)
@@ -159,6 +160,7 @@ func GetUnificationRule(ctx context.Context, ruleId string) (*model.UnificationR
 	row := results[0]
 	var rule model.UnificationRule
 	rule.RuleId = row["rule_id"].(string)
+	rule.OrgHandle, _ = row["org_handle"].(string)
 	rule.RuleName = row["rule_name"].(string)
 	rule.PropertyName = row["property_name"].(string)
 	rule.PropertyId = row["property_id"].(string)

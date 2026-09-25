@@ -143,11 +143,11 @@ var UpdateProfileSchemaAttributeFields = newQuery("CDS-SCH-15",
 	`UPDATE profile_schema SET `)
 
 var GetUnificationRules = newQuery("CDS-UNR-01",
-	`SELECT rule_id, rule_name, property_name, property_id, priority, is_active, created_at, updated_at 
+	`SELECT rule_id, org_handle, rule_name, property_name, property_id, priority, is_active, created_at, updated_at 
 FROM unification_rules WHERE org_handle = $1`)
 
 var GetUnificationRule = newQuery("CDS-UNR-02",
-	`SELECT rule_id, rule_name, property_name, property_id, priority, is_active, created_at, updated_at FROM unification_rules WHERE rule_id = $1`)
+	`SELECT rule_id, org_handle, rule_name, property_name, property_id, priority, is_active, created_at, updated_at FROM unification_rules WHERE rule_id = $1`)
 
 var DeleteUnificationRule = newQuery("CDS-UNR-03",
 	`DELETE FROM unification_rules WHERE rule_id = $1`)

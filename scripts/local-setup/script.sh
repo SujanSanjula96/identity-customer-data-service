@@ -1116,7 +1116,10 @@ provision_is() {
     || die "management API resource /api/server/v1/claim-dialects not found"
   authorize_api "$sys_id" "/scim2/Users" internal_user_mgt_list internal_user_mgt_view \
     || die "management API resource /scim2/Users not found"
-  ok "'$SYS_APP_NAME' authorized for applications, claim-dialects and scim2/Users"
+  # B2B: CDS reads the org tree of the root org.
+  authorize_api "$sys_id" "/api/server/v1/organizations" internal_organization_view \
+    || die "management API resource /api/server/v1/organizations not found"
+  ok "'$SYS_APP_NAME' authorized for applications, claim-dialects, scim2/Users and organizations"
 
   SYS_CLIENT_ID="$(oidc_config "$sys_id" | jq -r '.clientId // empty')"
   SYS_CLIENT_SECRET="$(oidc_config "$sys_id" | jq -r '.clientSecret // empty')"

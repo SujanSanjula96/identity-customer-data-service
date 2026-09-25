@@ -26,6 +26,11 @@ subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE
 name = "cds.authentication.listener"
 subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
 
+# B2B: org lifecycle events, so that CDS provisions new sub organizations.
+[[event_handler]]
+name = "cds.organization.event.handler"
+subscriptions = ["POST_ADD_ORGANIZATION", "POST_UPDATE_ORGANIZATION", "POST_PATCH_ORGANIZATION", "POST_DELETE_ORGANIZATION"]
+
 # --- Console feature scopes ------------------------------------------------ #
 [[api_resources]]
 name = "Customer Data Service Feature"
@@ -177,6 +182,90 @@ description = "Update consent category"
 name = "internal_cds_consent_category_delete"
 displayName = "Consent category delete"
 description = "Delete consent category"
+
+# --- CDS API resources for sub organizations (B2B) -------------------------- #
+# An org-switched token carries only scopes of ORGANIZATION API resources. CDS
+# maps internal_org_cds_* to internal_cds_* with auth_server.org_scope_prefix.
+[[api_resources]]
+name = "Customer Data Service profile management API (organization)"
+identifier = "/o/cds/api/v1/profiles"
+requiresAuthorization = true
+description = "Profile management API of CDS for sub organizations"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_view"
+displayName = "Profile view"
+description = "View profile(s)"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_create"
+displayName = "Profile create"
+description = "Add profile"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_update"
+displayName = "Profile update"
+description = "Update profile"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_delete"
+displayName = "Profile delete"
+description = "Delete profile"
+[[api_resources]]
+name = "Customer Data Service profile schema attribute management API (organization)"
+identifier = "/o/cds/api/v1/profile-schema"
+requiresAuthorization = true
+description = "Profile schema API of CDS for sub organizations"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_schema_view"
+displayName = "Profile schema attribute view"
+description = "Profile schema attribute view"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_schema_create"
+displayName = "Profile schema attribute create"
+description = "Profile schema attribute create"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_schema_update"
+displayName = "Profile schema attribute update"
+description = "Profile schema attribute update"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_schema_delete"
+displayName = "Profile schema attribute delete"
+description = "Profile schema attribute delete"
+[[api_resources]]
+name = "Customer Data Service profile unification rule management API (organization)"
+identifier = "/o/cds/api/v1/unification-rules"
+requiresAuthorization = true
+description = "Unification rule API of CDS for sub organizations"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_unification_rule_view"
+displayName = "Profile unification rule view"
+description = "Profile unification rule view"
+[[api_resources.scopes]]
+name = "internal_org_cds_unification_rule_create"
+displayName = "Profile unification rule create"
+description = "Profile unification rule create"
+[[api_resources.scopes]]
+name = "internal_org_cds_unification_rule_update"
+displayName = "Profile unification rule update"
+description = "Profile unification rule update"
+[[api_resources.scopes]]
+name = "internal_org_cds_unification_rule_delete"
+displayName = "Profile unification rule delete"
+description = "Profile unification rule delete"
+[[api_resources]]
+name = "Customer Data Service config management API (organization)"
+identifier = "/o/cds/api/v1/config"
+requiresAuthorization = true
+description = "Configuration API of CDS for sub organizations"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_admin_config_view"
+displayName = "Customer data service configuration view"
+description = "View customer data service configurations"
+[[api_resources.scopes]]
+name = "internal_org_cds_admin_config_update"
+displayName = "Customer data service configuration update"
+description = "Update customer data service configurations"
 
 # --- Console navigation grouping ------------------------------------------- #
 [[api_resource_collections]]

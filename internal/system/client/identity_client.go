@@ -146,6 +146,7 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 		"internal_claim_meta_view",
 		"internal_user_mgt_list",
 		"internal_user_mgt_view",
+		"internal_organization_view",
 	}, constants.SpaceSeparator)
 
 	if authCfg.IsSystemAppGrantEnabled {

@@ -148,14 +148,7 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 	// Convert rules to API response format
 	rulesResponse := make([]model.UnificationRuleAPIResponse, 0, len(rules))
 	for _, rule := range rules {
-		tempRule := model.UnificationRuleAPIResponse{
-			RuleId:       rule.RuleId,
-			RuleName:     rule.RuleName,
-			PropertyName: rule.PropertyName,
-			Priority:     rule.Priority,
-			IsActive:     rule.IsActive,
-		}
-		rulesResponse = append(rulesResponse, tempRule)
+		rulesResponse = append(rulesResponse, model.ToAPIResponse(rule))
 	}
 	utils.RespondJSON(w, http.StatusOK, rulesResponse, constants.UnificationRuleResource)
 }
@@ -192,19 +185,12 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	rule, err := ruleService.GetUnificationRule(ctx, ruleId)
+	rule, err := ruleService.GetUnificationRuleForOrg(ctx, ruleId, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	ruleResponse := model.UnificationRuleAPIResponse{
-		RuleId:       rule.RuleId,
-		RuleName:     rule.RuleName,
-		PropertyName: rule.PropertyName,
-		Priority:     rule.Priority,
-		IsActive:     rule.IsActive,
-	}
-	utils.RespondJSON(w, http.StatusOK, ruleResponse, constants.UnificationRuleResource)
+	utils.RespondJSON(w, http.StatusOK, model.ToAPIResponse(*rule), constants.UnificationRuleResource)
 }
 
 // PatchUnificationRule applies partial updates to a unification rule.
@@ -246,7 +232,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	updatedRule, err := ruleService.GetUnificationRule(ctx, ruleId)
+	updatedRule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -312,6 +298,16 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
+	// Delete only a rule that the org owns. A rule of another org is not visible, so the delete is a
+	// no-op for it.
+	if _, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, orgHandle); err != nil {
+		if clientErr, ok := err.(*errors2.ClientError); ok && clientErr.StatusCode == http.StatusNotFound {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		utils.HandleError(w, err)
+		return
+	}
 	err = ruleService.DeleteUnificationRule(ctx, ruleId)
 	if err != nil {
 		utils.HandleError(w, err)

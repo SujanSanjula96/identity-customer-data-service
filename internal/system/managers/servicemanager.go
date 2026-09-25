@@ -57,6 +57,7 @@ func (sm *ServiceManager) RegisterServices() error {
 	_ = services.NewUnificationRulesService(routesMux)
 	_ = services.NewConsentCategoryService(routesMux)
 	_ = services.NewAdminConfigService(routesMux)
+	_ = services.NewB2BService(routesMux)
 
 	// Single tenant dispatcher for all services; services own the versioned path (e.g., /api/v1/...)
 	utils.MountTenantDispatcher(sm.mux, func(w http.ResponseWriter, r *http.Request) {

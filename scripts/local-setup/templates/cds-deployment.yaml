@@ -87,3 +87,8 @@ auth_server:
   # side.
   admin_username: "${CDS_SYNC_USER}"
   admin_password: "${AUTH_SERVER_ADMIN_PASSWORD}"
+  # B2B: a token of a sub organization carries the organization form of each
+  # scope (internal_org_cds_*), from the ORGANIZATION API resources in
+  # is-deployment.toml.
+  org_scope_prefix:
+    "internal_": "internal_org_"

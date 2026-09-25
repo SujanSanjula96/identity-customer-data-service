@@ -48,6 +48,10 @@ type AuthServerConfig struct {
 	AdminPassword             string              `yaml:"admin_password"`
 	RequiredScopes            map[string][]string `yaml:"required_scopes"`
 	IsSystemAppGrantEnabled   bool                `yaml:"isSystemAppGrantEnabled"`
+	// OrgScopePrefix maps a prefix of a required scope to the prefix of the same scope in a
+	// token of a sub organization. For WSO2 IS, {"internal_": "internal_org_"} accepts
+	// internal_org_cds_profile_view where internal_cds_profile_view is required.
+	OrgScopePrefix map[string]string `yaml:"org_scope_prefix"`
 }
 
 // SQLiteConfig holds the settings for the inbuilt datasource. A numeric field

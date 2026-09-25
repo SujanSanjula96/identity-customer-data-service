@@ -26,11 +26,28 @@ type UnificationRuleAPIRequest struct {
 }
 
 type UnificationRuleAPIResponse struct {
-	RuleId       string `json:"rule_id" bson:"rule_id" binding:"required"`
-	RuleName     string `json:"rule_name" bson:"rule_name" binding:"required"`
-	PropertyName string `json:"property_name" bson:"property_name" binding:"required"`
-	Priority     int    `json:"priority" bson:"priority" binding:"required"`
-	IsActive     bool   `json:"is_active" bson:"is_active" binding:"required"`
+	RuleId         string `json:"rule_id" bson:"rule_id" binding:"required"`
+	RuleName       string `json:"rule_name" bson:"rule_name" binding:"required"`
+	PropertyName   string `json:"property_name" bson:"property_name" binding:"required"`
+	Priority       int    `json:"priority" bson:"priority" binding:"required"`
+	IsActive       bool   `json:"is_active" bson:"is_active" binding:"required"`
+	Origin         string `json:"origin,omitempty" bson:"-"`
+	OwnerOrgHandle string `json:"owner_org_handle,omitempty" bson:"-"`
+	State          string `json:"state,omitempty" bson:"-"`
+}
+
+// ToAPIResponse converts a rule to its API response.
+func ToAPIResponse(rule UnificationRule) UnificationRuleAPIResponse {
+	return UnificationRuleAPIResponse{
+		RuleId:         rule.RuleId,
+		RuleName:       rule.RuleName,
+		PropertyName:   rule.PropertyName,
+		Priority:       rule.Priority,
+		IsActive:       rule.IsActive,
+		Origin:         rule.Origin,
+		OwnerOrgHandle: rule.OwnerOrgHandle,
+		State:          rule.State,
+	}
 }
 
 type UnificationRuleUpdateRequest struct {

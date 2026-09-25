@@ -39,6 +39,9 @@ auth_server:
   isSystemAppGrantEnabled: false
   introspection_client_id : "cds_introspection_client"
   introspection_client_secret: "${INTROSPECTION_CLIENT_SECRET}"
+  # B2B: a token of a sub organization carries the organization form of each scope.
+  org_scope_prefix:
+    "internal_": "internal_org_"
   required_scopes:
     profile:create:
       - "internal_cds_profile_create"
@@ -59,6 +62,8 @@ auth_server:
       - "internal_cds_unification_rule_update"
     unification_rules:delete:
       - "internal_cds_unification_rule_delete"
+    unification_rules:share:
+      - "internal_cds_unification_rule_update"
 
     profile_schema:view:
       - "internal_cds_profile_schema_view"
@@ -68,6 +73,9 @@ auth_server:
       - "internal_cds_profile_schema_update"
     profile_schema:delete:
       - "internal_cds_profile_schema_delete"
+    # B2B: share a schema attribute or a unification rule with child organizations.
+    profile_schema:share:
+      - "internal_cds_profile_schema_update"
 
     admin_config:view:
       - "internal_cds_admin_config_view"

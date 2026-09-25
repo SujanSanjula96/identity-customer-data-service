@@ -52,10 +52,24 @@ func ValidatePermission(scopeStr string, operation string) bool {
 		return false
 	}
 
+	orgScopePrefix := config.GetCDSRuntime().Config.AuthServer.OrgScopePrefix
 	for _, expected := range expectedScopes {
-		if !slices.Contains(grantedScopes, expected) {
+		if !slices.Contains(grantedScopes, expected) && !slices.Contains(grantedScopes,
+			orgScopeOf(expected, orgScopePrefix)) {
 			return false
 		}
 	}
 	return true
+}
+
+// orgScopeOf returns the name of the scope in a token of a sub organization, or "" when no
+// prefix mapping applies.
+func orgScopeOf(scope string, prefixes map[string]string) string {
+
+	for from, to := range prefixes {
+		if from != "" && strings.HasPrefix(scope, from) {
+			return to + strings.TrimPrefix(scope, from)
+		}
+	}
+	return ""
 }

@@ -195,3 +195,77 @@ CREATE INDEX IF NOT EXISTS idx_unification_rules_org_active_priority
 
 CREATE INDEX IF NOT EXISTS idx_unification_rules_property_id
     ON unification_rules (property_id);
+
+-- ================================
+-- B2B: ORGANIZATIONS AND SHARING
+-- ================================
+
+-- The org tree that CDS learns from the identity provider.
+CREATE TABLE IF NOT EXISTS organizations
+(
+    org_id         VARCHAR(255) PRIMARY KEY,
+    org_handle     VARCHAR(255) NOT NULL UNIQUE,
+    org_name       VARCHAR(255),
+    parent_org_id  VARCHAR(255),
+    root_org_id    VARCHAR(255) NOT NULL,
+    path           VARCHAR(2048) NOT NULL,
+    depth          INT          NOT NULL DEFAULT 0,
+    status         VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
+    created_at     TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
+    updated_at     TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
+    last_synced_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_organizations_root_path
+    ON organizations (root_org_id, path);
+
+CREATE INDEX IF NOT EXISTS idx_organizations_parent
+    ON organizations (parent_org_id);
+
+-- One share policy for each resource and initiating org.
+CREATE TABLE IF NOT EXISTS cds_share_policy
+(
+    policy_id         VARCHAR(255) PRIMARY KEY,
+    resource_type     VARCHAR(64)  NOT NULL,
+    resource_id       VARCHAR(255) NOT NULL,
+    owner_org_id      VARCHAR(255) NOT NULL,
+    initiating_org_id VARCHAR(255) NOT NULL,
+    stage             VARCHAR(16)  NOT NULL,
+    parent_policy_id  VARCHAR(255) REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
+    version           INT          NOT NULL DEFAULT 1,
+    created_at        TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
+    updated_at        TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
+    UNIQUE (resource_type, resource_id, initiating_org_id)
+);
+
+CREATE TABLE IF NOT EXISTS cds_share_policy_target
+(
+    policy_id     VARCHAR(255) NOT NULL REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
+    target_scope  VARCHAR(32)  NOT NULL,
+    target_org_id VARCHAR(255) NOT NULL DEFAULT '',
+    PRIMARY KEY (policy_id, target_scope, target_org_id)
+);
+
+CREATE TABLE IF NOT EXISTS cds_share_policy_exclusion
+(
+    policy_id       VARCHAR(255) NOT NULL REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
+    excluded_org_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (policy_id, excluded_org_id)
+);
+
+-- The result of the policies for each resource and org.
+CREATE TABLE IF NOT EXISTS cds_share_state
+(
+    resource_type           VARCHAR(64)  NOT NULL,
+    resource_id             VARCHAR(255) NOT NULL,
+    org_id                  VARCHAR(255) NOT NULL,
+    root_org_id             VARCHAR(255) NOT NULL,
+    state                   VARCHAR(64)  NOT NULL,
+    reason                  VARCHAR(500),
+    conflicting_resource_id VARCHAR(255),
+    updated_at              TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
+    PRIMARY KEY (resource_type, resource_id, org_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_state_org
+    ON cds_share_state (org_id, resource_type, state);
