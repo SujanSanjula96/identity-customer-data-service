@@ -26,8 +26,8 @@ import (
 	orgHandler "github.com/wso2/identity-customer-data-service/internal/organization/handler"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
-	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/authn"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
