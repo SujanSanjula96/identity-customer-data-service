@@ -94,6 +94,13 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 		return nil, unauthorizedError()
 	}
 
+	// B2B: an org-switched token names its org. It must match the org of the path.
+	if tokenOrg, ok := introspectionClaims[constants.OrgHandleClaim].(string); ok && tokenOrg != "" &&
+		tokenOrg != orgHandle {
+		logger.Debug(fmt.Sprintf("Opaque token is for organization '%s', not for '%s'", tokenOrg, orgHandle))
+		return nil, unauthorizedError()
+	}
+
 	clientApp, ok := introspectionClaims[constants.ClientIdClaim].(string)
 	if !ok || clientApp == "" {
 		logger.Debug(fmt.Sprintf("Introspected token does not have a valid client_id claim for "+
@@ -108,6 +115,45 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 
 	// Return introspection claims (no org info, but that's expected for opaque tokens)
 	return introspectionClaims, nil
+}
+
+// ValidateOrgPathToken validates the token of a request on the organization path /t/{root}/o/...
+// The org comes from the org_handle claim of the token (an org-switched token). The caller checks
+// that the org is in the tree of the root. It returns the claims and the org handle.
+func ValidateOrgPathToken(token, rootTenant string) (map[string]interface{}, string, error) {
+
+	logger := log.GetLogger()
+	if IsJWT(token) {
+		claims, err := ParseJWTClaims(token)
+		if err != nil {
+			return nil, "", unauthorizedError()
+		}
+		orgHandle, _ := claims[constants.OrgHandleClaim].(string)
+		if orgHandle == "" {
+			logger.Debug("A token on the organization path must have the org_handle claim.")
+			return nil, "", unauthorizedError()
+		}
+		validated, err := ValidateAuthenticationAndReturnClaims(token, orgHandle)
+		if err != nil {
+			return nil, "", err
+		}
+		return validated, orgHandle, nil
+	}
+	cfg := config.GetCDSRuntime().Config
+	introspected, err := client.NewIdentityClient(cfg).IntrospectToken(token, rootTenant)
+	if err != nil {
+		return nil, "", unauthorizedError()
+	}
+	orgHandle, _ := introspected[constants.OrgHandleClaim].(string)
+	if orgHandle == "" {
+		logger.Debug("An opaque token on the organization path must be an org-switched token.")
+		return nil, "", unauthorizedError()
+	}
+	validated, err := ValidateAuthenticationAndReturnClaims(token, orgHandle)
+	if err != nil {
+		return nil, "", err
+	}
+	return validated, orgHandle, nil
 }
 
 // IsJWT is a simple check to determine if the token is a JWT based on its structure

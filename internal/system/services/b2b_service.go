@@ -19,11 +19,16 @@
 package services
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	orgHandler "github.com/wso2/identity-customer-data-service/internal/organization/handler"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/authn"
+	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
 // B2BService registers the organization and sharing endpoints.
@@ -39,6 +44,23 @@ func NewB2BService(mux *http.ServeMux) *B2BService {
 		organizations: orgHandler.NewOrganizationHandler(),
 		shares:        shareHandler.NewShareHandler(),
 		mux:           mux,
+	}
+
+	// The organization path /t/{root}/o/... accepts an org-switched token of any org in the tree.
+	utils.OrgPathResolver = func(r *http.Request, rootTenant string) (string, error) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		_, orgHandle, err := authn.ValidateOrgPathToken(token, rootTenant)
+		if err != nil {
+			return "", err
+		}
+		// The organization path is for sub organizations. A root uses /t/{root}/...
+		if orgHandle == rootTenant {
+			return "", fmt.Errorf("the token of the root '%s' is not valid on the organization path", rootTenant)
+		}
+		if root, known := orgService.RootHandleOf(r.Context(), orgHandle); !known || root != rootTenant {
+			return "", fmt.Errorf("org '%s' is not in the tree of '%s'", orgHandle, rootTenant)
+		}
+		return orgHandle, nil
 	}
 
 	const base = constants.ApiBasePath + "/v1"

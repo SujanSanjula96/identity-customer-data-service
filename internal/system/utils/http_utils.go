@@ -119,12 +119,36 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 
 		// Add tenant to request context and preserve remaining path (including API version)
 		ctx := context.WithValue(r.Context(), constants.TenantContextKey, orgHandle)
+		// B2B: /t/{root}/o/... is the path that the IS Console uses in a sub organization. The
+		// token names the org. The request then continues as a request on /t/{org}/...
+		if strings.HasPrefix(remainingPath, "/o/") {
+			if OrgPathResolver == nil {
+				http.NotFound(w, r)
+				return
+			}
+			subOrgHandle, err := OrgPathResolver(r, orgHandle)
+			if err != nil {
+				WriteErrorResponse(w, error2.NewClientError(error2.ErrorMessage{
+					Code:        error2.UN_AUTHORIZED.Code,
+					Message:     error2.UN_AUTHORIZED.Message,
+					Description: "The token is not valid for an organization of this tenant.",
+				}, http.StatusUnauthorized))
+				return
+			}
+			remainingPath = strings.TrimPrefix(remainingPath, "/o")
+			ctx = context.WithValue(r.Context(), constants.TenantContextKey, subOrgHandle)
+		}
 		r = r.WithContext(ctx)
 		r.URL.Path = remainingPath
 
 		handlerFunc(w, r)
 	})
 }
+
+// OrgPathResolver returns the handle of the org that the token of a request on the organization
+// path /t/{root}/o/... names, after it checks the token and that the org is in the tree of the
+// root. The B2B service sets it.
+var OrgPathResolver func(r *http.Request, rootTenant string) (string, error)
 
 // RespondJSON sends a JSON response with the given status code and payload
 func RespondJSON(w http.ResponseWriter, status int, payload any, resource string) {

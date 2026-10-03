@@ -54,6 +54,29 @@ name = "console:customerData_edit"
 displayName = "Customer Data Service Edit Feature"
 description = "Edit Customer Data Service from the Console"
 
+# B2B: the Console in a sub organization asks for console:org:* feature scopes.
+[[api_resources]]
+name = "Customer Data Service Organization Feature"
+identifier = "console:org:customerData"
+requiresAuthorization = true
+description = "Resource representation of the CDS feature in an organization"
+type = "CONSOLE_ORG_FEATURE"
+
+[[api_resources.scopes]]
+name = "console:org:customerData"
+displayName = "Customer Data Service Feature"
+description = "Manage Customer Data Service in the organization from the Console"
+
+[[api_resources.scopes]]
+name = "console:org:customerData_view"
+displayName = "Customer Data Service View Feature"
+description = "View Customer Data Service in the organization from the Console"
+
+[[api_resources.scopes]]
+name = "console:org:customerData_edit"
+displayName = "Customer Data Service Edit Feature"
+description = "Edit Customer Data Service in the organization from the Console"
+
 # --- CDS API resources ----------------------------------------------------- #
 # Seeded here rather than over REST: IS reserves the "internal_" scope prefix
 # for system APIs and its REST API rejects it, and these are the scope names
@@ -336,6 +359,63 @@ name = "internal_cds_unification_rule_delete"
 [[api_resource_collections.scopes.delete]]
 name = "internal_cds_consent_category_delete"
 
+# B2B: the same grouping for the Console in a sub organization.
+[[api_resource_collections]]
+name = "org_customerData"
+displayName = "Customer Data Service"
+type = "organization"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData_view"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData_edit"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_profile_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_profile_schema_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_unification_rule_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_admin_config_view"
+
+[[api_resource_collections.scopes.create]]
+name = "internal_org_cds_profile_create"
+
+[[api_resource_collections.scopes.create]]
+name = "internal_org_cds_profile_schema_create"
+
+[[api_resource_collections.scopes.create]]
+name = "internal_org_cds_unification_rule_create"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_profile_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_profile_schema_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_unification_rule_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_admin_config_update"
+
+[[api_resource_collections.scopes.delete]]
+name = "internal_org_cds_profile_delete"
+
+[[api_resource_collections.scopes.delete]]
+name = "internal_org_cds_profile_schema_delete"
+
+[[api_resource_collections.scopes.delete]]
+name = "internal_org_cds_unification_rule_delete"
+
 # --- Token introspection for CDS ------------------------------------------- #
 # CDS introspects every bearer token it receives against the super tenant, with
 # its own client credentials. The default policy does not allow that.
@@ -361,6 +441,16 @@ exposed_headers = ["Location"]
 [console.extensions]
 cds_host = "${CDS_BASE}"
 cds_application_identifier_type = "client_id"
+# B2B: the unified Customer Data page has the enable toggle and the organization box.
+cdsUnifiedProfileView = true
+
+# B2B: show the Customer Data pages in sub organizations too. IS lists the routes of a
+# sub organization here, and this list replaces the list in the Console code.
+[console.ui.routes.organizationEnabledRoutes]
+customerDataService = "v0.0.0"
+customerDataProfiles = "v0.0.0"
+customerDataProfileAttributes = "v0.0.0"
+customerDataUnificationRules = "v0.0.0"
 
 [console.customer_data_service]
 enabled = true
