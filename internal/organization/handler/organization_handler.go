@@ -25,13 +25,18 @@ import (
 	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	"github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/organization/store"
+	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
-const organizationResource = "organization"
+const (
+	organizationResource = "organization"
+	orgAccessResource    = "organization access"
+)
 
 // OrganizationHandler serves the CDS view of the org tree.
 type OrganizationHandler struct{}
@@ -87,29 +92,117 @@ func (h *OrganizationHandler) SyncOrganization(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ReconcileOrganizations handles POST /organizations/reconcile. It reads the full org tree of the
-// root from the identity provider now.
-func (h *OrganizationHandler) ReconcileOrganizations(w http.ResponseWriter, r *http.Request) {
+// The organization access endpoints. Only a root that enabled CDS calls them.
 
-	if err := security.AuthnAndAuthz(r, "admin_config:update"); err != nil {
-		utils.HandleError(w, err)
+func (h *OrganizationHandler) CreateOrgAccess(w http.ResponseWriter, r *http.Request) {
+
+	root, ok := rootOf(w, r, "admin_config:update")
+	if !ok {
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	rootHandle, known := service.RootHandleOf(r.Context(), orgHandle)
-	if !known {
-		rootHandle = orgHandle
-	}
-	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), rootHandle) {
-		utils.HandleError(w, notEnabled())
+	req, ok := shareHandler.DecodePolicyRequest(w, r)
+	if !ok {
 		return
 	}
-	result, err := service.ProvisionTree(r.Context(), rootHandle)
+	resp, err := service.CreateOrgAccess(r.Context(), *root, req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	utils.RespondJSON(w, http.StatusOK, result, organizationResource)
+	utils.RespondJSON(w, http.StatusCreated, resp, orgAccessResource)
+}
+
+func (h *OrganizationHandler) ListOrgAccess(w http.ResponseWriter, r *http.Request) {
+
+	root, ok := rootOf(w, r, "admin_config:view")
+	if !ok {
+		return
+	}
+	resp, err := service.ListOrgAccess(r.Context(), *root)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
+}
+
+func (h *OrganizationHandler) GetOrgAccess(w http.ResponseWriter, r *http.Request) {
+
+	root, ok := rootOf(w, r, "admin_config:view")
+	if !ok {
+		return
+	}
+	resp, err := service.GetOrgAccess(r.Context(), *root, r.PathValue("orgPolicyId"))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
+}
+
+func (h *OrganizationHandler) UpdateOrgAccess(w http.ResponseWriter, r *http.Request) {
+
+	root, ok := rootOf(w, r, "admin_config:update")
+	if !ok {
+		return
+	}
+	req, ok := shareHandler.DecodePolicyRequest(w, r)
+	if !ok {
+		return
+	}
+	resp, err := service.UpdateOrgAccess(r.Context(), *root, r.PathValue("orgPolicyId"), req)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
+}
+
+func (h *OrganizationHandler) DeleteOrgAccess(w http.ResponseWriter, r *http.Request) {
+
+	root, ok := rootOf(w, r, "admin_config:update")
+	if !ok {
+		return
+	}
+	if err := service.DeleteOrgAccess(r.Context(), *root, r.PathValue("orgPolicyId")); err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// rootOf authenticates the request and returns the root org of the path. A sub org gets 400, and
+// a root that did not enable CDS gets CDS_NOT_ENABLED.
+func rootOf(w http.ResponseWriter, r *http.Request, operation string) (*model.Organization, bool) {
+
+	if err := security.AuthnAndAuthz(r, operation); err != nil {
+		utils.HandleError(w, err)
+		return nil, false
+	}
+	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), orgHandle) {
+		utils.HandleError(w, notEnabled())
+		return nil, false
+	}
+	org, err := store.GetOrganizationByHandle(r.Context(), orgHandle)
+	if err == nil && org == nil {
+		if _, err = service.ProvisionTree(r.Context(), orgHandle); err == nil {
+			org, err = store.GetOrganizationByHandle(r.Context(), orgHandle)
+		}
+	}
+	if err != nil {
+		utils.HandleError(w, err)
+		return nil, false
+	}
+	if org == nil || !org.IsRoot() {
+		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Code,
+			Message:     errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Message,
+			Description: "Only the root organization selects the sub organizations that can use CDS.",
+		}, http.StatusBadRequest))
+		return nil, false
+	}
+	return org, true
 }
 
 func notEnabled() error {

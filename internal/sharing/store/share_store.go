@@ -57,84 +57,118 @@ func query(ctx context.Context, q dbmodel.DBQuery, args ...interface{}) ([]map[s
 	return results, nil
 }
 
-// SavePolicy creates the policy, or replaces the targets and exclusions of the existing policy
-// of the same resource and initiating org. It returns the stored policy ID.
-func SavePolicy(ctx context.Context, p model.Policy) (string, error) {
+// inTx runs the statements of fn in one transaction.
+func inTx(ctx context.Context, description string, fn func(tx *dbmodel.Tx) error) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		return "", serverError("Failed to get a database client for sharing.", err)
+		return serverError("Failed to get a database client for sharing.", err)
 	}
 	defer dbClient.Close()
 
 	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
-		return "", serverError("Failed to start a transaction for a share policy.", err)
+		return serverError("Failed to start a transaction to "+description+".", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
-	now := time.Now().UTC()
-	rowsFound, err := tx.QueryContext(ctx, scripts.GetSharePolicy, p.ResourceType, p.ResourceId, p.InitiatingOrgId)
-	if err != nil {
-		return "", serverError("Failed to read the share policy.", err)
-	}
-	existingId := ""
-	if rowsFound.Next() {
-		var id, resourceType, resourceId, owner, initiator, stage string
-		var version int
-		var created, updated interface{}
-		if err := rowsFound.Scan(&id, &resourceType, &resourceId, &owner, &initiator, &stage, &version, &created,
-			&updated); err != nil {
-			_ = rowsFound.Close()
-			return "", serverError("Failed to read the share policy.", err)
-		}
-		existingId = id
-	}
-	_ = rowsFound.Close()
-
-	policyId := existingId
-	if existingId == "" {
-		policyId = p.PolicyId
-		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicy, policyId, p.ResourceType, p.ResourceId,
-			p.OwnerOrgId, p.InitiatingOrgId, p.Stage, now); err != nil {
-			return "", serverError("Failed to store the share policy.", err)
-		}
-	} else {
-		if _, err := tx.ExecContext(ctx, scripts.TouchSharePolicy, now, policyId); err != nil {
-			return "", serverError("Failed to update the share policy.", err)
-		}
-		if _, err := tx.ExecContext(ctx, scripts.DeleteSharePolicyTargets, policyId); err != nil {
-			return "", serverError("Failed to replace the share policy targets.", err)
-		}
-		if _, err := tx.ExecContext(ctx, scripts.DeleteSharePolicyExclusions, policyId); err != nil {
-			return "", serverError("Failed to replace the share policy exclusions.", err)
-		}
-	}
-	for _, target := range p.Targets {
-		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicyTarget, policyId, target.Scope,
-			target.OrgId); err != nil {
-			return "", serverError("Failed to store a share policy target.", err)
-		}
-	}
-	for _, excluded := range p.ExcludedOrgIds {
-		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicyExclusion, policyId, excluded); err != nil {
-			return "", serverError("Failed to store a share policy exclusion.", err)
-		}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return "", serverError("Failed to commit the share policy.", err)
+		return serverError("Failed to commit the transaction to "+description+".", err)
 	}
-	committed = true
-	return policyId, nil
+	return nil
 }
 
-// GetPoliciesByRoot returns the policies of one customer tree with their targets and
-// exclusions, oldest first.
+// CreatePolicy stores a new policy with its targets. The unique key on the resource and the
+// initiating org refuses a second policy; the service checks it first.
+func CreatePolicy(ctx context.Context, p model.Policy) error {
+
+	return inTx(ctx, "create a share policy", func(tx *dbmodel.Tx) error {
+		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicy, p.PolicyId, p.ResourceType, p.ResourceId,
+			p.OwningOrgId, p.InitiatingOrgId, p.Stage, time.Now().UTC()); err != nil {
+			return serverError("Failed to store the share policy.", err)
+		}
+		return insertTargets(ctx, tx, p.PolicyId, p.Targets)
+	})
+}
+
+// ReplaceTargets replaces the targets of a policy.
+func ReplaceTargets(ctx context.Context, policyId string, targets []model.Target) error {
+
+	return inTx(ctx, "replace the share policy targets", func(tx *dbmodel.Tx) error {
+		if _, err := tx.ExecContext(ctx, scripts.DeleteSharePolicyTargets, policyId); err != nil {
+			return serverError("Failed to replace the share policy targets.", err)
+		}
+		return insertTargets(ctx, tx, policyId, targets)
+	})
+}
+
+func insertTargets(ctx context.Context, tx *dbmodel.Tx, policyId string, targets []model.Target) error {
+
+	for _, target := range targets {
+		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicyTarget, policyId, target.Scope,
+			target.OrgId); err != nil {
+			return serverError("Failed to store a share policy target.", err)
+		}
+	}
+	return nil
+}
+
+func policyOf(row map[string]interface{}) model.Policy {
+	return model.Policy{
+		PolicyId:        rows.String(row, "policy_id"),
+		ResourceType:    rows.String(row, "resource_type"),
+		ResourceId:      rows.String(row, "resource_id"),
+		OwningOrgId:     rows.String(row, "owning_org_id"),
+		InitiatingOrgId: rows.String(row, "initiating_org_id"),
+		Stage:           rows.String(row, "stage"),
+		CreatedAt:       rows.Time(row, "created_at"),
+	}
+}
+
+func targetOf(row map[string]interface{}) model.Target {
+	return model.Target{Scope: rows.String(row, "target_scope"), OrgId: rows.String(row, "target_org_id")}
+}
+
+func withTargets(ctx context.Context, results []map[string]interface{}) (*model.Policy, error) {
+
+	if len(results) == 0 {
+		return nil, nil
+	}
+	p := policyOf(results[0])
+	targetRows, err := query(ctx, scripts.GetSharePolicyTargets, p.PolicyId)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range targetRows {
+		p.Targets = append(p.Targets, targetOf(row))
+	}
+	return &p, nil
+}
+
+// GetPolicyById returns the policy with its targets, or nil.
+func GetPolicyById(ctx context.Context, policyId string) (*model.Policy, error) {
+
+	results, err := query(ctx, scripts.GetSharePolicyById, policyId)
+	if err != nil {
+		return nil, err
+	}
+	return withTargets(ctx, results)
+}
+
+// GetPolicy returns the policy of the initiating org for the resource, with its targets, or nil.
+func GetPolicy(ctx context.Context, resourceType, resourceId, initiatingOrgId string) (*model.Policy, error) {
+
+	results, err := query(ctx, scripts.GetSharePolicy, resourceType, resourceId, initiatingOrgId)
+	if err != nil {
+		return nil, err
+	}
+	return withTargets(ctx, results)
+}
+
+// GetPoliciesByRoot returns the share policies of one customer tree with their targets, oldest
+// first.
 func GetPoliciesByRoot(ctx context.Context, rootOrgId string) ([]model.Policy, error) {
 
 	policyRows, err := query(ctx, scripts.GetSharePoliciesByRoot, rootOrgId)
@@ -145,48 +179,84 @@ func GetPoliciesByRoot(ctx context.Context, rootOrgId string) ([]model.Policy, e
 	if err != nil {
 		return nil, err
 	}
-	exclusionRows, err := query(ctx, scripts.GetSharePolicyExclusionsByRoot, rootOrgId)
-	if err != nil {
-		return nil, err
-	}
-
 	targets := map[string][]model.Target{}
 	for _, row := range targetRows {
 		id := rows.String(row, "policy_id")
-		targets[id] = append(targets[id], model.Target{Scope: rows.String(row, "target_scope"),
-			OrgId: rows.String(row, "target_org_id")})
+		targets[id] = append(targets[id], targetOf(row))
 	}
-	exclusions := map[string][]string{}
-	for _, row := range exclusionRows {
-		id := rows.String(row, "policy_id")
-		exclusions[id] = append(exclusions[id], rows.String(row, "excluded_org_id"))
-	}
-
 	policies := make([]model.Policy, 0, len(policyRows))
 	for _, row := range policyRows {
-		id := rows.String(row, "policy_id")
-		policies = append(policies, model.Policy{
-			PolicyId:        id,
-			ResourceType:    rows.String(row, "resource_type"),
-			ResourceId:      rows.String(row, "resource_id"),
-			OwnerOrgId:      rows.String(row, "owner_org_id"),
-			InitiatingOrgId: rows.String(row, "initiating_org_id"),
-			Stage:           rows.String(row, "stage"),
-			Version:         rows.Int(row, "version"),
-			Targets:         targets[id],
-			ExcludedOrgIds:  exclusions[id],
-			CreatedAt:       rows.Time(row, "created_at"),
-			UpdatedAt:       rows.Time(row, "updated_at"),
-		})
+		p := policyOf(row)
+		p.Targets = targets[p.PolicyId]
+		policies = append(policies, p)
 	}
 	return policies, nil
 }
 
-// DeletePolicy deletes the policy with its targets and exclusions.
+// GetPoliciesReachingOrg returns the share policies whose targets reach the org, oldest first.
+// Each policy has only the targets that reach the org.
+func GetPoliciesReachingOrg(ctx context.Context, orgId string) ([]model.Policy, error) {
+	return reachingPolicies(ctx, scripts.GetSharePoliciesReachingOrg, orgId)
+}
+
+// GetOrgAccessPoliciesReachingOrg returns the organization access policies whose targets reach
+// the org.
+func GetOrgAccessPoliciesReachingOrg(ctx context.Context, orgId string) ([]model.Policy, error) {
+	return reachingPolicies(ctx, scripts.GetOrgAccessPoliciesReachingOrg, orgId)
+}
+
+func reachingPolicies(ctx context.Context, q dbmodel.DBQuery, orgId string) ([]model.Policy, error) {
+
+	results, err := query(ctx, q, orgId)
+	if err != nil {
+		return nil, err
+	}
+	var policies []model.Policy
+	index := map[string]int{}
+	for _, row := range results {
+		id := rows.String(row, "policy_id")
+		i, seen := index[id]
+		if !seen {
+			i = len(policies)
+			index[id] = i
+			policies = append(policies, policyOf(row))
+		}
+		policies[i].Targets = append(policies[i].Targets, targetOf(row))
+	}
+	return policies, nil
+}
+
+// ReachedOrg is an org that a policy reaches.
+type ReachedOrg struct {
+	OrgId, OrgHandle string
+}
+
+// GetReachedOrgsPage returns one page of the active orgs that the policy reaches, and the total.
+func GetReachedOrgsPage(ctx context.Context, policyId string, limit, offset int) ([]ReachedOrg, int, error) {
+
+	countRows, err := query(ctx, scripts.CountReachedOrgs, policyId)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := 0
+	if len(countRows) > 0 {
+		total = rows.Int(countRows[0], "total")
+	}
+	results, err := query(ctx, scripts.GetReachedOrgsPage, policyId, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	orgs := make([]ReachedOrg, 0, len(results))
+	for _, row := range results {
+		orgs = append(orgs, ReachedOrg{OrgId: rows.String(row, "org_id"), OrgHandle: rows.String(row, "org_handle")})
+	}
+	return orgs, total, nil
+}
+
+// DeletePolicy deletes the policy with its targets.
 func DeletePolicy(ctx context.Context, policyId string) error {
 
-	for _, q := range []dbmodel.DBQuery{scripts.DeleteSharePolicyTargets, scripts.DeleteSharePolicyExclusions,
-		scripts.DeleteSharePolicy} {
+	for _, q := range []dbmodel.DBQuery{scripts.DeleteSharePolicyTargets, scripts.DeleteSharePolicy} {
 		if _, err := query(ctx, q, policyId); err != nil {
 			return err
 		}
@@ -194,7 +264,7 @@ func DeletePolicy(ctx context.Context, policyId string) error {
 	return nil
 }
 
-// DeletePoliciesOfResource deletes all policies of the resource, and its states.
+// DeletePoliciesOfResource deletes all policies of the resource.
 func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceId string) error {
 
 	results, err := query(ctx, scripts.GetSharePolicyIdsByResource, resourceType, resourceId)
@@ -206,84 +276,7 @@ func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceId stri
 			return err
 		}
 	}
-	_, err = query(ctx, scripts.DeleteShareStatesByResource, resourceType, resourceId)
-	return err
-}
-
-// ReplaceStatesOfRoot replaces all share states of one customer tree in one transaction.
-func ReplaceStatesOfRoot(ctx context.Context, rootOrgId string, states []model.State) error {
-
-	dbClient, err := provider.NewDBProvider().GetDBClient()
-	if err != nil {
-		return serverError("Failed to get a database client for sharing.", err)
-	}
-	defer dbClient.Close()
-
-	tx, err := dbClient.BeginTxContext(ctx)
-	if err != nil {
-		return serverError("Failed to start a transaction for share states.", err)
-	}
-	if _, err := tx.ExecContext(ctx, scripts.DeleteShareStatesByRoot, rootOrgId); err != nil {
-		_ = tx.Rollback()
-		return serverError("Failed to clear the share states.", err)
-	}
-	now := time.Now().UTC()
-	for _, s := range states {
-		if _, err := tx.ExecContext(ctx, scripts.InsertShareState, s.ResourceType, s.ResourceId, s.OrgId, rootOrgId,
-			s.State, s.Reason, s.ConflictingResourceId, now); err != nil {
-			_ = tx.Rollback()
-			return serverError("Failed to store a share state.", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return serverError("Failed to commit the share states.", err)
-	}
 	return nil
-}
-
-// GetStatesOfResource returns the state of the resource in each org that a policy reaches.
-func GetStatesOfResource(ctx context.Context, resourceType, resourceId string) ([]model.State, error) {
-
-	results, err := query(ctx, scripts.GetShareStatesByResource, resourceType, resourceId)
-	if err != nil {
-		return nil, err
-	}
-	states := make([]model.State, 0, len(results))
-	for _, row := range results {
-		states = append(states, model.State{
-			ResourceType:          resourceType,
-			ResourceId:            resourceId,
-			OrgId:                 rows.String(row, "org_id"),
-			OrgHandle:             rows.String(row, "org_handle"),
-			State:                 rows.String(row, "state"),
-			Reason:                rows.String(row, "reason"),
-			ConflictingResourceId: rows.String(row, "conflicting_resource_id"),
-		})
-	}
-	return states, nil
-}
-
-// GetStatesForOrg returns the states of all shared resources of one type in one org, by
-// resource ID.
-func GetStatesForOrg(ctx context.Context, resourceType, orgId string) (map[string]model.State, error) {
-
-	results, err := query(ctx, scripts.GetShareStatesForOrg, resourceType, orgId)
-	if err != nil {
-		return nil, err
-	}
-	states := map[string]model.State{}
-	for _, row := range results {
-		id := rows.String(row, "resource_id")
-		states[id] = model.State{
-			ResourceType:          resourceType,
-			ResourceId:            id,
-			OrgId:                 orgId,
-			State:                 rows.String(row, "state"),
-			Reason:                rows.String(row, "reason"),
-			ConflictingResourceId: rows.String(row, "conflicting_resource_id"),
-		}
-	}
-	return states, nil
 }
 
 // SharedAttribute is a schema attribute that another org shares, with its owner.
@@ -292,14 +285,20 @@ type SharedAttribute struct {
 	OwnerOrgHandle string
 }
 
-// GetActiveSharedAttributes returns the shared attributes that are active in the org.
-func GetActiveSharedAttributes(ctx context.Context, orgId string) ([]SharedAttribute, error) {
+// ChainAttribute is an attribute of an org of the ancestor chain, with the ID of the owner org.
+type ChainAttribute struct {
+	SharedAttribute
+	OwnerOrgId string
+}
 
-	results, err := query(ctx, scripts.GetSharedSchemaAttributesForOrg, orgId)
+// GetAttributesOfChain returns the attributes of the org and of its ancestors.
+func GetAttributesOfChain(ctx context.Context, orgId string) ([]ChainAttribute, error) {
+
+	results, err := query(ctx, scripts.GetSchemaAttributesOfChain, orgId)
 	if err != nil {
 		return nil, err
 	}
-	attrs := make([]SharedAttribute, 0, len(results))
+	attrs := make([]ChainAttribute, 0, len(results))
 	for _, row := range results {
 		var subAttrs []schemaModel.SubAttribute
 		if raw := rows.String(row, "sub_attributes"); raw != "" {
@@ -309,20 +308,23 @@ func GetActiveSharedAttributes(ctx context.Context, orgId string) ([]SharedAttri
 		if raw := rows.String(row, "canonical_values"); raw != "" {
 			_ = json.Unmarshal([]byte(raw), &canonical)
 		}
-		attrs = append(attrs, SharedAttribute{
-			OwnerOrgHandle: rows.String(row, "owner_org_handle"),
-			Attribute: schemaModel.ProfileSchemaAttribute{
-				AttributeId:           rows.String(row, "attribute_id"),
-				AttributeName:         rows.String(row, "attribute_name"),
-				Scope:                 rows.String(row, "scope"),
-				DisplayName:           rows.String(row, "display_name"),
-				ValueType:             rows.String(row, "value_type"),
-				MergeStrategy:         rows.String(row, "merge_strategy"),
-				Mutability:            rows.String(row, "mutability"),
-				ApplicationIdentifier: rows.String(row, "application_identifier"),
-				MultiValued:           rows.Bool(row, "multi_valued"),
-				SubAttributes:         subAttrs,
-				CanonicalValues:       canonical,
+		attrs = append(attrs, ChainAttribute{
+			OwnerOrgId: rows.String(row, "org_id"),
+			SharedAttribute: SharedAttribute{
+				OwnerOrgHandle: rows.String(row, "org_handle"),
+				Attribute: schemaModel.ProfileSchemaAttribute{
+					AttributeId:           rows.String(row, "attribute_id"),
+					AttributeName:         rows.String(row, "attribute_name"),
+					Scope:                 rows.String(row, "scope"),
+					DisplayName:           rows.String(row, "display_name"),
+					ValueType:             rows.String(row, "value_type"),
+					MergeStrategy:         rows.String(row, "merge_strategy"),
+					Mutability:            rows.String(row, "mutability"),
+					ApplicationIdentifier: rows.String(row, "application_identifier"),
+					MultiValued:           rows.Bool(row, "multi_valued"),
+					SubAttributes:         subAttrs,
+					CanonicalValues:       canonical,
+				},
 			},
 		})
 	}
@@ -335,27 +337,36 @@ type SharedRule struct {
 	OwnerDepth int
 }
 
-// GetActiveSharedRules returns the shared rules that are active in the org.
-func GetActiveSharedRules(ctx context.Context, orgId string) ([]SharedRule, error) {
+// ChainRule is a rule of an org of the ancestor chain, with the ID of the owner org.
+type ChainRule struct {
+	SharedRule
+	OwnerOrgId string
+}
 
-	results, err := query(ctx, scripts.GetSharedUnificationRulesForOrg, orgId)
+// GetRulesOfChain returns the rules of the org and of its ancestors.
+func GetRulesOfChain(ctx context.Context, orgId string) ([]ChainRule, error) {
+
+	results, err := query(ctx, scripts.GetUnificationRulesOfChain, orgId)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]SharedRule, 0, len(results))
+	result := make([]ChainRule, 0, len(results))
 	for _, row := range results {
-		result = append(result, SharedRule{
-			OwnerDepth: rows.Int(row, "owner_depth"),
-			Rule: ruleModel.UnificationRule{
-				RuleId:       rows.String(row, "rule_id"),
-				OrgHandle:    rows.String(row, "org_handle"),
-				RuleName:     rows.String(row, "rule_name"),
-				PropertyName: rows.String(row, "property_name"),
-				PropertyId:   rows.String(row, "property_id"),
-				Priority:     rows.Int(row, "priority"),
-				IsActive:     rows.Bool(row, "is_active"),
-				CreatedAt:    rows.Time(row, "created_at"),
-				UpdatedAt:    rows.Time(row, "updated_at"),
+		result = append(result, ChainRule{
+			OwnerOrgId: rows.String(row, "org_id"),
+			SharedRule: SharedRule{
+				OwnerDepth: rows.Int(row, "owner_depth"),
+				Rule: ruleModel.UnificationRule{
+					RuleId:       rows.String(row, "rule_id"),
+					OrgHandle:    rows.String(row, "org_handle"),
+					RuleName:     rows.String(row, "rule_name"),
+					PropertyName: rows.String(row, "property_name"),
+					PropertyId:   rows.String(row, "property_id"),
+					Priority:     rows.Int(row, "priority"),
+					IsActive:     rows.Bool(row, "is_active"),
+					CreatedAt:    rows.Time(row, "created_at"),
+					UpdatedAt:    rows.Time(row, "updated_at"),
+				},
 			},
 		})
 	}

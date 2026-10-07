@@ -32,7 +32,6 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // The effective schema of an org is the set of attributes that CDS uses to validate, return, and
@@ -119,16 +118,6 @@ func checkSharedNameConflict(ctx context.Context, orgHandle, attributeName strin
 		}
 	}
 	return nil
-}
-
-// recomputeShares evaluates the share states of the tree of the org again, after a change to the
-// attributes of the org.
-func recomputeShares(ctx context.Context, orgHandle string) {
-
-	if err := sharingService.RecomputeForOrgHandle(ctx, orgHandle); err != nil {
-		log.GetLogger().Warn(fmt.Sprintf("Failed to evaluate the share states after a schema change in "+
-			"organization '%s'.", orgHandle), log.Error(err))
-	}
 }
 
 // identityAttributeSourceHandle returns the org to read the identity attributes of the org from.

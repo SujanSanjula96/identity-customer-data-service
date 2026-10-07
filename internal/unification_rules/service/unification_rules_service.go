@@ -146,7 +146,6 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 	if err := store.AddUnificationRule(ctx, rule, orgHandle); err != nil {
 		return err
 	}
-	recomputeShares(ctx, orgHandle)
 	return nil
 }
 
@@ -298,7 +297,6 @@ func (urs *UnificationRuleService) PatchUnificationRule(ctx context.Context,
 	if err := store.PatchUnificationRule(ctx, ruleId, updatedRule); err != nil {
 		return err
 	}
-	recomputeShares(ctx, orgHandle)
 	return nil
 }
 
@@ -316,13 +314,7 @@ func (urs *UnificationRuleService) DeleteUnificationRule(ctx context.Context, ru
 	if rule == nil {
 		return nil
 	}
-	if org, err := orgStore.GetOrganizationByHandle(ctx, rule.OrgHandle); err == nil && org != nil {
-		if err := sharingService.DeletePoliciesOfResource(ctx, shareModel.ResourceUnificationRule, ruleId,
-			org.RootOrgId); err != nil {
-			return err
-		}
-	}
-	return nil
+	return sharingService.DeletePoliciesOfResource(ctx, shareModel.ResourceUnificationRule, ruleId)
 }
 
 // findEffectiveAttribute returns the attribute with the name from the effective schema of the org:
@@ -359,12 +351,4 @@ func effectiveAttributeNames(ctx context.Context, orgHandle string) (map[string]
 // ValidateShareableRule returns the rule when the org owns it, so that the org can share it.
 func ValidateShareableRule(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error) {
 	return GetUnificationRuleService().GetOwnedUnificationRule(ctx, ruleId, orgHandle)
-}
-
-func recomputeShares(ctx context.Context, orgHandle string) {
-
-	if err := sharingService.RecomputeForOrgHandle(ctx, orgHandle); err != nil {
-		log.GetLogger().Warn(fmt.Sprintf("Failed to evaluate the share states after a rule change in "+
-			"organization '%s'.", orgHandle), log.Error(err))
-	}
 }

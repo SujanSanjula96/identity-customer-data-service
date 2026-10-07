@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
-	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	psstr "github.com/wso2/identity-customer-data-service/internal/profile_schema/store"
 	shareModel "github.com/wso2/identity-customer-data-service/internal/sharing/model"
@@ -134,7 +133,6 @@ func (s *ProfileSchemaService) AddProfileSchemaAttributesForScope(ctx context.Co
 	if err := psstr.AddProfileSchemaAttributesForScope(ctx, validAttrs, scope, orgId); err != nil {
 		return nil, err
 	}
-	recomputeShares(ctx, orgId)
 	return validAttrs, nil
 }
 
@@ -557,7 +555,6 @@ func (s *ProfileSchemaService) UpdateProfileSchemaAttributeById(ctx context.Cont
 	if err := psstr.PatchProfileSchemaAttributeById(ctx, orgId, attributeId, updates); err != nil {
 		return err
 	}
-	recomputeShares(ctx, orgId)
 	return nil
 }
 
@@ -617,21 +614,13 @@ func (s *ProfileSchemaService) DeleteProfileSchemaAttributeById(ctx context.Cont
 	}
 	// The owner deletes the attribute, so CDS deletes all its policies. The values in the target
 	// orgs stay stored but hidden.
-	if org, orgErr := orgStore.GetOrganizationByHandle(ctx, orgId); orgErr == nil && org != nil {
-		if err := sharingService.DeletePoliciesOfResource(ctx, shareModel.ResourceSchemaAttribute, attributeId,
-			org.RootOrgId); err != nil {
-			return err
-		}
-	}
-	recomputeShares(ctx, orgId)
-	return nil
+	return sharingService.DeletePoliciesOfResource(ctx, shareModel.ResourceSchemaAttribute, attributeId)
 }
 
 func (s *ProfileSchemaService) DeleteProfileSchemaAttributesByScope(ctx context.Context, orgId, scope string) error {
 	if err := psstr.DeleteProfileSchemaAttributes(ctx, orgId, scope); err != nil {
 		return err
 	}
-	recomputeShares(ctx, orgId)
 	return nil
 }
 
@@ -713,7 +702,6 @@ func (s *ProfileSchemaService) DeleteProfileSchema(ctx context.Context, orgId st
 	if err := psstr.DeleteProfileSchema(ctx, orgId); err != nil {
 		return err
 	}
-	recomputeShares(ctx, orgId)
 	return nil
 }
 
@@ -825,7 +813,6 @@ func (s *ProfileSchemaService) SyncProfileSchema(ctx context.Context, orgHandle 
 			}, err)
 		}
 		logger.Info("Profile schema successfully updated for org: " + orgHandle)
-		recomputeShares(ctx, orgHandle)
 	}
 	return nil
 }

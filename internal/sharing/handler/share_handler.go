@@ -21,7 +21,9 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
@@ -68,48 +70,71 @@ func unificationRuleOf(r *http.Request, orgHandle string) (string, string, error
 	return model.ResourceUnificationRule, rule.RuleId, nil
 }
 
-func (h *ShareHandler) PutSchemaAttributeShare(w http.ResponseWriter, r *http.Request) {
-	h.put(w, r, "profile_schema:share", schemaAttributeOf)
+func (h *ShareHandler) CreateSchemaAttributePolicy(w http.ResponseWriter, r *http.Request) {
+	h.create(w, r, "profile_schema:share", schemaAttributeOf)
 }
 
-func (h *ShareHandler) GetSchemaAttributeShare(w http.ResponseWriter, r *http.Request) {
+func (h *ShareHandler) ListSchemaAttributePolicies(w http.ResponseWriter, r *http.Request) {
+	h.list(w, r, "profile_schema:view", schemaAttributeOf)
+}
+
+func (h *ShareHandler) GetSchemaAttributePolicy(w http.ResponseWriter, r *http.Request) {
 	h.get(w, r, "profile_schema:view", schemaAttributeOf)
 }
 
-func (h *ShareHandler) DeleteSchemaAttributeShare(w http.ResponseWriter, r *http.Request) {
+func (h *ShareHandler) UpdateSchemaAttributePolicy(w http.ResponseWriter, r *http.Request) {
+	h.update(w, r, "profile_schema:share", schemaAttributeOf)
+}
+
+func (h *ShareHandler) DeleteSchemaAttributePolicy(w http.ResponseWriter, r *http.Request) {
 	h.delete(w, r, "profile_schema:share", schemaAttributeOf)
 }
 
-func (h *ShareHandler) PutUnificationRuleShare(w http.ResponseWriter, r *http.Request) {
-	h.put(w, r, "unification_rules:share", unificationRuleOf)
+func (h *ShareHandler) CreateUnificationRulePolicy(w http.ResponseWriter, r *http.Request) {
+	h.create(w, r, "unification_rules:share", unificationRuleOf)
 }
 
-func (h *ShareHandler) GetUnificationRuleShare(w http.ResponseWriter, r *http.Request) {
+func (h *ShareHandler) ListUnificationRulePolicies(w http.ResponseWriter, r *http.Request) {
+	h.list(w, r, "unification_rules:view", unificationRuleOf)
+}
+
+func (h *ShareHandler) GetUnificationRulePolicy(w http.ResponseWriter, r *http.Request) {
 	h.get(w, r, "unification_rules:view", unificationRuleOf)
 }
 
-func (h *ShareHandler) DeleteUnificationRuleShare(w http.ResponseWriter, r *http.Request) {
+func (h *ShareHandler) UpdateUnificationRulePolicy(w http.ResponseWriter, r *http.Request) {
+	h.update(w, r, "unification_rules:share", unificationRuleOf)
+}
+
+func (h *ShareHandler) DeleteUnificationRulePolicy(w http.ResponseWriter, r *http.Request) {
 	h.delete(w, r, "unification_rules:share", unificationRuleOf)
 }
 
-func (h *ShareHandler) put(w http.ResponseWriter, r *http.Request, operation string, resolve resourceOf) {
+func (h *ShareHandler) create(w http.ResponseWriter, r *http.Request, operation string, resolve resourceOf) {
 
 	org, resourceType, resourceId, ok := h.prepare(w, r, operation, resolve)
 	if !ok {
 		return
 	}
-	var req model.ShareRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.SHARE_BAD_REQUEST.Code,
-			Message:     errors2.SHARE_BAD_REQUEST.Message,
-			Description: utils.HandleDecodeError(err, "share request"),
-		}, http.StatusBadRequest))
+	req, ok := DecodePolicyRequest(w, r)
+	if !ok {
 		return
 	}
-	resp, err := service.PutPolicy(r.Context(), resourceType, resourceId, *org, req)
+	resp, err := service.CreatePolicy(r.Context(), resourceType, resourceId, *org, req)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusCreated, resp, shareResource)
+}
+
+func (h *ShareHandler) list(w http.ResponseWriter, r *http.Request, operation string, resolve resourceOf) {
+
+	org, resourceType, resourceId, ok := h.prepare(w, r, operation, resolve)
+	if !ok {
+		return
+	}
+	resp, err := service.ListPolicies(r.Context(), resourceType, resourceId, *org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -123,7 +148,31 @@ func (h *ShareHandler) get(w http.ResponseWriter, r *http.Request, operation str
 	if !ok {
 		return
 	}
-	resp, err := service.GetPolicy(r.Context(), resourceType, resourceId, *org)
+	limit, offset, err := pageOf(r)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	resp, err := service.GetPolicy(r.Context(), resourceType, resourceId, r.PathValue("policyId"), *org, limit,
+		offset)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, shareResource)
+}
+
+func (h *ShareHandler) update(w http.ResponseWriter, r *http.Request, operation string, resolve resourceOf) {
+
+	org, resourceType, resourceId, ok := h.prepare(w, r, operation, resolve)
+	if !ok {
+		return
+	}
+	req, ok := DecodePolicyRequest(w, r)
+	if !ok {
+		return
+	}
+	resp, err := service.UpdatePolicy(r.Context(), resourceType, resourceId, r.PathValue("policyId"), *org, req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -137,11 +186,55 @@ func (h *ShareHandler) delete(w http.ResponseWriter, r *http.Request, operation 
 	if !ok {
 		return
 	}
-	if err := service.DeletePolicy(r.Context(), resourceType, resourceId, *org); err != nil {
+	if err := service.DeletePolicy(r.Context(), resourceType, resourceId, r.PathValue("policyId"),
+		*org); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// DecodePolicyRequest reads the body of a POST or a PUT on a policy.
+func DecodePolicyRequest(w http.ResponseWriter, r *http.Request) (model.PolicyRequest, bool) {
+
+	var req model.PolicyRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.SHARE_BAD_REQUEST.Code,
+			Message:     errors2.SHARE_BAD_REQUEST.Message,
+			Description: utils.HandleDecodeError(err, "policy request"),
+		}, http.StatusBadRequest))
+		return req, false
+	}
+	return req, true
+}
+
+const (
+	defaultStatesLimit = 20
+	maxStatesLimit     = 100
+)
+
+// pageOf reads the limit and the offset of the org states in a policy.
+func pageOf(r *http.Request) (int, int, error) {
+
+	limit, offset := defaultStatesLimit, 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > maxStatesLimit {
+			return 0, 0, service.BadRequest(fmt.Sprintf("limit must be a number from 1 to %d", maxStatesLimit))
+		}
+		limit = value
+	}
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			return 0, 0, service.BadRequest("offset must be a number of 0 or more")
+		}
+		offset = value
+	}
+	return limit, offset, nil
 }
 
 // prepare authenticates the request, resolves the org of the path, and checks the resource.

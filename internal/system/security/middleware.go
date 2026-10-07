@@ -27,6 +27,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/authn"
 	"github.com/wso2/identity-customer-data-service/internal/system/authz"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
@@ -97,11 +98,12 @@ func AuthnAndAuthz(r *http.Request, operation string) error {
 	}
 
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	pathOrgId, _ := r.Context().Value(constants.OrgIdContextKey).(string)
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	//  Validate token
-	claims, err := authn.ValidateAuthenticationAndReturnClaims(token, orgHandle)
+	claims, err := authn.ValidateTokenForOrg(token, orgHandle, pathOrgId)
 	if err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
 			Code:        errors.UN_AUTHORIZED.Code,

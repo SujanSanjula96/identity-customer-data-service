@@ -435,6 +435,16 @@ var (
 		Description: "A sub organization inherits the CDS enablement from its root organization.",
 	}
 
+	SHARE_POLICY_EXISTS = ErrorMessage{
+		Code:    errorPrefix + "17008",
+		Message: "Policy already exists.",
+	}
+
+	SUB_ORG_PATH_REQUIRED = ErrorMessage{
+		Code:    errorPrefix + "17009",
+		Message: "Use the path of the sub organization.",
+	}
+
 	INVALID_FILTER_FORMAT = ErrorMessage{
 		Code:    errorPrefix + "19001",
 		Message: "Invalid filter format.",

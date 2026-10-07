@@ -19,6 +19,7 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -42,27 +43,37 @@ func serve(t *testing.T, path string) (int, string, string) {
 
 func TestTenantDispatcherOrgPath(t *testing.T) {
 
-	defer func(old func(*http.Request, string) (string, error)) { OrgPathResolver = old }(OrgPathResolver)
-	OrgPathResolver = func(r *http.Request, rootTenant string) (string, error) {
-		if rootTenant == "carbon.super" {
+	defer func(resolver func(context.Context, string, string) (string, error), isSub func(context.Context,
+		string) bool) {
+		SubOrgResolver, IsSubOrgHandle = resolver, isSub
+	}(SubOrgResolver, IsSubOrgHandle)
+	SubOrgResolver = func(_ context.Context, rootHandle, orgId string) (string, error) {
+		if rootHandle == "carbon.super" && orgId == "4f088c20" {
 			return "region1", nil
 		}
 		return "", errors.New("not in the tree")
 	}
+	IsSubOrgHandle = func(_ context.Context, orgHandle string) bool { return orgHandle == "region1" }
 
 	if code, org, path := serve(t, "/t/carbon.super/cds/api/v1/config"); code != 200 || org != "carbon.super" ||
 		path != "/cds/api/v1/config" {
 		t.Errorf("root path: got %d %q %q", code, org, path)
 	}
-	if code, org, path := serve(t, "/t/carbon.super/o/cds/api/v1/config"); code != 200 || org != "region1" ||
-		path != "/cds/api/v1/config" {
-		t.Errorf("org path: got %d %q %q", code, org, path)
+	if code, org, path := serve(t, "/t/carbon.super/o/4f088c20/cds/api/v1/config"); code != 200 ||
+		org != "region1" || path != "/cds/api/v1/config" {
+		t.Errorf("sub org path: got %d %q %q", code, org, path)
 	}
-	if code, _, _ := serve(t, "/t/wso2.com/o/cds/api/v1/config"); code != http.StatusUnauthorized {
-		t.Errorf("org path of another tenant: expected 401, got %d", code)
+	if code, _, _ := serve(t, "/t/wso2.com/o/4f088c20/cds/api/v1/config"); code != http.StatusNotFound {
+		t.Errorf("sub org path of another root: expected 404, got %d", code)
 	}
-	OrgPathResolver = nil
+	if code, _, _ := serve(t, "/t/region1/cds/api/v1/config"); code != http.StatusBadRequest {
+		t.Errorf("sub org handle on the root path: expected 400, got %d", code)
+	}
 	if code, _, _ := serve(t, "/t/carbon.super/o/cds/api/v1/config"); code != http.StatusNotFound {
-		t.Errorf("org path without a resolver: expected 404, got %d", code)
+		t.Errorf("sub org path without an org ID: expected 404, got %d", code)
+	}
+	SubOrgResolver = nil
+	if code, _, _ := serve(t, "/t/carbon.super/o/4f088c20/cds/api/v1/config"); code != http.StatusNotFound {
+		t.Errorf("sub org path without a resolver: expected 404, got %d", code)
 	}
 }

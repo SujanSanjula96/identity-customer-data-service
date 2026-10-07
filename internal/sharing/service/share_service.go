@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
@@ -32,59 +31,296 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/sharing/model"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/store"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-// rootLocks serializes the evaluation of one customer tree, so that two changes do not write
-// the share states of the tree at the same time. It works for one CDS instance only.
-var rootLocks sync.Map
-
-func lockRoot(rootOrgId string) func() {
-
-	value, _ := rootLocks.LoadOrStore(rootOrgId, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
-}
+// CDS does not store the share state. A write stores only the policy and its targets. A read for
+// one org resolves the state of each shared resource from the ancestor chain of the org, the
+// local resources of the org, and the policies that reach it.
 
 // ResolveOrg returns the org that CDS knows for the handle, or nil.
 func ResolveOrg(ctx context.Context, orgHandle string) (*orgModel.Organization, error) {
 	return orgStore.GetOrganizationByHandle(ctx, orgHandle)
 }
 
-// PutPolicy creates or replaces the policy of the initiating org for a resource that it owns.
-// The caller checks that the resource exists, that the initiating org owns it, and that the
-// resource can be shared.
-func PutPolicy(ctx context.Context, resourceType, resourceId string, initiator orgModel.Organization,
-	req model.ShareRequest) (*model.ShareResponse, error) {
+// orgView is the result of the read for one org.
+type orgView struct {
+	states     []model.State
+	attributes map[string]store.ChainAttribute
+	rules      map[string]store.ChainRule
+}
 
-	unlock := lockRoot(initiator.RootOrgId)
-	defer unlock()
+// resolveOrg computes the state of each shared resource that reaches the org.
+func resolveOrg(ctx context.Context, org orgModel.Organization) (*orgView, error) {
 
-	input, orgs, err := loadInput(ctx, initiator.RootOrgId)
+	view := &orgView{attributes: map[string]store.ChainAttribute{}, rules: map[string]store.ChainRule{}}
+	policies, err := store.GetPoliciesReachingOrg(ctx, org.OrgId)
+	if err != nil || len(policies) == 0 {
+		return view, err
+	}
+	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgId)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := store.GetAttributesOfChain(ctx, org.OrgId)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := store.GetRulesOfChain(ctx, org.OrgId)
 	if err != nil {
 		return nil, err
 	}
 
+	input := EngineInput{Orgs: treeOrgs(chain), Policies: policies}
+	for _, a := range attrs {
+		view.attributes[a.Attribute.AttributeId] = a
+		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Attribute.AttributeId,
+			Name: a.Attribute.AttributeName, ValueType: a.Attribute.ValueType, OwnerOrgId: a.OwnerOrgId})
+	}
+	for _, r := range rules {
+		view.rules[r.Rule.RuleId] = r
+		input.Rules = append(input.Rules, RuleInfo{Id: r.Rule.RuleId, PropertyName: r.Rule.PropertyName,
+			PropertyId: r.Rule.PropertyId, OwnerOrgId: r.OwnerOrgId})
+	}
+	view.states = EvaluateOrg(input, org.OrgId)
+	for i := range view.states {
+		view.states[i].OrgHandle = org.OrgHandle
+	}
+	return view, nil
+}
+
+func treeOrgs(orgs []orgModel.Organization) []TreeOrg {
+
+	result := make([]TreeOrg, 0, len(orgs))
+	for _, o := range orgs {
+		result = append(result, TreeOrg{Id: o.OrgId, Handle: o.OrgHandle, ParentId: o.ParentOrgId, Depth: o.Depth,
+			Active: o.Status == orgModel.StatusActive})
+	}
+	return result
+}
+
+func viewOfHandle(ctx context.Context, orgHandle string) (*orgView, error) {
+
+	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
+	if err != nil || org == nil {
+		return nil, err
+	}
+	return resolveOrg(ctx, *org)
+}
+
+// ActiveSharedAttributes returns the shared attributes that are active in the org of the handle.
+func ActiveSharedAttributes(ctx context.Context, orgHandle string) ([]store.SharedAttribute, error) {
+
+	view, err := viewOfHandle(ctx, orgHandle)
+	if err != nil || view == nil {
+		return nil, err
+	}
+	var result []store.SharedAttribute
+	for _, s := range view.states {
+		if s.ResourceType == model.ResourceSchemaAttribute && s.State == model.StateActive {
+			result = append(result, view.attributes[s.ResourceId].SharedAttribute)
+		}
+	}
+	return result, nil
+}
+
+// ActiveSharedRules returns the shared rules that are active in the org of the handle, in the
+// evaluation order: the group of the farthest ancestor first, and the owner priority in each
+// group.
+func ActiveSharedRules(ctx context.Context, orgHandle string) ([]store.SharedRule, error) {
+
+	view, err := viewOfHandle(ctx, orgHandle)
+	if err != nil || view == nil {
+		return nil, err
+	}
+	var rules []store.SharedRule
+	for _, s := range view.states {
+		if s.ResourceType == model.ResourceUnificationRule && s.State == model.StateActive {
+			rules = append(rules, view.rules[s.ResourceId].SharedRule)
+		}
+	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		if rules[i].OwnerDepth != rules[j].OwnerDepth {
+			return rules[i].OwnerDepth < rules[j].OwnerDepth
+		}
+		return rules[i].Rule.Priority < rules[j].Rule.Priority
+	})
+	return rules, nil
+}
+
+// StatesForOrg returns the states of the shared resources of one type in the org of the handle.
+func StatesForOrg(ctx context.Context, resourceType, orgHandle string) (map[string]model.State, error) {
+
+	result := map[string]model.State{}
+	view, err := viewOfHandle(ctx, orgHandle)
+	if err != nil || view == nil {
+		return result, err
+	}
+	for _, s := range view.states {
+		if s.ResourceType == resourceType {
+			result[s.ResourceId] = s
+		}
+	}
+	return result, nil
+}
+
+// CreatePolicy creates the policy of the initiating org for a resource that it owns. The caller
+// checks that the resource exists, that the initiating org owns it, and that it can be shared.
+func CreatePolicy(ctx context.Context, resourceType, resourceId string, initiator orgModel.Organization,
+	req model.PolicyRequest) (*model.PolicyResponse, error) {
+
+	existing, err := store.GetPolicy(ctx, resourceType, resourceId, initiator.OrgId)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, PolicyExistsError(existing.PolicyId)
+	}
+	targets, problems := ToTargets(req.TargetOrgScope, initiator.OrgId)
+	if len(problems) > 0 {
+		return nil, badRequest(errors2.SHARE_BAD_REQUEST, strings.Join(problems, "; "))
+	}
 	candidate := model.Policy{
 		PolicyId:        uuid.New().String(),
 		ResourceType:    resourceType,
 		ResourceId:      resourceId,
-		OwnerOrgId:      initiator.OrgId,
+		OwningOrgId:     initiator.OrgId,
 		InitiatingOrgId: initiator.OrgId,
 		Stage:           model.StageShare,
-		Targets:         dedupeTargets(req.Targets),
-		ExcludedOrgIds:  dedupeStrings(req.ExcludedOrgIds),
+		Targets:         targets,
 	}
-	if problems := ValidatePolicy(input.Orgs, candidate); len(problems) > 0 {
+	if err := validateCandidate(ctx, initiator, candidate); err != nil {
+		return nil, err
+	}
+	if err := store.CreatePolicy(ctx, candidate); err != nil {
+		return nil, err
+	}
+	resp := ToResponse(candidate)
+	return &resp, nil
+}
+
+// ListPolicies returns the policies of the initiating org for the resource. In the crawl phase,
+// the list has a maximum of one policy.
+func ListPolicies(ctx context.Context, resourceType, resourceId string,
+	initiator orgModel.Organization) (*model.PolicyList, error) {
+
+	list := &model.PolicyList{Policies: []model.PolicyResponse{}}
+	p, err := store.GetPolicy(ctx, resourceType, resourceId, initiator.OrgId)
+	if err != nil {
+		return nil, err
+	}
+	if p != nil {
+		list.Policies = append(list.Policies, ToResponse(*p))
+	}
+	list.TotalResults = len(list.Policies)
+	return list, nil
+}
+
+// GetPolicy returns the policy, with the state in each org of one page of the reached orgs.
+func GetPolicy(ctx context.Context, resourceType, resourceId, policyId string, initiator orgModel.Organization,
+	limit, offset int) (*model.PolicyWithStates, error) {
+
+	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	if err != nil {
+		return nil, err
+	}
+	page, total, err := store.GetReachedOrgsPage(ctx, p.PolicyId, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	resp := &model.PolicyWithStates{PolicyResponse: ToResponse(*p), TotalStates: total, States: []model.State{}}
+	for _, reached := range page {
+		org, err := orgStore.GetOrganizationById(ctx, reached.OrgId)
+		if err != nil {
+			return nil, err
+		}
+		if org == nil {
+			continue
+		}
+		view, err := resolveOrg(ctx, *org)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range view.states {
+			if s.ResourceType == resourceType && s.ResourceId == resourceId {
+				resp.States = append(resp.States, s)
+			}
+		}
+	}
+	return resp, nil
+}
+
+// UpdatePolicy replaces the targets of the policy. The last PUT wins.
+func UpdatePolicy(ctx context.Context, resourceType, resourceId, policyId string, initiator orgModel.Organization,
+	req model.PolicyRequest) (*model.PolicyResponse, error) {
+
+	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	if err != nil {
+		return nil, err
+	}
+	targets, problems := ToTargets(req.TargetOrgScope, initiator.OrgId)
+	if len(problems) > 0 {
 		return nil, badRequest(errors2.SHARE_BAD_REQUEST, strings.Join(problems, "; "))
 	}
+	p.Targets = targets
+	if err := validateCandidate(ctx, initiator, *p); err != nil {
+		return nil, err
+	}
+	if err := store.ReplaceTargets(ctx, p.PolicyId, targets); err != nil {
+		return nil, err
+	}
+	resp := ToResponse(*p)
+	return &resp, nil
+}
 
-	// Evaluate the tree with the candidate policy before it is stored.
+// DeletePolicy deletes the policy.
+func DeletePolicy(ctx context.Context, resourceType, resourceId, policyId string,
+	initiator orgModel.Organization) error {
+
+	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	if err != nil {
+		return err
+	}
+	return store.DeletePolicy(ctx, p.PolicyId)
+}
+
+// DeletePoliciesOfResource deletes all policies of a resource that its owner deletes.
+func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceId string) error {
+	return store.DeletePoliciesOfResource(ctx, resourceType, resourceId)
+}
+
+// policyOf returns the policy of the path. A policy of another resource, or of another
+// initiating org, is not found.
+func policyOf(ctx context.Context, resourceType, resourceId, policyId string,
+	initiator orgModel.Organization) (*model.Policy, error) {
+
+	p, err := store.GetPolicyById(ctx, policyId)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil || p.ResourceType != resourceType || p.ResourceId != resourceId ||
+		p.InitiatingOrgId != initiator.OrgId {
+		return nil, PolicyNotFoundError(policyId)
+	}
+	return p, nil
+}
+
+// validateCandidate checks the targets against the tree. For a rule, it also checks that the
+// attribute of the rule is visible in each org that the policy reaches.
+func validateCandidate(ctx context.Context, initiator orgModel.Organization, candidate model.Policy) error {
+
+	input, orgs, err := loadTree(ctx, initiator.RootOrgId)
+	if err != nil {
+		return err
+	}
+	if problems := ValidatePolicy(input.Orgs, candidate); len(problems) > 0 {
+		return badRequest(errors2.SHARE_BAD_REQUEST, strings.Join(problems, "; "))
+	}
+	if candidate.ResourceType != model.ResourceUnificationRule {
+		return nil
+	}
 	replaced := false
 	for i, p := range input.Policies {
-		if p.ResourceType == resourceType && p.ResourceId == resourceId && p.InitiatingOrgId == initiator.OrgId {
-			candidate.PolicyId = p.PolicyId
+		if p.PolicyId == candidate.PolicyId {
 			input.Policies[i] = candidate
 			replaced = true
 		}
@@ -92,142 +328,23 @@ func PutPolicy(ctx context.Context, resourceType, resourceId string, initiator o
 	if !replaced {
 		input.Policies = append(input.Policies, candidate)
 	}
-	states := Evaluate(input)
-
-	// A rule needs its attribute in each reached org at share time.
-	if resourceType == model.ResourceUnificationRule {
-		var missing []string
-		for _, s := range states {
-			if s.ResourceId == resourceId && s.State == model.StateInactiveMissingAttribute {
-				missing = append(missing, handleOf(orgs, s.OrgId))
-			}
-		}
-		if len(missing) > 0 {
-			return nil, badRequest(errors2.SHARE_MISSING_ATTRIBUTE, fmt.Sprintf("No compatible attribute for the "+
-				"rule property is visible in these organizations: %s. Share the attribute first, or exclude the "+
-				"organizations.", strings.Join(missing, ", ")))
+	var missing []string
+	for _, s := range Evaluate(input) {
+		if s.ResourceId == candidate.ResourceId && s.State == model.StateInactiveMissingAttribute {
+			missing = append(missing, handleOf(orgs, s.OrgId))
 		}
 	}
-
-	if _, err := store.SavePolicy(ctx, candidate); err != nil {
-		return nil, err
+	if len(missing) > 0 {
+		return badRequest(errors2.SHARE_MISSING_ATTRIBUTE, fmt.Sprintf("No compatible attribute for the rule "+
+			"property is visible in these organizations: %s. Share the attribute first, or change the targets.",
+			strings.Join(missing, ", ")))
 	}
-	if err := recomputeLocked(ctx, initiator.RootOrgId); err != nil {
-		return nil, err
-	}
-	return getPolicy(ctx, resourceType, resourceId, initiator)
-}
-
-// GetPolicy returns the policy of the initiating org for the resource, with the state in each
-// reached org.
-func GetPolicy(ctx context.Context, resourceType, resourceId string,
-	initiator orgModel.Organization) (*model.ShareResponse, error) {
-	return getPolicy(ctx, resourceType, resourceId, initiator)
-}
-
-func getPolicy(ctx context.Context, resourceType, resourceId string,
-	initiator orgModel.Organization) (*model.ShareResponse, error) {
-
-	policies, err := store.GetPoliciesByRoot(ctx, initiator.RootOrgId)
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range policies {
-		if p.ResourceType != resourceType || p.ResourceId != resourceId || p.InitiatingOrgId != initiator.OrgId {
-			continue
-		}
-		states, err := store.GetStatesOfResource(ctx, resourceType, resourceId)
-		if err != nil {
-			return nil, err
-		}
-		excluded := p.ExcludedOrgIds
-		if excluded == nil {
-			excluded = []string{}
-		}
-		return &model.ShareResponse{
-			PolicyId:        p.PolicyId,
-			ResourceType:    p.ResourceType,
-			ResourceId:      p.ResourceId,
-			OwnerOrgId:      p.OwnerOrgId,
-			InitiatingOrgId: p.InitiatingOrgId,
-			Stage:           p.Stage,
-			Version:         p.Version,
-			Targets:         p.Targets,
-			ExcludedOrgIds:  excluded,
-			CreatedAt:       p.CreatedAt,
-			UpdatedAt:       p.UpdatedAt,
-			States:          states,
-		}, nil
-	}
-	return nil, errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.SHARE_POLICY_NOT_FOUND.Code,
-		Message:     errors2.SHARE_POLICY_NOT_FOUND.Message,
-		Description: fmt.Sprintf("The organization has no share policy for the resource '%s'.", resourceId),
-	}, http.StatusNotFound)
-}
-
-// DeletePolicy deletes the policy of the initiating org for the resource.
-func DeletePolicy(ctx context.Context, resourceType, resourceId string, initiator orgModel.Organization) error {
-
-	unlock := lockRoot(initiator.RootOrgId)
-	defer unlock()
-
-	existing, err := getPolicy(ctx, resourceType, resourceId, initiator)
-	if err != nil {
-		return err
-	}
-	if err := store.DeletePolicy(ctx, existing.PolicyId); err != nil {
-		return err
-	}
-	return recomputeLocked(ctx, initiator.RootOrgId)
-}
-
-// DeletePoliciesOfResource deletes all policies of a resource that its owner deletes.
-func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceId, rootOrgId string) error {
-
-	unlock := lockRoot(rootOrgId)
-	defer unlock()
-
-	if err := store.DeletePoliciesOfResource(ctx, resourceType, resourceId); err != nil {
-		return err
-	}
-	return recomputeLocked(ctx, rootOrgId)
-}
-
-// RecomputeTree evaluates all policies of one customer tree again, and stores the states.
-func RecomputeTree(ctx context.Context, rootOrgId string) error {
-
-	unlock := lockRoot(rootOrgId)
-	defer unlock()
-	return recomputeLocked(ctx, rootOrgId)
-}
-
-// RecomputeForOrgHandle evaluates the tree of the org again. It does nothing when CDS does not
-// know the org.
-func RecomputeForOrgHandle(ctx context.Context, orgHandle string) error {
-
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil {
-		return err
-	}
-	return RecomputeTree(ctx, org.RootOrgId)
-}
-
-func recomputeLocked(ctx context.Context, rootOrgId string) error {
-
-	input, _, err := loadInput(ctx, rootOrgId)
-	if err != nil {
-		return err
-	}
-	states := Evaluate(input)
-	if err := store.ReplaceStatesOfRoot(ctx, rootOrgId, states); err != nil {
-		return err
-	}
-	log.GetLogger().Debug(fmt.Sprintf("Stored %d share states for the tree of root: %s", len(states), rootOrgId))
 	return nil
 }
 
-func loadInput(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Organization, error) {
+// loadTree loads the orgs, the resources, and the share policies of one customer tree, for the
+// checks at share time.
+func loadTree(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Organization, error) {
 
 	orgs, err := orgStore.GetOrganizationsByRoot(ctx, rootOrgId)
 	if err != nil {
@@ -246,11 +363,7 @@ func loadInput(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.O
 		return EngineInput{}, nil, err
 	}
 
-	input := EngineInput{Policies: policies}
-	for _, o := range orgs {
-		input.Orgs = append(input.Orgs, TreeOrg{Id: o.OrgId, Handle: o.OrgHandle, ParentId: o.ParentOrgId,
-			Path: o.Path, Depth: o.Depth, Active: o.Status == orgModel.StatusActive})
-	}
+	input := EngineInput{Orgs: treeOrgs(orgs), Policies: policies}
 	for _, a := range attrs {
 		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Id, Name: a.Name, ValueType: a.ValueType,
 			OwnerOrgId: a.OrgId})
@@ -262,46 +375,61 @@ func loadInput(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.O
 	return input, orgs, nil
 }
 
-// ActiveSharedAttributes returns the shared attributes that are active in the org of the handle.
-func ActiveSharedAttributes(ctx context.Context, orgHandle string) ([]store.SharedAttribute, error) {
-
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil {
-		return nil, err
+// ToResponse maps a policy to the API.
+func ToResponse(p model.Policy) model.PolicyResponse {
+	return model.PolicyResponse{
+		Id:              p.PolicyId,
+		ResourceType:    p.ResourceType,
+		ResourceId:      p.ResourceId,
+		OwningOrgId:     p.OwningOrgId,
+		InitiatingOrgId: p.InitiatingOrgId,
+		TargetOrgScope:  ToTargetOrgScope(p.Targets),
 	}
-	return store.GetActiveSharedAttributes(ctx, org.OrgId)
 }
 
-// ActiveSharedRules returns the shared rules that are active in the org of the handle, in the
-// evaluation order: the group of the farthest ancestor first, and the owner priority in each
-// group.
-func ActiveSharedRules(ctx context.Context, orgHandle string) ([]store.SharedRule, error) {
+// IsOrgEnabled reports whether the organization access policy of the root reaches the sub org.
+// The caller checks the enablement of the root.
+func IsOrgEnabled(ctx context.Context, org orgModel.Organization) (bool, error) {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil {
-		return nil, err
+	if org.IsRoot() {
+		return true, nil
 	}
-	rules, err := store.GetActiveSharedRules(ctx, org.OrgId)
+	policies, err := store.GetOrgAccessPoliciesReachingOrg(ctx, org.OrgId)
+	if err != nil || len(policies) == 0 {
+		return false, err
+	}
+	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgId)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	sort.SliceStable(rules, func(i, j int) bool {
-		if rules[i].OwnerDepth != rules[j].OwnerDepth {
-			return rules[i].OwnerDepth < rules[j].OwnerDepth
+	orgs := treeOrgs(chain)
+	for _, p := range policies {
+		for _, id := range Reach(orgs, p) {
+			if id == org.OrgId {
+				return true, nil
+			}
 		}
-		return rules[i].Rule.Priority < rules[j].Rule.Priority
-	})
-	return rules, nil
+	}
+	return false, nil
 }
 
-// StatesForOrg returns the states of the shared resources of one type in the org of the handle.
-func StatesForOrg(ctx context.Context, resourceType, orgHandle string) (map[string]model.State, error) {
+// PolicyExistsError is the error for a second POST from the same org.
+func PolicyExistsError(policyId string) error {
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:    errors2.SHARE_POLICY_EXISTS.Code,
+		Message: errors2.SHARE_POLICY_EXISTS.Message,
+		Description: fmt.Sprintf("The organization already has the policy '%s' for this resource. Use PUT on that "+
+			"policy to change it.", policyId),
+	}, http.StatusConflict)
+}
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil {
-		return map[string]model.State{}, err
-	}
-	return store.GetStatesForOrg(ctx, resourceType, org.OrgId)
+// PolicyNotFoundError is the error for a policy ID that is not a policy of the path.
+func PolicyNotFoundError(policyId string) error {
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.SHARE_POLICY_NOT_FOUND.Code,
+		Message:     errors2.SHARE_POLICY_NOT_FOUND.Message,
+		Description: fmt.Sprintf("The policy '%s' is not found for this resource and organization.", policyId),
+	}, http.StatusNotFound)
 }
 
 // ConflictError is the error for a local resource whose name is used by an active shared
@@ -323,6 +451,11 @@ func ReadOnlyError() error {
 	}, http.StatusForbidden)
 }
 
+// BadRequest is the error for a request that is not valid.
+func BadRequest(description string) error {
+	return badRequest(errors2.SHARE_BAD_REQUEST, description)
+}
+
 func badRequest(msg errors2.ErrorMessage, description string) error {
 	return errors2.NewClientError(errors2.ErrorMessage{
 		Code:        msg.Code,
@@ -339,34 +472,4 @@ func handleOf(orgs []orgModel.Organization, orgId string) string {
 		}
 	}
 	return orgId
-}
-
-func dedupeTargets(targets []model.Target) []model.Target {
-
-	seen := map[string]bool{}
-	result := make([]model.Target, 0, len(targets))
-	for _, t := range targets {
-		t.Scope = strings.ToUpper(strings.TrimSpace(t.Scope))
-		t.OrgId = strings.TrimSpace(t.OrgId)
-		key := t.Scope + "|" + t.OrgId
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, t)
-		}
-	}
-	return result
-}
-
-func dedupeStrings(values []string) []string {
-
-	seen := map[string]bool{}
-	result := make([]string, 0, len(values))
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v != "" && !seen[v] {
-			seen[v] = true
-			result = append(result, v)
-		}
-	}
-	return result
 }

@@ -19,14 +19,11 @@
 package services
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
 
 	orgHandler "github.com/wso2/identity-customer-data-service/internal/organization/handler"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
-	"github.com/wso2/identity-customer-data-service/internal/system/authn"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
@@ -46,34 +43,34 @@ func NewB2BService(mux *http.ServeMux) *B2BService {
 		mux:           mux,
 	}
 
-	// The organization path /t/{root}/o/... accepts an org-switched token of any org in the tree.
-	utils.OrgPathResolver = func(r *http.Request, rootTenant string) (string, error) {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		_, orgHandle, err := authn.ValidateOrgPathToken(token, rootTenant)
-		if err != nil {
-			return "", err
-		}
-		// The organization path is for sub organizations. A root uses /t/{root}/...
-		if orgHandle == rootTenant {
-			return "", fmt.Errorf("the token of the root '%s' is not valid on the organization path", rootTenant)
-		}
-		if root, known := orgService.RootHandleOf(r.Context(), orgHandle); !known || root != rootTenant {
-			return "", fmt.Errorf("org '%s' is not in the tree of '%s'", orgHandle, rootTenant)
-		}
-		return orgHandle, nil
-	}
+	// The path of a sub org is /t/{root_handle}/o/{org_id}/... A sub org handle is not valid in
+	// /t/{handle}/...
+	utils.SubOrgResolver = orgService.SubOrgHandleOf
+	utils.IsSubOrgHandle = orgService.IsSubOrgHandle
 
 	const base = constants.ApiBasePath + "/v1"
 	s.mux.HandleFunc("GET "+base+"/organizations", s.organizations.ListOrganizations)
 	s.mux.HandleFunc("POST "+base+"/organizations/sync", s.organizations.SyncOrganization)
-	s.mux.HandleFunc("POST "+base+"/organizations/reconcile", s.organizations.ReconcileOrganizations)
 
-	s.mux.HandleFunc("PUT "+base+"/profile-schema/{scope}/{attrID}/share", s.shares.PutSchemaAttributeShare)
-	s.mux.HandleFunc("GET "+base+"/profile-schema/{scope}/{attrID}/share", s.shares.GetSchemaAttributeShare)
-	s.mux.HandleFunc("DELETE "+base+"/profile-schema/{scope}/{attrID}/share", s.shares.DeleteSchemaAttributeShare)
+	const orgAccess = base + "/config/organization-access"
+	s.mux.HandleFunc("POST "+orgAccess, s.organizations.CreateOrgAccess)
+	s.mux.HandleFunc("GET "+orgAccess, s.organizations.ListOrgAccess)
+	s.mux.HandleFunc("GET "+orgAccess+"/{orgPolicyId}", s.organizations.GetOrgAccess)
+	s.mux.HandleFunc("PUT "+orgAccess+"/{orgPolicyId}", s.organizations.UpdateOrgAccess)
+	s.mux.HandleFunc("DELETE "+orgAccess+"/{orgPolicyId}", s.organizations.DeleteOrgAccess)
 
-	s.mux.HandleFunc("PUT "+base+"/unification-rules/{ruleId}/share", s.shares.PutUnificationRuleShare)
-	s.mux.HandleFunc("GET "+base+"/unification-rules/{ruleId}/share", s.shares.GetUnificationRuleShare)
-	s.mux.HandleFunc("DELETE "+base+"/unification-rules/{ruleId}/share", s.shares.DeleteUnificationRuleShare)
+	const attrPolicies = base + "/profile-schema/{scope}/{attrID}/sharing-policies"
+	s.mux.HandleFunc("POST "+attrPolicies, s.shares.CreateSchemaAttributePolicy)
+	s.mux.HandleFunc("GET "+attrPolicies, s.shares.ListSchemaAttributePolicies)
+	s.mux.HandleFunc("GET "+attrPolicies+"/{policyId}", s.shares.GetSchemaAttributePolicy)
+	s.mux.HandleFunc("PUT "+attrPolicies+"/{policyId}", s.shares.UpdateSchemaAttributePolicy)
+	s.mux.HandleFunc("DELETE "+attrPolicies+"/{policyId}", s.shares.DeleteSchemaAttributePolicy)
+
+	const rulePolicies = base + "/unification-rules/{ruleId}/sharing-policies"
+	s.mux.HandleFunc("POST "+rulePolicies, s.shares.CreateUnificationRulePolicy)
+	s.mux.HandleFunc("GET "+rulePolicies, s.shares.ListUnificationRulePolicies)
+	s.mux.HandleFunc("GET "+rulePolicies+"/{policyId}", s.shares.GetUnificationRulePolicy)
+	s.mux.HandleFunc("PUT "+rulePolicies+"/{policyId}", s.shares.UpdateUnificationRulePolicy)
+	s.mux.HandleFunc("DELETE "+rulePolicies+"/{policyId}", s.shares.DeleteUnificationRulePolicy)
 	return s
 }

@@ -20,10 +20,14 @@ package model
 
 import "time"
 
-// Resource types that can be shared.
+// Resource types of a policy.
 const (
 	ResourceSchemaAttribute = "SCHEMA_ATTRIBUTE"
 	ResourceUnificationRule = "UNIFICATION_RULE"
+	// ResourceOrganizationAccess is the policy that selects the sub orgs of a root that can use
+	// CDS. Its resource ID is always OrganizationAccessResourceId.
+	ResourceOrganizationAccess   = "ORGANIZATION_ACCESS"
+	OrganizationAccessResourceId = "CDS"
 )
 
 // Policy stages. The owner shares; an org that received the resource reshares.
@@ -32,10 +36,11 @@ const (
 	StageReshare = "RESHARE"
 )
 
-// Target scopes.
+// Stored target scopes.
 const (
-	// ScopeAllDescendants reaches all current and future orgs below the initiating org.
-	ScopeAllDescendants = "ALL_DESCENDANTS"
+	// ScopeAllChildren reaches all current and future orgs below the initiating org. The target
+	// row stores the initiating org.
+	ScopeAllChildren = "ALL_CHILDREN"
 	// ScopeOrg reaches one direct child of the initiating org.
 	ScopeOrg = "ORG"
 	// ScopeOrgSubtree reaches one direct child and all current and future orgs below it.
@@ -62,10 +67,10 @@ const (
 	OriginShared = "SHARED"
 )
 
-// Target is one entry of the reach of a policy.
+// Target is one stored target of a policy.
 type Target struct {
-	Scope string `json:"scope"`
-	OrgId string `json:"org_id,omitempty"`
+	Scope string
+	OrgId string
 }
 
 // Policy says which orgs can see one resource. There is one policy for each resource and
@@ -74,14 +79,13 @@ type Policy struct {
 	PolicyId        string
 	ResourceType    string
 	ResourceId      string
-	OwnerOrgId      string
+	OwningOrgId     string
 	InitiatingOrgId string
 	Stage           string
-	Version         int
 	Targets         []Target
-	ExcludedOrgIds  []string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// CreatedAt orders the policies: when two shared resources have the same name in one org,
+	// the resource of the older policy wins.
+	CreatedAt time.Time
 }
 
 // State is the result of the policies for one resource in one org.
@@ -95,24 +99,58 @@ type State struct {
 	ConflictingResourceId string `json:"conflicting_resource_id,omitempty"`
 }
 
-// ShareRequest is the body of a PUT on a share endpoint.
-type ShareRequest struct {
-	Targets        []Target `json:"targets"`
-	ExcludedOrgIds []string `json:"excluded_org_ids,omitempty"`
+// ChildOrg is one entry of child_orgs: a direct child of the initiating org, with or without the
+// orgs below it.
+type ChildOrg struct {
+	OrgId       string `json:"org_id"`
+	AllChildren bool   `json:"all_children,omitempty"`
 }
 
-// ShareResponse is the policy of an org for a resource, with the state in each reached org.
-type ShareResponse struct {
-	PolicyId        string    `json:"policy_id"`
-	ResourceType    string    `json:"resource_type"`
-	ResourceId      string    `json:"resource_id"`
-	OwnerOrgId      string    `json:"owner_org_id"`
-	InitiatingOrgId string    `json:"initiating_org_id"`
-	Stage           string    `json:"stage"`
-	Version         int       `json:"version"`
-	Targets         []Target  `json:"targets"`
-	ExcludedOrgIds  []string  `json:"excluded_org_ids"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	States          []State   `json:"states"`
+// TargetOrgScope is the reach of a policy in the API. It has exactly one mode: all_children, or a
+// list of child_orgs.
+type TargetOrgScope struct {
+	AllChildren bool       `json:"all_children,omitempty"`
+	ChildOrgs   []ChildOrg `json:"child_orgs,omitempty"`
+}
+
+// PolicyRequest is the body of a POST or a PUT on a sharing policy.
+type PolicyRequest struct {
+	TargetOrgScope *TargetOrgScope `json:"target_org_scope"`
+}
+
+// PolicyResponse is a sharing policy in the API.
+type PolicyResponse struct {
+	Id              string         `json:"id"`
+	ResourceType    string         `json:"resource_type"`
+	ResourceId      string         `json:"resource_id"`
+	OwningOrgId     string         `json:"owning_org_id"`
+	InitiatingOrgId string         `json:"initiating_org_id"`
+	TargetOrgScope  TargetOrgScope `json:"target_org_scope"`
+}
+
+// PolicyWithStates is a sharing policy with the state in the orgs of one page.
+type PolicyWithStates struct {
+	PolicyResponse
+	TotalStates int     `json:"total_states"`
+	States      []State `json:"states"`
+}
+
+// PolicyList is the list of the policies of a resource.
+type PolicyList struct {
+	TotalResults int              `json:"total_results"`
+	Policies     []PolicyResponse `json:"policies"`
+}
+
+// OrgAccessResponse is the organization access policy of a root in the API.
+type OrgAccessResponse struct {
+	Id              string         `json:"id"`
+	OwningOrgId     string         `json:"owning_org_id"`
+	InitiatingOrgId string         `json:"initiating_org_id"`
+	TargetOrgScope  TargetOrgScope `json:"target_org_scope"`
+}
+
+// OrgAccessList is the list of the organization access policies of a root.
+type OrgAccessList struct {
+	TotalResults int                 `json:"total_results"`
+	Policies     []OrgAccessResponse `json:"policies"`
 }

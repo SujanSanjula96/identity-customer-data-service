@@ -230,7 +230,6 @@ CREATE TABLE organizations (
     org_name       VARCHAR(255),
     parent_org_id  VARCHAR(255),
     root_org_id    VARCHAR(255) NOT NULL,
-    path           VARCHAR(2048) NOT NULL,
     depth          INT          NOT NULL DEFAULT 0,
     status         VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -238,48 +237,32 @@ CREATE TABLE organizations (
     last_synced_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_organizations_root_path ON organizations (root_org_id, path);
 CREATE INDEX idx_organizations_parent ON organizations (parent_org_id);
 
--- One share policy for each resource and initiating org.
+CREATE INDEX idx_organizations_root ON organizations (root_org_id);
+
+-- One policy for each resource and initiating org. The organization access of a root is a
+-- policy with resource_type ORGANIZATION_ACCESS and resource_id CDS.
 CREATE TABLE cds_share_policy (
     policy_id         VARCHAR(255) PRIMARY KEY,
     resource_type     VARCHAR(64)  NOT NULL,
     resource_id       VARCHAR(255) NOT NULL,
-    owner_org_id      VARCHAR(255) NOT NULL,
+    owning_org_id     VARCHAR(255) NOT NULL,
     initiating_org_id VARCHAR(255) NOT NULL,
     stage             VARCHAR(16)  NOT NULL,
     parent_policy_id  VARCHAR(255) REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
-    version           INT          NOT NULL DEFAULT 1,
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
     UNIQUE (resource_type, resource_id, initiating_org_id)
 );
 
+CREATE INDEX idx_share_policy_initiating ON cds_share_policy (initiating_org_id, resource_type);
+
+-- ALL_CHILDREN stores the initiating org as target_org_id.
 CREATE TABLE cds_share_policy_target (
     policy_id     VARCHAR(255) NOT NULL REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
     target_scope  VARCHAR(32)  NOT NULL,
-    target_org_id VARCHAR(255) NOT NULL DEFAULT '',
+    target_org_id VARCHAR(255) NOT NULL,
     PRIMARY KEY (policy_id, target_scope, target_org_id)
 );
 
-CREATE TABLE cds_share_policy_exclusion (
-    policy_id       VARCHAR(255) NOT NULL REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
-    excluded_org_id VARCHAR(255) NOT NULL,
-    PRIMARY KEY (policy_id, excluded_org_id)
-);
-
--- The result of the policies for each resource and org.
-CREATE TABLE cds_share_state (
-    resource_type           VARCHAR(64)  NOT NULL,
-    resource_id             VARCHAR(255) NOT NULL,
-    org_id                  VARCHAR(255) NOT NULL,
-    root_org_id             VARCHAR(255) NOT NULL,
-    state                   VARCHAR(64)  NOT NULL,
-    reason                  VARCHAR(500),
-    conflicting_resource_id VARCHAR(255),
-    updated_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    PRIMARY KEY (resource_type, resource_id, org_id)
-);
-
-CREATE INDEX idx_share_state_org ON cds_share_state (org_id, resource_type, state);
+CREATE INDEX idx_share_target_org ON cds_share_policy_target (target_org_id, policy_id);

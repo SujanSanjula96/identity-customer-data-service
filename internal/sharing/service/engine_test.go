@@ -36,19 +36,22 @@ import (
 //	└── B
 func testTree() []TreeOrg {
 	return []TreeOrg{
-		{Id: "R", Handle: "r", Path: "/R/", Depth: 0, Active: true},
-		{Id: "A", Handle: "a", ParentId: "R", Path: "/R/A/", Depth: 1, Active: true},
-		{Id: "B", Handle: "b", ParentId: "R", Path: "/R/B/", Depth: 1, Active: true},
-		{Id: "A1", Handle: "a1", ParentId: "A", Path: "/R/A/A1/", Depth: 2, Active: true},
-		{Id: "A2", Handle: "a2", ParentId: "A", Path: "/R/A/A2/", Depth: 2, Active: false},
-		{Id: "A1x", Handle: "a1x", ParentId: "A1", Path: "/R/A/A1/A1x/", Depth: 3, Active: true},
+		{Id: "R", Handle: "r", Depth: 0, Active: true},
+		{Id: "A", Handle: "a", ParentId: "R", Depth: 1, Active: true},
+		{Id: "B", Handle: "b", ParentId: "R", Depth: 1, Active: true},
+		{Id: "A1", Handle: "a1", ParentId: "A", Depth: 2, Active: true},
+		{Id: "A2", Handle: "a2", ParentId: "A", Depth: 2, Active: false},
+		{Id: "A1x", Handle: "a1x", ParentId: "A1", Depth: 3, Active: true},
 	}
 }
 
-func policy(resourceType, resourceId, initiator string, targets []model.Target, excluded ...string) model.Policy {
+func policy(resourceType, resourceId, initiator string, targets []model.Target) model.Policy {
 	return model.Policy{PolicyId: resourceId + "-p", ResourceType: resourceType, ResourceId: resourceId,
-		OwnerOrgId: initiator, InitiatingOrgId: initiator, Stage: model.StageShare, Targets: targets,
-		ExcludedOrgIds: excluded}
+		OwningOrgId: initiator, InitiatingOrgId: initiator, Stage: model.StageShare, Targets: targets}
+}
+
+func allChildren(initiator string) []model.Target {
+	return []model.Target{{Scope: model.ScopeAllChildren, OrgId: initiator}}
 }
 
 func TestReach(t *testing.T) {
@@ -58,8 +61,8 @@ func TestReach(t *testing.T) {
 		policy   model.Policy
 		expected []string
 	}{
-		{"all descendants skips inactive orgs",
-			policy(model.ResourceSchemaAttribute, "x", "R", []model.Target{{Scope: model.ScopeAllDescendants}}),
+		{"all children skips inactive orgs",
+			policy(model.ResourceSchemaAttribute, "x", "R", allChildren("R")),
 			[]string{"A", "B", "A1", "A1x"}},
 		{"one child only",
 			policy(model.ResourceSchemaAttribute, "x", "R", []model.Target{{Scope: model.ScopeOrg, OrgId: "A"}}),
@@ -67,14 +70,11 @@ func TestReach(t *testing.T) {
 		{"child subtree",
 			policy(model.ResourceSchemaAttribute, "x", "R", []model.Target{{Scope: model.ScopeOrgSubtree, OrgId: "A"}}),
 			[]string{"A", "A1", "A1x"}},
-		{"an exclusion removes the full subtree",
-			policy(model.ResourceSchemaAttribute, "x", "R", []model.Target{{Scope: model.ScopeAllDescendants}}, "A1"),
-			[]string{"A", "B"}},
 		{"a named target that is not a direct child reaches nothing",
 			policy(model.ResourceSchemaAttribute, "x", "R", []model.Target{{Scope: model.ScopeOrg, OrgId: "A1"}}),
 			[]string{}},
 		{"a sub org shares with its own subtree",
-			policy(model.ResourceSchemaAttribute, "x", "A", []model.Target{{Scope: model.ScopeAllDescendants}}),
+			policy(model.ResourceSchemaAttribute, "x", "A", allChildren("A")),
 			[]string{"A1", "A1x"}},
 	}
 	for _, c := range cases {
@@ -94,7 +94,7 @@ func TestValidatePolicy(t *testing.T) {
 		problem string
 	}{
 		{"valid", policy(model.ResourceSchemaAttribute, "x", "R",
-			[]model.Target{{Scope: model.ScopeOrgSubtree, OrgId: "A"}}, "A1"), ""},
+			[]model.Target{{Scope: model.ScopeOrgSubtree, OrgId: "A"}}), ""},
 		{"no targets", policy(model.ResourceSchemaAttribute, "x", "R", nil), "at least one target"},
 		{"not a direct child", policy(model.ResourceSchemaAttribute, "x", "R",
 			[]model.Target{{Scope: model.ScopeOrg, OrgId: "A1"}}), "not a direct child"},
@@ -102,10 +102,8 @@ func TestValidatePolicy(t *testing.T) {
 			[]model.Target{{Scope: model.ScopeOrg, OrgId: "A2"}}), "not active"},
 		{"unknown scope", policy(model.ResourceSchemaAttribute, "x", "R",
 			[]model.Target{{Scope: "ALL_OUS"}}), "not supported"},
-		{"org_id on all descendants", policy(model.ResourceSchemaAttribute, "x", "R",
-			[]model.Target{{Scope: model.ScopeAllDescendants, OrgId: "A"}}), "does not take an org_id"},
-		{"exclusion outside the reach", policy(model.ResourceSchemaAttribute, "x", "R",
-			[]model.Target{{Scope: model.ScopeOrg, OrgId: "A"}}, "B"), "not in the reach"},
+		{"all children of another org", policy(model.ResourceSchemaAttribute, "x", "R",
+			allChildren("A")), "must name the initiating organization"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -135,7 +133,6 @@ func statesByOrg(states []model.State, resourceId string) map[string]model.State
 
 func TestEvaluateAttributeConflicts(t *testing.T) {
 
-	all := []model.Target{{Scope: model.ScopeAllDescendants}}
 	in := EngineInput{
 		Orgs: testTree(),
 		Attributes: []AttributeInfo{
@@ -145,8 +142,8 @@ func TestEvaluateAttributeConflicts(t *testing.T) {
 		},
 		// The root policy is older, so it wins in orgs where both shared attributes reach.
 		Policies: []model.Policy{
-			policy(model.ResourceSchemaAttribute, "root-tier", "R", all),
-			policy(model.ResourceSchemaAttribute, "a-tier", "A", all),
+			policy(model.ResourceSchemaAttribute, "root-tier", "R", allChildren("R")),
+			policy(model.ResourceSchemaAttribute, "a-tier", "A", allChildren("A")),
 		},
 	}
 	states := Evaluate(in)
@@ -172,7 +169,7 @@ func TestEvaluateAttributeConflicts(t *testing.T) {
 
 func TestEvaluateRuleDependencies(t *testing.T) {
 
-	all := []model.Target{{Scope: model.ScopeAllDescendants}}
+	all := allChildren("R")
 	in := EngineInput{
 		Orgs: testTree(),
 		Attributes: []AttributeInfo{
@@ -217,5 +214,74 @@ func TestEvaluateRuleDependencies(t *testing.T) {
 	if loyalty["A1"].State != model.StateInactiveMissingAttribute {
 		t.Errorf("expected a missing attribute in A1, because the attribute is shared with A only, got %+v",
 			loyalty["A1"])
+	}
+}
+
+// The read for one org loads only its ancestor chain, its own resources, and the resources of the
+// policies that reach it. The result must be the same as for the full tree.
+func TestEvaluateOrgMatchesTree(t *testing.T) {
+
+	attrs := []AttributeInfo{
+		{Id: "root-tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "R"},
+		{Id: "a-tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "A"},
+		{Id: "b-tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "B"},
+	}
+	policies := []model.Policy{
+		policy(model.ResourceSchemaAttribute, "root-tier", "R", allChildren("R")),
+		policy(model.ResourceSchemaAttribute, "a-tier", "A", allChildren("A")),
+	}
+	full := Evaluate(EngineInput{Orgs: testTree(), Attributes: attrs, Policies: policies})
+
+	chain := []TreeOrg{testTree()[0], testTree()[1], testTree()[3], testTree()[5]} // R, A, A1, A1x
+	chainAttrs := attrs[:2]                                                        // B is not in the chain
+	got := EvaluateOrg(EngineInput{Orgs: chain, Attributes: chainAttrs, Policies: policies}, "A1x")
+
+	var expected []model.State
+	for _, s := range full {
+		if s.OrgId == "A1x" {
+			expected = append(expected, s)
+		}
+	}
+	if !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %+v, got %+v", expected, got)
+	}
+}
+
+func TestToTargets(t *testing.T) {
+
+	cases := []struct {
+		name     string
+		scope    *model.TargetOrgScope
+		expected []model.Target
+		problem  string
+	}{
+		{"all children", &model.TargetOrgScope{AllChildren: true},
+			[]model.Target{{Scope: model.ScopeAllChildren, OrgId: "R"}}, ""},
+		{"mixed children", &model.TargetOrgScope{ChildOrgs: []model.ChildOrg{{OrgId: "A", AllChildren: true},
+			{OrgId: "B"}}}, []model.Target{{Scope: model.ScopeOrgSubtree, OrgId: "A"},
+			{Scope: model.ScopeOrg, OrgId: "B"}}, ""},
+		{"no scope", nil, nil, "required"},
+		{"both modes", &model.TargetOrgScope{AllChildren: true, ChildOrgs: []model.ChildOrg{{OrgId: "A"}}}, nil,
+			"not both"},
+		{"empty", &model.TargetOrgScope{}, nil, "at least one"},
+		{"one org twice", &model.TargetOrgScope{ChildOrgs: []model.ChildOrg{{OrgId: "A"}, {OrgId: "A",
+			AllChildren: true}}}, nil, "more than once"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, problems := ToTargets(c.scope, "R")
+			if c.problem != "" {
+				if !strings.Contains(strings.Join(problems, ";"), c.problem) {
+					t.Fatalf("expected a problem with %q, got %v", c.problem, problems)
+				}
+				return
+			}
+			if len(problems) > 0 || !reflect.DeepEqual(got, c.expected) {
+				t.Fatalf("expected %v, got %v %v", c.expected, got, problems)
+			}
+			if back := ToTargetOrgScope(got); !reflect.DeepEqual(&back, c.scope) {
+				t.Fatalf("expected the same scope back, got %+v", back)
+			}
+		})
 	}
 }

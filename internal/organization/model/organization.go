@@ -18,10 +18,7 @@
 
 package model
 
-import (
-	"strings"
-	"time"
-)
+import "time"
 
 // Organization status values.
 const (
@@ -38,7 +35,6 @@ type Organization struct {
 	OrgName      string    `json:"org_name,omitempty"`
 	ParentOrgId  string    `json:"parent_org_id,omitempty"`
 	RootOrgId    string    `json:"root_org_id"`
-	Path         string    `json:"path"`
 	Depth        int       `json:"depth"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -49,21 +45,6 @@ type Organization struct {
 // IsRoot reports whether the org is the root of a customer tree.
 func (o Organization) IsRoot() bool {
 	return o.OrgId == o.RootOrgId
-}
-
-// IsDescendantOf reports whether the org is below the other org in the tree.
-func (o Organization) IsDescendantOf(other Organization) bool {
-	return o.OrgId != other.OrgId && strings.HasPrefix(o.Path, other.Path)
-}
-
-// ChildPath returns the materialized path of a direct child of this org.
-func (o Organization) ChildPath(childId string) string {
-	return o.Path + childId + "/"
-}
-
-// RootPath returns the materialized path of a root org.
-func RootPath(rootId string) string {
-	return "/" + rootId + "/"
 }
 
 // SyncEvent is an org lifecycle event that the identity provider pushes to CDS.

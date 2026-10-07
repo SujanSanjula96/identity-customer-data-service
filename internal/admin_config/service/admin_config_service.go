@@ -47,8 +47,9 @@ type AdminConfigServiceInterface interface {
 // AdminConfigService is the default implementation.
 type AdminConfigService struct{}
 
-// IsCDSEnabled reports whether CDS is enabled for the org. A sub org inherits the enablement of
-// its root org. When CDS does not know the org, it asks the identity provider just in time.
+// IsCDSEnabled reports whether CDS is enabled for the org. A sub org is enabled when its root
+// enabled CDS and the organization access of the root reaches the sub org. When CDS does not know
+// the org, it asks the identity provider just in time.
 func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgHandle string) bool {
 	config, err := store.GetAdminConfig(ctx, orgHandle)
 	if err == nil && config != nil && config.CDSEnabled {
@@ -59,7 +60,10 @@ func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgHandle string) 
 		return false
 	}
 	rootConfig, err := store.GetAdminConfig(ctx, rootHandle)
-	return err == nil && rootConfig != nil && rootConfig.CDSEnabled
+	if err != nil || rootConfig == nil || !rootConfig.CDSEnabled {
+		return false
+	}
+	return orgService.IsSubOrgEnabled(ctx, orgHandle)
 }
 
 func (a AdminConfigService) IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool {
@@ -170,9 +174,13 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		return err
 	}
 
-	// When a root org enables CDS, CDS provisions all orgs of its tree (root cascade, eager create).
+	// When a root org enables CDS, CDS reads its org tree. Without an organization access, the
+	// root gets one with all_children (the root cascade), and CDS initializes the sub orgs.
 	if !isSubOrg && !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
 		if _, err := orgService.ProvisionTree(ctx, orgHandle); err != nil {
+			return err
+		}
+		if err := orgService.EnsureDefaultOrgAccess(ctx, orgHandle); err != nil {
 			return err
 		}
 	}

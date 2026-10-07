@@ -53,7 +53,7 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 		parent = org.ParentOrgId
 	}
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrganization, org.OrgId, org.OrgHandle, org.OrgName,
-		parent, org.RootOrgId, org.Path, org.Depth, org.Status, time.Now().UTC())
+		parent, org.RootOrgId, org.Depth, org.Status, time.Now().UTC())
 	if err != nil {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
 	}
@@ -82,6 +82,26 @@ func GetOrganizationsByRoot(ctx context.Context, rootOrgId string) ([]model.Orga
 	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationsByRoot, rootOrgId)
 	if err != nil {
 		return nil, serverError(fmt.Sprintf("Failed to read the organizations of root: %s", rootOrgId), err)
+	}
+	orgs := make([]model.Organization, 0, len(results))
+	for _, row := range results {
+		orgs = append(orgs, mapRow(row))
+	}
+	return orgs, nil
+}
+
+// GetOrganizationChain returns the org and its ancestors, the root first.
+func GetOrganizationChain(ctx context.Context, orgId string) ([]model.Organization, error) {
+
+	dbClient, err := provider.NewDBProvider().GetDBClient()
+	if err != nil {
+		return nil, serverError("Failed to get a database client to read organizations.", err)
+	}
+	defer dbClient.Close()
+
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationChain, orgId)
+	if err != nil {
+		return nil, serverError(fmt.Sprintf("Failed to read the ancestors of organization: %s", orgId), err)
 	}
 	orgs := make([]model.Organization, 0, len(results))
 	for _, row := range results {
@@ -152,7 +172,6 @@ func mapRow(row map[string]interface{}) model.Organization {
 		OrgName:      rows.String(row, "org_name"),
 		ParentOrgId:  rows.String(row, "parent_org_id"),
 		RootOrgId:    rows.String(row, "root_org_id"),
-		Path:         rows.String(row, "path"),
 		Depth:        rows.Int(row, "depth"),
 		Status:       rows.String(row, "status"),
 		CreatedAt:    rows.Time(row, "created_at"),

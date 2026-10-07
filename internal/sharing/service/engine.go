@@ -27,17 +27,16 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
-// The engine computes the share state of every shared resource in every org of one customer
-// tree. It is pure: the service loads the tree, the resources, and the policies, and stores
-// the result. The service runs it again after each change, so the stored state is always the
-// result of the current policies.
+// The engine computes the share state of a shared resource in an org. It is pure: the service
+// loads the orgs, the resources, and the policies. CDS does not store the result. The read for
+// one org loads only the ancestor chain of the org, the local resources of the org, and the
+// policies that reach it, and calls EvaluateOrg.
 
 // TreeOrg is an org of the tree, as the engine needs it.
 type TreeOrg struct {
 	Id       string
 	Handle   string
 	ParentId string
-	Path     string
 	Depth    int
 	Active   bool
 }
@@ -115,7 +114,7 @@ func reach(t tree, p model.Policy) []string {
 	reached := map[string]bool{}
 	for _, target := range p.Targets {
 		switch target.Scope {
-		case model.ScopeAllDescendants:
+		case model.ScopeAllChildren:
 			for _, id := range t.descendants(p.InitiatingOrgId) {
 				reached[id] = true
 			}
@@ -131,13 +130,6 @@ func reach(t tree, p model.Policy) []string {
 			}
 		}
 	}
-	// An exclusion removes the full subtree of the excluded org.
-	for _, excluded := range p.ExcludedOrgIds {
-		for _, id := range t.subtree(excluded) {
-			delete(reached, id)
-		}
-	}
-
 	result := make([]string, 0, len(reached))
 	for id := range reached {
 		if org, ok := t.byId[id]; ok && org.Active {
@@ -170,9 +162,9 @@ func ValidatePolicy(orgs []TreeOrg, p model.Policy) []string {
 	}
 	for _, target := range p.Targets {
 		switch target.Scope {
-		case model.ScopeAllDescendants:
-			if target.OrgId != "" {
-				problems = append(problems, "the ALL_DESCENDANTS scope does not take an org_id")
+		case model.ScopeAllChildren:
+			if target.OrgId != initiator.Id {
+				problems = append(problems, "the ALL_CHILDREN scope must name the initiating organization")
 			}
 		case model.ScopeOrg, model.ScopeOrgSubtree:
 			org, known := t.byId[target.OrgId]
@@ -188,32 +180,26 @@ func ValidatePolicy(orgs []TreeOrg, p model.Policy) []string {
 				problems = append(problems, fmt.Sprintf("the organization '%s' is not active", target.OrgId))
 			}
 		default:
-			problems = append(problems, fmt.Sprintf("the scope '%s' is not supported. Use ALL_DESCENDANTS, ORG, "+
-				"or ORG_SUBTREE", target.Scope))
-		}
-	}
-	if len(problems) > 0 {
-		return problems
-	}
-
-	// An excluded org must be inside the reach of the targets.
-	withoutExclusions := p
-	withoutExclusions.ExcludedOrgIds = nil
-	inReach := map[string]bool{}
-	for _, id := range reach(t, withoutExclusions) {
-		inReach[id] = true
-	}
-	for _, excluded := range p.ExcludedOrgIds {
-		if !inReach[excluded] {
-			problems = append(problems, fmt.Sprintf("the excluded organization '%s' is not in the reach of the "+
-				"targets", excluded))
+			problems = append(problems, fmt.Sprintf("the scope '%s' is not supported", target.Scope))
 		}
 	}
 	return problems
 }
 
-// Evaluate returns the state of every shared resource in every org that its policy reaches.
+// Evaluate returns the state of every shared resource in every org that its policy reaches. The
+// share-time check of a rule uses it for the orgs of the tree.
 func Evaluate(in EngineInput) []model.State {
+	return evaluate(in, "")
+}
+
+// EvaluateOrg returns the state of every shared resource that reaches the org. The input needs
+// only the ancestor chain of the org, the local resources of the org, and the policies that reach
+// it, with their resources.
+func EvaluateOrg(in EngineInput, orgId string) []model.State {
+	return evaluate(in, orgId)
+}
+
+func evaluate(in EngineInput, only string) []model.State {
 
 	t := newTree(in.Orgs)
 	attributesById := map[string]AttributeInfo{}
@@ -248,6 +234,9 @@ func Evaluate(in EngineInput) []model.State {
 			continue
 		}
 		for _, orgId := range reach(t, p) {
+			if only != "" && orgId != only {
+				continue
+			}
 			state := model.State{ResourceType: p.ResourceType, ResourceId: p.ResourceId, OrgId: orgId,
 				OrgHandle: t.byId[orgId].Handle, State: model.StateActive}
 			if local, exists := localAttributes[orgId][attr.Name]; exists {
@@ -277,6 +266,9 @@ func Evaluate(in EngineInput) []model.State {
 			continue
 		}
 		for _, orgId := range reach(t, p) {
+			if only != "" && orgId != only {
+				continue
+			}
 			state := model.State{ResourceType: p.ResourceType, ResourceId: p.ResourceId, OrgId: orgId,
 				OrgHandle: t.byId[orgId].Handle, State: model.StateActive}
 			if local, exists := localRules[orgId][rule.PropertyName]; exists {

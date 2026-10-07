@@ -45,14 +45,14 @@ type ProvisionResult struct {
 	Deleted   []string `json:"deleted"`
 }
 
-// provisionLocks serializes the provisioning of one root, so that an event and a reconcile do
-// not provision the same tree at the same time.
+// provisionLocks serializes the provisioning of one root, so that two events do not provision the
+// same tree at the same time.
 var provisionLocks sync.Map
 
 // ProvisionTree reads the full org tree of the root from the identity provider, and makes the
-// organizations table match it. It initializes each new org, and evaluates the share policies
-// of the tree again. It runs when the root enables CDS, on a reconcile, and when an event
-// names an org whose parent CDS does not know.
+// organizations table match it. It initializes each new org that the organization access of the
+// root enables. It runs when the root enables CDS, when an event names an org whose parent CDS
+// does not know, and when a request names an org that CDS does not know.
 func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, error) {
 
 	lock, _ := provisionLocks.LoadOrStore(rootHandle, &sync.Mutex{})
@@ -71,7 +71,6 @@ func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, er
 		OrgHandle: rootHandle,
 		OrgName:   rootInfo.Name,
 		RootOrgId: rootInfo.Id,
-		Path:      model.RootPath(rootInfo.Id),
 		Depth:     0,
 		Status:    model.StatusActive,
 	}
@@ -102,7 +101,7 @@ func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, er
 			return nil, err
 		}
 		if !wasKnown || previous.Status == model.StatusDeleted {
-			initializeOrg(ctx, org)
+			initializeIfEnabled(ctx, org)
 			result.Added = append(result.Added, org.OrgHandle)
 		}
 	}
@@ -115,9 +114,6 @@ func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, er
 		}
 	}
 
-	if err := sharingService.RecomputeTree(ctx, root.OrgId); err != nil {
-		return nil, err
-	}
 	logger.Info(fmt.Sprintf("Provisioned the org tree of root '%s': %d orgs, %d added, %d deleted.", rootHandle,
 		result.Total, len(result.Added), len(result.Deleted)))
 	return result, nil
@@ -155,7 +151,6 @@ func buildTree(root model.Organization, descendants []idp.Organization) []model.
 			OrgName:     d.Name,
 			ParentOrgId: parent.OrgId,
 			RootOrgId:   root.OrgId,
-			Path:        parent.ChildPath(d.Id),
 			Depth:       parent.Depth + 1,
 			Status:      status,
 		}
@@ -181,9 +176,24 @@ func buildTree(root model.Organization, descendants []idp.Organization) []model.
 	return result
 }
 
+// initializeIfEnabled initializes a new sub org when the organization access of its root enables
+// it. An org that the selection does not cover is initialized when it enters the selection.
+func initializeIfEnabled(ctx context.Context, org model.Organization) {
+
+	enabled, err := sharingService.IsOrgEnabled(ctx, org)
+	if err != nil {
+		log.GetLogger().Warn(fmt.Sprintf("Failed to read the enablement of organization '%s'.", org.OrgHandle),
+			log.Error(err))
+		return
+	}
+	if enabled {
+		initializeOrg(ctx, org)
+	}
+}
+
 // initializeOrg runs the per-org initialization for a new sub org: it syncs the identity
-// attributes and seeds the mandatory consent category. A failure is logged, and the next
-// reconcile does not repeat it, so it is visible in the org list as initial_sync_done=false.
+// attributes and seeds the mandatory consent category. A failure is logged and is visible in the
+// org list as initial_sync_done=false.
 func initializeOrg(ctx context.Context, org model.Organization) {
 
 	logger := log.GetLogger()
@@ -254,7 +264,6 @@ func HandleSyncEvent(ctx context.Context, pathHandle string, event model.SyncEve
 			OrgName:     info.Name,
 			ParentOrgId: parent.OrgId,
 			RootOrgId:   root.OrgId,
-			Path:        parent.ChildPath(info.Id),
 			Depth:       parent.Depth + 1,
 			Status:      status,
 		}
@@ -262,19 +271,16 @@ func HandleSyncEvent(ctx context.Context, pathHandle string, event model.SyncEve
 			return err
 		}
 		if previous == nil || previous.Status == model.StatusDeleted {
-			initializeOrg(ctx, org)
+			initializeIfEnabled(ctx, org)
 		}
-		return sharingService.RecomputeTree(ctx, root.OrgId)
+		return nil
 
 	case model.EventOrgDeleted:
 		previous, err := store.GetOrganizationById(ctx, event.OrgId)
 		if err != nil || previous == nil {
 			return err
 		}
-		if err := store.UpdateOrganizationStatus(ctx, previous.OrgId, model.StatusDeleted); err != nil {
-			return err
-		}
-		return sharingService.RecomputeTree(ctx, root.OrgId)
+		return store.UpdateOrganizationStatus(ctx, previous.OrgId, model.StatusDeleted)
 
 	default:
 		return errors2.NewClientError(errors2.ErrorMessage{
@@ -376,6 +382,59 @@ func provisionJustInTime(ctx context.Context, orgHandle string) *model.Organizat
 		}
 	}
 	negativeCache.Store(orgHandle, time.Now().Add(negativeCacheTTL))
+	return nil
+}
+
+// SubOrgHandleOf returns the handle of the sub org of the path /t/{root_handle}/o/{org_id}/...
+// The org must be a sub org in the tree of the root. When CDS does not know the org, and the root
+// enabled CDS, CDS reads the tree of the root just in time, once in each cache period.
+func SubOrgHandleOf(ctx context.Context, rootHandle, orgId string) (string, error) {
+
+	org, err := store.GetOrganizationById(ctx, orgId)
+	if err != nil {
+		return "", err
+	}
+	if org == nil {
+		org = provisionIdJustInTime(ctx, rootHandle, orgId)
+	}
+	notFound := fmt.Errorf("the organization '%s' is not a sub organization of '%s'", orgId, rootHandle)
+	if org == nil || org.IsRoot() {
+		return "", notFound
+	}
+	root, err := store.GetOrganizationById(ctx, org.RootOrgId)
+	if err != nil {
+		return "", err
+	}
+	if root == nil || root.OrgHandle != rootHandle {
+		return "", notFound
+	}
+	return org.OrgHandle, nil
+}
+
+// IsSubOrgHandle reports whether CDS knows the handle as a sub org.
+func IsSubOrgHandle(ctx context.Context, orgHandle string) bool {
+
+	org, err := store.GetOrganizationByHandle(ctx, orgHandle)
+	return err == nil && org != nil && !org.IsRoot()
+}
+
+func provisionIdJustInTime(ctx context.Context, rootHandle, orgId string) *model.Organization {
+
+	key := rootHandle + "/" + orgId
+	if until, ok := negativeCache.Load(key); ok && time.Now().Before(until.(time.Time)) {
+		return nil
+	}
+	config, err := adminConfigStore.GetAdminConfig(ctx, rootHandle)
+	if err == nil && config != nil && config.CDSEnabled {
+		if _, err := ProvisionTree(ctx, rootHandle); err != nil {
+			log.GetLogger().Debug(fmt.Sprintf("Just-in-time provisioning of root '%s' failed.", rootHandle),
+				log.Error(err))
+		} else if org, err := store.GetOrganizationById(ctx, orgId); err == nil && org != nil {
+			log.GetLogger().Info(fmt.Sprintf("Provisioned organization '%s' just in time.", orgId))
+			return org
+		}
+	}
+	negativeCache.Store(key, time.Now().Add(negativeCacheTTL))
 	return nil
 }
 

@@ -42,6 +42,7 @@ const AZPClaim = "azp"
 const ClientIdClaim = "client_id"
 const ActiveClaim = "active"
 const OrgHandleClaim = "org_handle"
+const OrgIdClaim = "org_id"
 const AudienceClaim = "aud"
 const ExpiryClaim = "exp"
 const FilterRegex = `^[a-zA-Z0-9._-]+$`
@@ -53,6 +54,9 @@ var DisplayNameRegex = regexp.MustCompile(`[^a-zA-Z0-9.\-_+ ]`)
 type contextKey string
 
 const TenantContextKey contextKey = "org_handle"
+
+// OrgIdContextKey holds the org ID of the path of a sub org, /t/{root_handle}/o/{org_id}/...
+const OrgIdContextKey contextKey = "org_id"
 
 const (
 	ProfileResource         = "profile"
