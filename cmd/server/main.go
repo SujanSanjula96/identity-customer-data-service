@@ -35,6 +35,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/managers"
 	_ "github.com/wso2/identity-customer-data-service/internal/system/queue/activemq" // registers the ActiveMQ queue provider
@@ -91,6 +92,14 @@ func main() {
 		fmt.Println("Failed to initialize logger.", err)
 		os.Exit(1)
 	}
+
+	// Select the adapter of the identity provider of this deployment (R-015).
+	adapter, err := idp.NewAdapter(cdsConfig.IdP.Type)
+	if err != nil {
+		log.GetLogger().Error("Invalid identity provider configuration.", log.Error(err))
+		os.Exit(1)
+	}
+	idp.SetAdapter(adapter)
 
 	// Resolve the shutdown deadline at start, so a refused value stops the
 	// server before anything runs.

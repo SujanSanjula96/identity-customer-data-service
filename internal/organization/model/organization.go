@@ -30,16 +30,14 @@ const (
 // Organization is the CDS view of one org of the identity provider. CDS keys an org by the
 // stable org ID of the identity provider. The handle is an alias for routing.
 type Organization struct {
-	OrgId        string    `json:"org_id"`
-	OrgHandle    string    `json:"org_handle"`
-	OrgName      string    `json:"org_name,omitempty"`
-	ParentOrgId  string    `json:"parent_org_id,omitempty"`
-	RootOrgId    string    `json:"root_org_id"`
-	Depth        int       `json:"depth"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	LastSyncedAt time.Time `json:"last_synced_at,omitempty"`
+	OrgId       string    `json:"org_id"`
+	OrgHandle   string    `json:"org_handle"`
+	OrgName     string    `json:"org_name,omitempty"`
+	ParentOrgId string    `json:"parent_org_id,omitempty"`
+	RootOrgId   string    `json:"root_org_id"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // IsRoot reports whether the org is the root of a customer tree.

@@ -22,6 +22,8 @@ package idp
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -64,7 +66,29 @@ func GetAdapter() Adapter {
 	return NewWSO2ISAdapter()
 }
 
-// SetAdapter replaces the adapter. Tests use it to plug in a fake identity provider.
+// Identity provider types of the idp.type setting.
+const (
+	TypeWSO2IS    = "wso2is"
+	TypeThunderID = "thunderid"
+)
+
+// NewAdapter returns the adapter of the configured identity provider. One CDS deployment works with
+// one identity provider (R-015). An empty type is WSO2 IS.
+func NewAdapter(idpType string) (Adapter, error) {
+
+	switch strings.ToLower(strings.TrimSpace(idpType)) {
+	case "", TypeWSO2IS:
+		return NewWSO2ISAdapter(), nil
+	case TypeThunderID:
+		return nil, fmt.Errorf("the ThunderID adapter is not available yet")
+	default:
+		return nil, fmt.Errorf("the identity provider type '%s' is not supported. Use %s or %s", idpType,
+			TypeWSO2IS, TypeThunderID)
+	}
+}
+
+// SetAdapter replaces the adapter. The server sets the configured adapter at start, and tests use it
+// to plug in a fake identity provider.
 func SetAdapter(a Adapter) {
 
 	adapterMu.Lock()

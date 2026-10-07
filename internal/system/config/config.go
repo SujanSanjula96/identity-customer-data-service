@@ -154,6 +154,7 @@ type Config struct {
 	Log          LogConfig          `yaml:"log"`
 	Auth         AuthConfig         `yaml:"auth"`
 	AuthServer   AuthServerConfig   `yaml:"auth_server"`
+	IdP          IdPConfig          `yaml:"idp"`
 	DataSource   DataSourceConfig   `yaml:"datasource"`
 	TLS          TLSConfig          `yaml:"tls"`
 	Cleanup      CleanupConfig      `yaml:"cleanup"`
@@ -161,6 +162,13 @@ type Config struct {
 	Shutdown     ShutdownConfig     `yaml:"shutdown"`
 	// ApplicationIdentifierType selects how applications are identified: "client_id" (default) or "app_id".
 	ApplicationIdentifierType string `yaml:"application_identifier_type"`
+}
+
+// IdPConfig selects the identity provider of the deployment. One CDS deployment works with one
+// identity provider.
+type IdPConfig struct {
+	// Type is "wso2is" (the default when it is empty) or "thunderid".
+	Type string `yaml:"type"`
 }
 
 // ShutdownConfig bounds the graceful shutdown of the whole process. Zero, which

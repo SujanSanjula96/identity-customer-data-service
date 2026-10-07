@@ -23,6 +23,11 @@ addr:
 
 server_url: "https://localhost:8900" # Public-facing base URL used for constructing Location headers
 
+# The identity provider of this deployment: wso2is (default) or thunderid. One CDS deployment
+# works with one identity provider.
+idp:
+  type: "wso2is"
+
 auth_server:
   host: "localhost"
   port : 9443

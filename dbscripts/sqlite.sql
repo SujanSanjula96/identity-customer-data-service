@@ -208,11 +208,9 @@ CREATE TABLE IF NOT EXISTS organizations
     org_name       VARCHAR(255),
     parent_org_id  VARCHAR(255),
     root_org_id    VARCHAR(255) NOT NULL,
-    depth          INT          NOT NULL DEFAULT 0,
     status         VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     created_at     TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
-    updated_at     TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
-    last_synced_at TIMESTAMP
+    updated_at     TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00')
 );
 
 CREATE INDEX IF NOT EXISTS idx_organizations_parent
@@ -230,9 +228,6 @@ CREATE TABLE IF NOT EXISTS cds_share_policy
     resource_id       VARCHAR(255) NOT NULL,
     owning_org_id     VARCHAR(255) NOT NULL,
     initiating_org_id VARCHAR(255) NOT NULL,
-    stage             VARCHAR(16)  NOT NULL,
-    parent_policy_id  VARCHAR(255) REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
-    created_at        TIMESTAMP    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     UNIQUE (resource_type, resource_id, initiating_org_id)
 );
 

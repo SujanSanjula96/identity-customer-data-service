@@ -174,13 +174,10 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		return err
 	}
 
-	// When a root org enables CDS, CDS reads its org tree. Without an organization access, the
-	// root gets one with all_children (the root cascade), and CDS initializes the sub orgs.
+	// When a root org enables CDS, CDS reads its org tree. No sub org is enabled until the root
+	// selects the sub orgs with the organization access (R-011).
 	if !isSubOrg && !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
 		if _, err := orgService.ProvisionTree(ctx, orgHandle); err != nil {
-			return err
-		}
-		if err := orgService.EnsureDefaultOrgAccess(ctx, orgHandle); err != nil {
 			return err
 		}
 	}

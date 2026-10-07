@@ -71,7 +71,6 @@ func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, er
 		OrgHandle: rootHandle,
 		OrgName:   rootInfo.Name,
 		RootOrgId: rootInfo.Id,
-		Depth:     0,
 		Status:    model.StatusActive,
 	}
 	if err := store.UpsertOrganization(ctx, root); err != nil {
@@ -119,8 +118,9 @@ func ProvisionTree(ctx context.Context, rootHandle string) (*ProvisionResult, er
 	return result, nil
 }
 
-// buildTree computes the path and depth of each descendant from the parent links. An org whose
-// chain does not reach the root is left out.
+// buildTree links each descendant to its parent, and returns the orgs with each parent before its
+// children, so that CDS stores a parent first. An org whose chain does not reach the root is left
+// out.
 func buildTree(root model.Organization, descendants []idp.Organization) []model.Organization {
 
 	byId := map[string]idp.Organization{}
@@ -128,6 +128,7 @@ func buildTree(root model.Organization, descendants []idp.Organization) []model.
 		byId[d.Id] = d
 	}
 	built := map[string]model.Organization{root.OrgId: root}
+	level := map[string]int{root.OrgId: 0}
 	var resolve func(id string, guard int) (model.Organization, bool)
 	resolve = func(id string, guard int) (model.Organization, bool) {
 		if org, ok := built[id]; ok {
@@ -151,10 +152,10 @@ func buildTree(root model.Organization, descendants []idp.Organization) []model.
 			OrgName:     d.Name,
 			ParentOrgId: parent.OrgId,
 			RootOrgId:   root.OrgId,
-			Depth:       parent.Depth + 1,
 			Status:      status,
 		}
 		built[id] = org
+		level[id] = level[parent.OrgId] + 1
 		return org, true
 	}
 
@@ -168,8 +169,8 @@ func buildTree(root model.Organization, descendants []idp.Organization) []model.
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Depth != result[j].Depth {
-			return result[i].Depth < result[j].Depth
+		if level[result[i].OrgId] != level[result[j].OrgId] {
+			return level[result[i].OrgId] < level[result[j].OrgId]
 		}
 		return result[i].OrgId < result[j].OrgId
 	})
@@ -264,7 +265,6 @@ func HandleSyncEvent(ctx context.Context, pathHandle string, event model.SyncEve
 			OrgName:     info.Name,
 			ParentOrgId: parent.OrgId,
 			RootOrgId:   root.OrgId,
-			Depth:       parent.Depth + 1,
 			Status:      status,
 		}
 		if err := store.UpsertOrganization(ctx, org); err != nil {

@@ -35,7 +35,9 @@ import (
 
 // The organization access of a root selects the sub orgs that can use CDS. It is a policy in the
 // share tables, with resource type ORGANIZATION_ACCESS and resource ID CDS. A root has a maximum of
-// one. Without one, no sub org can use CDS.
+// one. Without one, no sub org can use CDS: a root that enables CDS has no sub org until it selects
+// them. child_orgs can name any descendant of the root, but each org between the root and a
+// selected org must be selected too.
 
 // IsSubOrgEnabled reports whether the organization access of the root of the org reaches it. The
 // caller checks the enablement of the root.
@@ -70,7 +72,6 @@ func CreateOrgAccess(ctx context.Context, root model.Organization,
 		ResourceId:      shareModel.OrganizationAccessResourceId,
 		OwningOrgId:     root.OrgId,
 		InitiatingOrgId: root.OrgId,
-		Stage:           shareModel.StageShare,
 		Targets:         targets,
 	}
 	orgs, err := validateOrgAccess(ctx, root, p)
@@ -160,23 +161,6 @@ func DeleteOrgAccess(ctx context.Context, root model.Organization, policyId stri
 	return shareStore.DeletePolicy(ctx, p.PolicyId)
 }
 
-// EnsureDefaultOrgAccess gives a root that enables CDS an all_children organization access, when
-// it has none. This keeps the root cascade as the default.
-func EnsureDefaultOrgAccess(ctx context.Context, rootHandle string) error {
-
-	root, err := store.GetOrganizationByHandle(ctx, rootHandle)
-	if err != nil || root == nil || !root.IsRoot() {
-		return err
-	}
-	existing, err := orgAccessOf(ctx, *root)
-	if err != nil || existing != nil {
-		return err
-	}
-	_, err = CreateOrgAccess(ctx, *root, shareModel.PolicyRequest{
-		TargetOrgScope: &shareModel.TargetOrgScope{AllChildren: true}})
-	return err
-}
-
 func orgAccessOf(ctx context.Context, root model.Organization) (*shareModel.Policy, error) {
 	return shareStore.GetPolicy(ctx, shareModel.ResourceOrganizationAccess, shareModel.OrganizationAccessResourceId,
 		root.OrgId)
@@ -236,7 +220,7 @@ func treeOf(orgs []model.Organization) []sharingService.TreeOrg {
 	result := make([]sharingService.TreeOrg, 0, len(orgs))
 	for _, o := range orgs {
 		result = append(result, sharingService.TreeOrg{Id: o.OrgId, Handle: o.OrgHandle, ParentId: o.ParentOrgId,
-			Depth: o.Depth, Active: o.Status == model.StatusActive})
+			Active: o.Status == model.StatusActive})
 	}
 	return result
 }

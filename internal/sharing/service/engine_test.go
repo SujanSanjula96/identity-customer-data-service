@@ -36,18 +36,18 @@ import (
 //	└── B
 func testTree() []TreeOrg {
 	return []TreeOrg{
-		{Id: "R", Handle: "r", Depth: 0, Active: true},
-		{Id: "A", Handle: "a", ParentId: "R", Depth: 1, Active: true},
-		{Id: "B", Handle: "b", ParentId: "R", Depth: 1, Active: true},
-		{Id: "A1", Handle: "a1", ParentId: "A", Depth: 2, Active: true},
-		{Id: "A2", Handle: "a2", ParentId: "A", Depth: 2, Active: false},
-		{Id: "A1x", Handle: "a1x", ParentId: "A1", Depth: 3, Active: true},
+		{Id: "R", Handle: "r", Active: true},
+		{Id: "A", Handle: "a", ParentId: "R", Active: true},
+		{Id: "B", Handle: "b", ParentId: "R", Active: true},
+		{Id: "A1", Handle: "a1", ParentId: "A", Active: true},
+		{Id: "A2", Handle: "a2", ParentId: "A", Active: false},
+		{Id: "A1x", Handle: "a1x", ParentId: "A1", Active: true},
 	}
 }
 
 func policy(resourceType, resourceId, initiator string, targets []model.Target) model.Policy {
 	return model.Policy{PolicyId: resourceId + "-p", ResourceType: resourceType, ResourceId: resourceId,
-		OwningOrgId: initiator, InitiatingOrgId: initiator, Stage: model.StageShare, Targets: targets}
+		OwningOrgId: initiator, InitiatingOrgId: initiator, Targets: targets}
 }
 
 func allChildren(initiator string) []model.Target {
@@ -140,7 +140,7 @@ func TestEvaluateAttributeConflicts(t *testing.T) {
 			{Id: "b-tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "B"},
 			{Id: "a-tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "A"},
 		},
-		// The root policy is older, so it wins in orgs where both shared attributes reach.
+		// In A1 and A1x both shared attributes reach. The nearest owner (A) wins.
 		Policies: []model.Policy{
 			policy(model.ResourceSchemaAttribute, "root-tier", "R", allChildren("R")),
 			policy(model.ResourceSchemaAttribute, "a-tier", "A", allChildren("A")),
@@ -156,14 +156,14 @@ func TestEvaluateAttributeConflicts(t *testing.T) {
 	if root["B"].State != model.StateConflicted || root["B"].ConflictingResourceId != "b-tier" {
 		t.Errorf("expected a local conflict in B, got %+v", root["B"])
 	}
-	// A conflicted org still passes the share to its descendants: each gets its own state.
-	if root["A1"].State != model.StateActive || root["A1x"].State != model.StateActive {
-		t.Errorf("expected the root attribute to be active in A1 and A1x, got %+v %+v", root["A1"], root["A1x"])
+	// The nearest owner wins: in A1 and A1x, the attribute of A wins over the attribute of the root.
+	if root["A1"].State != model.StateConflicted || root["A1"].Reason != model.ReasonSharedNameConflict ||
+		root["A1"].ConflictingResourceId != "a-tier" {
+		t.Errorf("expected the root attribute to lose to the nearer owner in A1, got %+v", root["A1"])
 	}
 	a := statesByOrg(states, "a-tier")
-	if a["A1"].State != model.StateConflicted || a["A1"].Reason != model.ReasonSharedNameConflict ||
-		a["A1"].ConflictingResourceId != "root-tier" {
-		t.Errorf("expected a shared conflict in A1, got %+v", a["A1"])
+	if a["A1"].State != model.StateActive || a["A1x"].State != model.StateActive {
+		t.Errorf("expected the attribute of A to be active in A1 and A1x, got %+v %+v", a["A1"], a["A1x"])
 	}
 }
 
@@ -283,5 +283,90 @@ func TestToTargets(t *testing.T) {
 				t.Fatalf("expected the same scope back, got %+v", back)
 			}
 		})
+	}
+}
+
+// Two shared rules on one property: the rule of the farthest owner wins, as in the run order.
+func TestEvaluateRuleFarthestOwnerWins(t *testing.T) {
+
+	in := EngineInput{
+		Orgs: testTree(),
+		Attributes: []AttributeInfo{
+			{Id: "root-email", Name: "identity_attributes.email", ValueType: "string", OwnerOrgId: "R"},
+			{Id: "a1-email", Name: "identity_attributes.email", ValueType: "string", OwnerOrgId: "A1"},
+		},
+		Rules: []RuleInfo{
+			{Id: "root-rule", PropertyName: "identity_attributes.email", PropertyId: "root-email", OwnerOrgId: "R"},
+			{Id: "a-rule", PropertyName: "identity_attributes.email", PropertyId: "root-email", OwnerOrgId: "A"},
+		},
+		Policies: []model.Policy{
+			policy(model.ResourceUnificationRule, "a-rule", "A", allChildren("A")),
+			policy(model.ResourceUnificationRule, "root-rule", "R", allChildren("R")),
+		},
+	}
+	states := Evaluate(in)
+	if s := statesByOrg(states, "root-rule")["A1"]; s.State != model.StateActive {
+		t.Errorf("expected the rule of the root to win in A1, got %+v", s)
+	}
+	if s := statesByOrg(states, "a-rule")["A1"]; s.State != model.StateConflicted ||
+		s.ConflictingResourceId != "root-rule" {
+		t.Errorf("expected the rule of A to lose in A1, got %+v", s)
+	}
+}
+
+// A share applies only in enabled orgs, and passes down through an org that is not enabled.
+func TestReachSkipsOrgsThatAreNotEnabled(t *testing.T) {
+
+	orgs := testTree()
+	for i := range orgs {
+		if orgs[i].Id == "A" {
+			orgs[i].NotEnabled = true
+		}
+	}
+	got := Reach(orgs, policy(model.ResourceSchemaAttribute, "x", "R", allChildren("R")))
+	if expected := []string{"B", "A1", "A1x"}; !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
+	}
+}
+
+// Organization access can select any descendant, when each org between the root and it is selected.
+func TestValidateOrgAccess(t *testing.T) {
+
+	access := func(targets ...model.Target) model.Policy {
+		return model.Policy{PolicyId: "oa", ResourceType: model.ResourceOrganizationAccess,
+			ResourceId: model.OrganizationAccessResourceId, OwningOrgId: "R", InitiatingOrgId: "R", Targets: targets}
+	}
+	cases := []struct {
+		name    string
+		policy  model.Policy
+		problem string
+	}{
+		{"a grandchild with its parent", access(model.Target{Scope: model.ScopeOrg, OrgId: "A"},
+			model.Target{Scope: model.ScopeOrg, OrgId: "A1"}), ""},
+		{"a grandchild without its parent", access(model.Target{Scope: model.ScopeOrg, OrgId: "A1"}),
+			"'A' above it is not"},
+		{"a grandchild below a selected subtree", access(model.Target{Scope: model.ScopeOrgSubtree, OrgId: "A"},
+			model.Target{Scope: model.ScopeOrg, OrgId: "A1x"}), ""},
+		{"a great-grandchild with a gap", access(model.Target{Scope: model.ScopeOrg, OrgId: "A"},
+			model.Target{Scope: model.ScopeOrg, OrgId: "A1x"}), "'A1' above it is not"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			problems := ValidatePolicy(testTree(), c.policy)
+			if c.problem == "" {
+				if len(problems) != 0 {
+					t.Fatalf("expected no problems, got %v", problems)
+				}
+				return
+			}
+			if !strings.Contains(strings.Join(problems, ";"), c.problem) {
+				t.Fatalf("expected a problem with %q, got %v", c.problem, problems)
+			}
+		})
+	}
+	got := Reach(testTree(), access(model.Target{Scope: model.ScopeOrg, OrgId: "A"},
+		model.Target{Scope: model.ScopeOrg, OrgId: "A1"}))
+	if expected := []string{"A", "A1"}; !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
 	}
 }

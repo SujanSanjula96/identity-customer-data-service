@@ -53,7 +53,7 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 		parent = org.ParentOrgId
 	}
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrganization, org.OrgId, org.OrgHandle, org.OrgName,
-		parent, org.RootOrgId, org.Depth, org.Status, time.Now().UTC())
+		parent, org.RootOrgId, org.Status, time.Now().UTC())
 	if err != nil {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
 	}
@@ -167,15 +167,13 @@ func getOne(ctx context.Context, query dbmodel.DBQuery, arg string) (*model.Orga
 
 func mapRow(row map[string]interface{}) model.Organization {
 	return model.Organization{
-		OrgId:        rows.String(row, "org_id"),
-		OrgHandle:    rows.String(row, "org_handle"),
-		OrgName:      rows.String(row, "org_name"),
-		ParentOrgId:  rows.String(row, "parent_org_id"),
-		RootOrgId:    rows.String(row, "root_org_id"),
-		Depth:        rows.Int(row, "depth"),
-		Status:       rows.String(row, "status"),
-		CreatedAt:    rows.Time(row, "created_at"),
-		UpdatedAt:    rows.Time(row, "updated_at"),
-		LastSyncedAt: rows.Time(row, "last_synced_at"),
+		OrgId:       rows.String(row, "org_id"),
+		OrgHandle:   rows.String(row, "org_handle"),
+		OrgName:     rows.String(row, "org_name"),
+		ParentOrgId: rows.String(row, "parent_org_id"),
+		RootOrgId:   rows.String(row, "root_org_id"),
+		Status:      rows.String(row, "status"),
+		CreatedAt:   rows.Time(row, "created_at"),
+		UpdatedAt:   rows.Time(row, "updated_at"),
 	}
 }

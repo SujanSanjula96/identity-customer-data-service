@@ -230,11 +230,9 @@ CREATE TABLE organizations (
     org_name       VARCHAR(255),
     parent_org_id  VARCHAR(255),
     root_org_id    VARCHAR(255) NOT NULL,
-    depth          INT          NOT NULL DEFAULT 0,
     status         VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    last_synced_at TIMESTAMPTZ
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_organizations_parent ON organizations (parent_org_id);
@@ -249,9 +247,6 @@ CREATE TABLE cds_share_policy (
     resource_id       VARCHAR(255) NOT NULL,
     owning_org_id     VARCHAR(255) NOT NULL,
     initiating_org_id VARCHAR(255) NOT NULL,
-    stage             VARCHAR(16)  NOT NULL,
-    parent_policy_id  VARCHAR(255) REFERENCES cds_share_policy (policy_id) ON DELETE CASCADE,
-    created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
     UNIQUE (resource_type, resource_id, initiating_org_id)
 );
 

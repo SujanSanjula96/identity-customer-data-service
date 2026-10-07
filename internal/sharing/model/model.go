@@ -18,8 +18,6 @@
 
 package model
 
-import "time"
-
 // Resource types of a policy.
 const (
 	ResourceSchemaAttribute = "SCHEMA_ATTRIBUTE"
@@ -28,12 +26,6 @@ const (
 	// CDS. Its resource ID is always OrganizationAccessResourceId.
 	ResourceOrganizationAccess   = "ORGANIZATION_ACCESS"
 	OrganizationAccessResourceId = "CDS"
-)
-
-// Policy stages. The owner shares; an org that received the resource reshares.
-const (
-	StageShare   = "SHARE"
-	StageReshare = "RESHARE"
 )
 
 // Stored target scopes.
@@ -81,11 +73,7 @@ type Policy struct {
 	ResourceId      string
 	OwningOrgId     string
 	InitiatingOrgId string
-	Stage           string
 	Targets         []Target
-	// CreatedAt orders the policies: when two shared resources have the same name in one org,
-	// the resource of the older policy wins.
-	CreatedAt time.Time
 }
 
 // State is the result of the policies for one resource in one org.

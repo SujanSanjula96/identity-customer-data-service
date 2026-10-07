@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/model"
@@ -86,7 +85,7 @@ func CreatePolicy(ctx context.Context, p model.Policy) error {
 
 	return inTx(ctx, "create a share policy", func(tx *dbmodel.Tx) error {
 		if _, err := tx.ExecContext(ctx, scripts.InsertSharePolicy, p.PolicyId, p.ResourceType, p.ResourceId,
-			p.OwningOrgId, p.InitiatingOrgId, p.Stage, time.Now().UTC()); err != nil {
+			p.OwningOrgId, p.InitiatingOrgId); err != nil {
 			return serverError("Failed to store the share policy.", err)
 		}
 		return insertTargets(ctx, tx, p.PolicyId, p.Targets)
@@ -122,8 +121,6 @@ func policyOf(row map[string]interface{}) model.Policy {
 		ResourceId:      rows.String(row, "resource_id"),
 		OwningOrgId:     rows.String(row, "owning_org_id"),
 		InitiatingOrgId: rows.String(row, "initiating_org_id"),
-		Stage:           rows.String(row, "stage"),
-		CreatedAt:       rows.Time(row, "created_at"),
 	}
 }
 
@@ -167,8 +164,7 @@ func GetPolicy(ctx context.Context, resourceType, resourceId, initiatingOrgId st
 	return withTargets(ctx, results)
 }
 
-// GetPoliciesByRoot returns the share policies of one customer tree with their targets, oldest
-// first.
+// GetPoliciesByRoot returns the share policies of one customer tree with their targets.
 func GetPoliciesByRoot(ctx context.Context, rootOrgId string) ([]model.Policy, error) {
 
 	policyRows, err := query(ctx, scripts.GetSharePoliciesByRoot, rootOrgId)
@@ -193,7 +189,7 @@ func GetPoliciesByRoot(ctx context.Context, rootOrgId string) ([]model.Policy, e
 	return policies, nil
 }
 
-// GetPoliciesReachingOrg returns the share policies whose targets reach the org, oldest first.
+// GetPoliciesReachingOrg returns the share policies whose targets reach the org.
 // Each policy has only the targets that reach the org.
 func GetPoliciesReachingOrg(ctx context.Context, orgId string) ([]model.Policy, error) {
 	return reachingPolicies(ctx, scripts.GetSharePoliciesReachingOrg, orgId)
@@ -231,10 +227,12 @@ type ReachedOrg struct {
 	OrgId, OrgHandle string
 }
 
-// GetReachedOrgsPage returns one page of the active orgs that the policy reaches, and the total.
-func GetReachedOrgsPage(ctx context.Context, policyId string, limit, offset int) ([]ReachedOrg, int, error) {
+// GetReachedOrgsPage returns one page of the active orgs that the share policy reaches and that the
+// organization access policy enables, and the total.
+func GetReachedOrgsPage(ctx context.Context, policyId, accessPolicyId string, limit,
+	offset int) ([]ReachedOrg, int, error) {
 
-	countRows, err := query(ctx, scripts.CountReachedOrgs, policyId)
+	countRows, err := query(ctx, scripts.CountReachedOrgs, policyId, accessPolicyId)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -242,7 +240,7 @@ func GetReachedOrgsPage(ctx context.Context, policyId string, limit, offset int)
 	if len(countRows) > 0 {
 		total = rows.Int(countRows[0], "total")
 	}
-	results, err := query(ctx, scripts.GetReachedOrgsPage, policyId, limit, offset)
+	results, err := query(ctx, scripts.GetReachedOrgsPage, policyId, accessPolicyId, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -331,10 +329,11 @@ func GetAttributesOfChain(ctx context.Context, orgId string) ([]ChainAttribute, 
 	return attrs, nil
 }
 
-// SharedRule is a unification rule that another org shares, with the depth of its owner.
+// SharedRule is a unification rule that another org shares. OwnerHops is the number of levels from
+// the org up to the owner: a larger value is a farther owner.
 type SharedRule struct {
-	Rule       ruleModel.UnificationRule
-	OwnerDepth int
+	Rule      ruleModel.UnificationRule
+	OwnerHops int
 }
 
 // ChainRule is a rule of an org of the ancestor chain, with the ID of the owner org.
@@ -355,7 +354,7 @@ func GetRulesOfChain(ctx context.Context, orgId string) ([]ChainRule, error) {
 		result = append(result, ChainRule{
 			OwnerOrgId: rows.String(row, "org_id"),
 			SharedRule: SharedRule{
-				OwnerDepth: rows.Int(row, "owner_depth"),
+				OwnerHops: rows.Int(row, "owner_hops"),
 				Rule: ruleModel.UnificationRule{
 					RuleId:       rows.String(row, "rule_id"),
 					OrgHandle:    rows.String(row, "org_handle"),

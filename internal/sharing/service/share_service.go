@@ -49,10 +49,14 @@ type orgView struct {
 	rules      map[string]store.ChainRule
 }
 
-// resolveOrg computes the state of each shared resource that reaches the org.
+// resolveOrg computes the state of each shared resource that reaches the org. A share applies only in
+// an enabled org (R-011).
 func resolveOrg(ctx context.Context, org orgModel.Organization) (*orgView, error) {
 
 	view := &orgView{attributes: map[string]store.ChainAttribute{}, rules: map[string]store.ChainRule{}}
+	if enabled, err := IsOrgEnabled(ctx, org); err != nil || !enabled {
+		return view, err
+	}
 	policies, err := store.GetPoliciesReachingOrg(ctx, org.OrgId)
 	if err != nil || len(policies) == 0 {
 		return view, err
@@ -92,7 +96,7 @@ func treeOrgs(orgs []orgModel.Organization) []TreeOrg {
 
 	result := make([]TreeOrg, 0, len(orgs))
 	for _, o := range orgs {
-		result = append(result, TreeOrg{Id: o.OrgId, Handle: o.OrgHandle, ParentId: o.ParentOrgId, Depth: o.Depth,
+		result = append(result, TreeOrg{Id: o.OrgId, Handle: o.OrgHandle, ParentId: o.ParentOrgId,
 			Active: o.Status == orgModel.StatusActive})
 	}
 	return result
@@ -124,8 +128,7 @@ func ActiveSharedAttributes(ctx context.Context, orgHandle string) ([]store.Shar
 }
 
 // ActiveSharedRules returns the shared rules that are active in the org of the handle, in the
-// evaluation order: the group of the farthest ancestor first, and the owner priority in each
-// group.
+// evaluation order: the group of the farthest owner first, and the owner priority in each group.
 func ActiveSharedRules(ctx context.Context, orgHandle string) ([]store.SharedRule, error) {
 
 	view, err := viewOfHandle(ctx, orgHandle)
@@ -139,8 +142,8 @@ func ActiveSharedRules(ctx context.Context, orgHandle string) ([]store.SharedRul
 		}
 	}
 	sort.SliceStable(rules, func(i, j int) bool {
-		if rules[i].OwnerDepth != rules[j].OwnerDepth {
-			return rules[i].OwnerDepth < rules[j].OwnerDepth
+		if rules[i].OwnerHops != rules[j].OwnerHops {
+			return rules[i].OwnerHops > rules[j].OwnerHops
 		}
 		return rules[i].Rule.Priority < rules[j].Rule.Priority
 	})
@@ -185,7 +188,6 @@ func CreatePolicy(ctx context.Context, resourceType, resourceId string, initiato
 		ResourceId:      resourceId,
 		OwningOrgId:     initiator.OrgId,
 		InitiatingOrgId: initiator.OrgId,
-		Stage:           model.StageShare,
 		Targets:         targets,
 	}
 	if err := validateCandidate(ctx, initiator, candidate); err != nil {
@@ -223,7 +225,16 @@ func GetPolicy(ctx context.Context, resourceType, resourceId, policyId string, i
 	if err != nil {
 		return nil, err
 	}
-	page, total, err := store.GetReachedOrgsPage(ctx, p.PolicyId, limit, offset)
+	access, err := store.GetPolicy(ctx, model.ResourceOrganizationAccess, model.OrganizationAccessResourceId,
+		initiator.RootOrgId)
+	if err != nil {
+		return nil, err
+	}
+	accessPolicyId := ""
+	if access != nil {
+		accessPolicyId = access.PolicyId
+	}
+	page, total, err := store.GetReachedOrgsPage(ctx, p.PolicyId, accessPolicyId, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +354,8 @@ func validateCandidate(ctx context.Context, initiator orgModel.Organization, can
 }
 
 // loadTree loads the orgs, the resources, and the share policies of one customer tree, for the
-// checks at share time.
+// checks at share time. An org that the organization access does not reach is marked NotEnabled,
+// so that the checks skip it.
 func loadTree(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Organization, error) {
 
 	orgs, err := orgStore.GetOrganizationsByRoot(ctx, rootOrgId)
@@ -364,6 +376,20 @@ func loadTree(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Or
 	}
 
 	input := EngineInput{Orgs: treeOrgs(orgs), Policies: policies}
+	access, err := store.GetPolicy(ctx, model.ResourceOrganizationAccess, model.OrganizationAccessResourceId,
+		rootOrgId)
+	if err != nil {
+		return EngineInput{}, nil, err
+	}
+	enabled := map[string]bool{rootOrgId: true}
+	if access != nil {
+		for _, id := range Reach(input.Orgs, *access) {
+			enabled[id] = true
+		}
+	}
+	for i := range input.Orgs {
+		input.Orgs[i].NotEnabled = !enabled[input.Orgs[i].Id]
+	}
 	for _, a := range attrs {
 		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Id, Name: a.Name, ValueType: a.ValueType,
 			OwnerOrgId: a.OrgId})

@@ -32,13 +32,16 @@ import (
 // one org loads only the ancestor chain of the org, the local resources of the org, and the
 // policies that reach it, and calls EvaluateOrg.
 
-// TreeOrg is an org of the tree, as the engine needs it.
+// TreeOrg is an org of the tree, as the engine needs it. CDS stores no depth: the engine computes
+// the level of each org from the parent links.
 type TreeOrg struct {
 	Id       string
 	Handle   string
 	ParentId string
-	Depth    int
 	Active   bool
+	// NotEnabled is true when the organization access of the root does not reach the org. A share
+	// does not apply in such an org, but it passes down to the orgs below it.
+	NotEnabled bool
 }
 
 // AttributeInfo is a profile schema attribute, as the engine needs it.
@@ -62,14 +65,46 @@ type EngineInput struct {
 	Orgs       []TreeOrg
 	Attributes []AttributeInfo
 	Rules      []RuleInfo
-	// Policies must be sorted oldest first. When two shared resources have the same name in one
-	// org, the resource of the older policy wins.
-	Policies []model.Policy
+	Policies   []model.Policy
 }
 
 type tree struct {
 	byId     map[string]TreeOrg
 	children map[string][]string
+}
+
+// level returns the number of parents of the org that the tree has.
+func (t tree) level(orgId string) int {
+
+	level := 0
+	for id := t.byId[orgId].ParentId; id != "" && level < 64; id = t.byId[id].ParentId {
+		if _, ok := t.byId[id]; !ok {
+			break
+		}
+		level++
+	}
+	return level
+}
+
+// isBelow reports whether the org is a descendant of the ancestor.
+func (t tree) isBelow(orgId, ancestorId string) bool {
+
+	for id, guard := t.byId[orgId].ParentId, 0; id != "" && guard < 64; id, guard = t.byId[id].ParentId, guard+1 {
+		if id == ancestorId {
+			return true
+		}
+	}
+	return false
+}
+
+// isTargetOf reports whether a named target can be reached by the policy. A share policy names only
+// direct children of the initiating org. Organization access names any descendant of the root.
+func (t tree) isTargetOf(orgId string, p model.Policy) bool {
+
+	if p.ResourceType == model.ResourceOrganizationAccess {
+		return t.isBelow(orgId, p.InitiatingOrgId)
+	}
+	return t.byId[orgId].ParentId == p.InitiatingOrgId
 }
 
 func newTree(orgs []TreeOrg) tree {
@@ -104,7 +139,7 @@ func (t tree) descendants(orgId string) []string {
 	return t.subtree(orgId)[1:]
 }
 
-// Reach returns the active orgs that a policy reaches, sorted by depth and then ID.
+// Reach returns the active, enabled orgs that a policy reaches, sorted by level and then ID.
 func Reach(orgs []TreeOrg, p model.Policy) []string {
 	return reach(newTree(orgs), p)
 }
@@ -119,11 +154,11 @@ func reach(t tree, p model.Policy) []string {
 				reached[id] = true
 			}
 		case model.ScopeOrg:
-			if t.byId[target.OrgId].ParentId == p.InitiatingOrgId {
+			if t.isTargetOf(target.OrgId, p) {
 				reached[target.OrgId] = true
 			}
 		case model.ScopeOrgSubtree:
-			if t.byId[target.OrgId].ParentId == p.InitiatingOrgId {
+			if t.isTargetOf(target.OrgId, p) {
 				for _, id := range t.subtree(target.OrgId) {
 					reached[id] = true
 				}
@@ -132,16 +167,16 @@ func reach(t tree, p model.Policy) []string {
 	}
 	result := make([]string, 0, len(reached))
 	for id := range reached {
-		if org, ok := t.byId[id]; ok && org.Active {
+		if org, ok := t.byId[id]; ok && org.Active && !org.NotEnabled {
 			result = append(result, id)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
-		a, b := t.byId[result[i]], t.byId[result[j]]
-		if a.Depth != b.Depth {
-			return a.Depth < b.Depth
+		a, b := t.level(result[i]), t.level(result[j])
+		if a != b {
+			return a < b
 		}
-		return a.Id < b.Id
+		return result[i] < result[j]
 	})
 	return result
 }
@@ -173,7 +208,10 @@ func ValidatePolicy(orgs []TreeOrg, p model.Policy) []string {
 				problems = append(problems, fmt.Sprintf("the %s scope requires an org_id", target.Scope))
 			case !known:
 				problems = append(problems, fmt.Sprintf("the organization '%s' is not known", target.OrgId))
-			case org.ParentId != initiator.Id:
+			case !t.isTargetOf(target.OrgId, p) && p.ResourceType == model.ResourceOrganizationAccess:
+				problems = append(problems, fmt.Sprintf(
+					"the organization '%s' is not a descendant of the root organization", target.OrgId))
+			case !t.isTargetOf(target.OrgId, p):
 				problems = append(problems, fmt.Sprintf(
 					"the organization '%s' is not a direct child of the initiating organization", target.OrgId))
 			case !org.Active:
@@ -181,6 +219,33 @@ func ValidatePolicy(orgs []TreeOrg, p model.Policy) []string {
 			}
 		default:
 			problems = append(problems, fmt.Sprintf("the scope '%s' is not supported", target.Scope))
+		}
+	}
+	if len(problems) == 0 && p.ResourceType == model.ResourceOrganizationAccess {
+		problems = checkSelectedAncestors(t, p)
+	}
+	return problems
+}
+
+// checkSelectedAncestors checks that each org between the root and a selected org is selected too.
+func checkSelectedAncestors(t tree, p model.Policy) []string {
+
+	selected := map[string]bool{}
+	for _, id := range reach(t, p) {
+		selected[id] = true
+	}
+	var problems []string
+	for _, target := range p.Targets {
+		if target.Scope == model.ScopeAllChildren {
+			continue
+		}
+		for id := t.byId[target.OrgId].ParentId; id != "" && id != p.InitiatingOrgId; id = t.byId[id].ParentId {
+			if !selected[id] {
+				problems = append(problems, fmt.Sprintf("the organization '%s' is selected, but the organization "+
+					"'%s' above it is not. Select each organization between the root and a selected organization",
+					target.OrgId, id))
+				break
+			}
 		}
 	}
 	return problems
@@ -223,9 +288,28 @@ func evaluate(in EngineInput, only string) []model.State {
 
 	var states []model.State
 
+	// Precedence (R-009). For attributes, the local attribute of the org wins, and then the shared
+	// attribute of the nearest owner: the policies of deeper owners come first. For rules, the local
+	// rule wins, and then the shared rule of the farthest owner, which is also the run order.
+	policies := append([]model.Policy(nil), in.Policies...)
+	sort.SliceStable(policies, func(i, j int) bool {
+		pi, pj := policies[i], policies[j]
+		if pi.ResourceType != pj.ResourceType {
+			return pi.ResourceType < pj.ResourceType
+		}
+		a, b := t.level(pi.OwningOrgId), t.level(pj.OwningOrgId)
+		if a != b {
+			if pi.ResourceType == model.ResourceUnificationRule {
+				return a < b
+			}
+			return a > b
+		}
+		return pi.PolicyId < pj.PolicyId
+	})
+
 	// Attributes first, because the rule states depend on the effective schema of each org.
 	activeShared := map[string]map[string]AttributeInfo{} // org -> name -> active shared attribute
-	for _, p := range in.Policies {
+	for _, p := range policies {
 		if p.ResourceType != model.ResourceSchemaAttribute {
 			continue
 		}
@@ -257,7 +341,7 @@ func evaluate(in EngineInput, only string) []model.State {
 
 	// Rules.
 	activeSharedRules := map[string]map[string]RuleInfo{} // org -> property name -> active shared rule
-	for _, p := range in.Policies {
+	for _, p := range policies {
 		if p.ResourceType != model.ResourceUnificationRule {
 			continue
 		}
