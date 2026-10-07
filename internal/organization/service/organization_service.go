@@ -398,7 +398,7 @@ func SubOrgHandleOf(ctx context.Context, rootHandle, orgId string) (string, erro
 		org = provisionIdJustInTime(ctx, rootHandle, orgId)
 	}
 	notFound := fmt.Errorf("the organization '%s' is not a sub organization of '%s'", orgId, rootHandle)
-	if org == nil || org.IsRoot() {
+	if org == nil || org.IsRoot() || org.Status == model.StatusDeleted {
 		return "", notFound
 	}
 	root, err := store.GetOrganizationById(ctx, org.RootOrgId)
@@ -411,19 +411,32 @@ func SubOrgHandleOf(ctx context.Context, rootHandle, orgId string) (string, erro
 	return org.OrgHandle, nil
 }
 
-// IsSubOrgHandle reports whether CDS knows the handle as a sub org.
+// IsSubOrgHandle reports whether the handle names a sub org. For a handle that CDS does not know,
+// it uses the just-in-time lookup, so that the first request of a new sub org on /t/{handle}/...
+// is refused too.
 func IsSubOrgHandle(ctx context.Context, orgHandle string) bool {
 
 	org, err := store.GetOrganizationByHandle(ctx, orgHandle)
-	return err == nil && org != nil && !org.IsRoot()
+	if err != nil {
+		return false
+	}
+	if org != nil {
+		return !org.IsRoot()
+	}
+	rootHandle, known := RootHandleOf(ctx, orgHandle)
+	return known && rootHandle != orgHandle
 }
 
+// provisionIdJustInTime reads the tree of the root again for an org ID that CDS does not know. The
+// dispatcher calls it before the token check, so the cache period applies to the root and not to
+// each org ID: a caller cannot make CDS read the tree once for each random org ID.
 func provisionIdJustInTime(ctx context.Context, rootHandle, orgId string) *model.Organization {
 
-	key := rootHandle + "/" + orgId
+	key := "root-jit/" + rootHandle
 	if until, ok := negativeCache.Load(key); ok && time.Now().Before(until.(time.Time)) {
 		return nil
 	}
+	negativeCache.Store(key, time.Now().Add(negativeCacheTTL))
 	config, err := adminConfigStore.GetAdminConfig(ctx, rootHandle)
 	if err == nil && config != nil && config.CDSEnabled {
 		if _, err := ProvisionTree(ctx, rootHandle); err != nil {
@@ -434,7 +447,6 @@ func provisionIdJustInTime(ctx context.Context, rootHandle, orgId string) *model
 			return org
 		}
 	}
-	negativeCache.Store(key, time.Now().Add(negativeCacheTTL))
 	return nil
 }
 

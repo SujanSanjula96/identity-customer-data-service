@@ -113,7 +113,7 @@ func checkSharedNameConflict(ctx context.Context, orgHandle, attributeName strin
 	for _, s := range shared {
 		if s.Attribute.AttributeName == attributeName {
 			return sharingService.ConflictError(fmt.Sprintf("The attribute '%s' is shared with this organization "+
-				"by '%s'. Use the shared attribute, or ask the owner to exclude this organization.", attributeName,
+				"by '%s'. Use the shared attribute, or ask the owner to change the targets of the share.", attributeName,
 				s.OwnerOrgHandle))
 		}
 	}
