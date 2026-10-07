@@ -70,7 +70,7 @@ func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Orga
 	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
 }
 
-// GetOrganizationsByRoot returns all orgs of one customer tree, the root first.
+// GetOrganizationsByRoot returns all orgs of one customer tree, ordered by org_id.
 func GetOrganizationsByRoot(ctx context.Context, rootOrgId string) ([]model.Organization, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
