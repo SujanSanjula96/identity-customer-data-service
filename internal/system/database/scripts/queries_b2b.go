@@ -188,7 +188,8 @@ var GetUnificationRulesOfChain = newQuery("CDS-SHR-16",
 // GetSchemaAttributesByRoot returns the attributes of all orgs of one customer tree, for the
 // share-time check.
 var GetSchemaAttributesByRoot = newQuery("CDS-SHR-17",
-	`SELECT ps.attribute_id, ps.attribute_name, ps.scope, ps.value_type, ps.org_handle, o.org_id
+	`SELECT ps.attribute_id, ps.attribute_name, ps.scope, ps.value_type, ps.application_identifier,
+	ps.org_handle, o.org_id
 	FROM profile_schema ps JOIN organizations o ON o.org_handle = ps.org_handle WHERE o.root_org_id = $1`)
 
 // GetUnificationRulesByRoot returns the rules of all orgs of one customer tree, for the share-time

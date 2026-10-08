@@ -44,12 +44,24 @@ type TreeOrg struct {
 	NotEnabled bool
 }
 
-// AttributeInfo is a profile schema attribute, as the engine needs it.
+// AttributeInfo is a profile schema attribute, as the engine needs it. AppId is the application
+// identifier of an application data attribute, and empty for the other scopes.
 type AttributeInfo struct {
 	Id         string
 	Name       string
 	ValueType  string
 	OwnerOrgId string
+	AppId      string
+}
+
+// nameKey is the key of the attribute for name conflicts. Application data attributes are scoped
+// to their app, so two apps can use the same attribute name.
+func (a AttributeInfo) nameKey() string {
+
+	if a.AppId == "" {
+		return a.Name
+	}
+	return a.AppId + "\x00" + a.Name
 }
 
 // RuleInfo is a unification rule, as the engine needs it.
@@ -60,12 +72,15 @@ type RuleInfo struct {
 	OwnerOrgId   string
 }
 
-// EngineInput is everything the engine reads for one tree.
+// EngineInput is everything the engine reads for one tree. AppOrgs maps the application identifier
+// of each shared application data attribute to the orgs where the IdP shares the app. An app that
+// is not in the map is shared with no org.
 type EngineInput struct {
 	Orgs       []TreeOrg
 	Attributes []AttributeInfo
 	Rules      []RuleInfo
 	Policies   []model.Policy
+	AppOrgs    map[string]map[string]bool
 }
 
 type tree struct {
@@ -268,13 +283,13 @@ func evaluate(in EngineInput, only string) []model.State {
 
 	t := newTree(in.Orgs)
 	attributesById := map[string]AttributeInfo{}
-	localAttributes := map[string]map[string]AttributeInfo{} // org -> name -> attribute
+	localAttributes := map[string]map[string]AttributeInfo{} // org -> name key -> attribute
 	for _, a := range in.Attributes {
 		attributesById[a.Id] = a
 		if localAttributes[a.OwnerOrgId] == nil {
 			localAttributes[a.OwnerOrgId] = map[string]AttributeInfo{}
 		}
-		localAttributes[a.OwnerOrgId][a.Name] = a
+		localAttributes[a.OwnerOrgId][a.nameKey()] = a
 	}
 	rulesById := map[string]RuleInfo{}
 	localRules := map[string]map[string]RuleInfo{} // org -> property name -> rule
@@ -308,7 +323,7 @@ func evaluate(in EngineInput, only string) []model.State {
 	})
 
 	// Attributes first, because the rule states depend on the effective schema of each org.
-	activeShared := map[string]map[string]AttributeInfo{} // org -> name -> active shared attribute
+	activeShared := map[string]map[string]AttributeInfo{} // org -> name key -> active shared attribute
 	for _, p := range policies {
 		if p.ResourceType != model.ResourceSchemaAttribute {
 			continue
@@ -323,17 +338,22 @@ func evaluate(in EngineInput, only string) []model.State {
 			}
 			state := model.State{ResourceType: p.ResourceType, ResourceId: p.ResourceId, OrgId: orgId,
 				OrgHandle: t.byId[orgId].Handle, State: model.StateActive}
-			if local, exists := localAttributes[orgId][attr.Name]; exists {
+			key := attr.nameKey()
+			if attr.AppId != "" && !in.AppOrgs[attr.AppId][orgId] {
+				// An application data attribute applies only where the IdP shares the app (spec
+				// decision 5). It does not take the name in the org.
+				state.State, state.Reason = model.StateInactiveAppNotShared, model.ReasonAppNotShared
+			} else if local, exists := localAttributes[orgId][key]; exists {
 				state.State, state.Reason, state.ConflictingResourceId = model.StateConflicted,
 					model.ReasonLocalNameConflict, local.Id
-			} else if other, exists := activeShared[orgId][attr.Name]; exists && other.Id != attr.Id {
+			} else if other, exists := activeShared[orgId][key]; exists && other.Id != attr.Id {
 				state.State, state.Reason, state.ConflictingResourceId = model.StateConflicted,
 					model.ReasonSharedNameConflict, other.Id
 			} else {
 				if activeShared[orgId] == nil {
 					activeShared[orgId] = map[string]AttributeInfo{}
 				}
-				activeShared[orgId][attr.Name] = attr
+				activeShared[orgId][key] = attr
 			}
 			states = append(states, state)
 		}

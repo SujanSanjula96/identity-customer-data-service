@@ -85,7 +85,7 @@ func (s *ProfileSchemaService) AddProfileSchemaAttributesForScope(ctx context.Co
 				return nil, clientError
 			}
 
-			if err := checkSharedNameConflict(ctx, orgId, attr.AttributeName); err != nil {
+			if err := checkSharedNameConflict(ctx, orgId, attr.AttributeName, attr.ApplicationIdentifier); err != nil {
 				return nil, err
 			}
 
@@ -387,7 +387,7 @@ func GetOwnedShareableAttribute(ctx context.Context, orgId, scope,
 			Description: fmt.Sprintf("Attribute '%s' is not in the scope '%s'.", attributeId, scope),
 		}, http.StatusNotFound)
 	}
-	return attr, isShareableAttribute(attr)
+	return attr, isShareableAttribute(ctx, orgId, attr)
 }
 
 func (s *ProfileSchemaService) GetProfileSchemaAttributeByName(ctx context.Context,
@@ -440,7 +440,7 @@ func (s *ProfileSchemaService) UpdateProfileSchemaAttributeById(ctx context.Cont
 		return err
 	}
 	if newName, ok := updates["attribute_name"].(string); ok && newName != attribute.AttributeName {
-		if err := checkSharedNameConflict(ctx, orgId, newName); err != nil {
+		if err := checkSharedNameConflict(ctx, orgId, newName, attribute.ApplicationIdentifier); err != nil {
 			return err
 		}
 	}

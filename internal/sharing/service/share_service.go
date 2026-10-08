@@ -26,11 +26,14 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	appService "github.com/wso2/identity-customer-data-service/internal/application/service"
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/model"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/store"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // CDS does not store the share state. A write stores only the policy and its targets. A read for
@@ -78,8 +81,10 @@ func resolveOrg(ctx context.Context, org orgModel.Organization) (*orgView, error
 	for _, a := range attrs {
 		view.attributes[a.Attribute.AttributeId] = a
 		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Attribute.AttributeId,
-			Name: a.Attribute.AttributeName, ValueType: a.Attribute.ValueType, OwnerOrgId: a.OwnerOrgId})
+			Name: a.Attribute.AttributeName, ValueType: a.Attribute.ValueType, OwnerOrgId: a.OwnerOrgId,
+			AppId: appIdOf(a.Attribute.Scope, a.Attribute.ApplicationIdentifier)})
 	}
+	input.AppOrgs = appOrgsOf(ctx, rootHandleOf(chain, org), policies, view.attributes, org.OrgId)
 	for _, r := range rules {
 		view.rules[r.Rule.RuleId] = r
 		input.Rules = append(input.Rules, RuleInfo{Id: r.Rule.RuleId, PropertyName: r.Rule.PropertyName,
@@ -90,6 +95,62 @@ func resolveOrg(ctx context.Context, org orgModel.Organization) (*orgView, error
 		view.states[i].OrgHandle = org.OrgHandle
 	}
 	return view, nil
+}
+
+// appReach returns the orgs where IS shares an app of the root. The tests replace it.
+var appReach = appService.AppReach
+
+// appIdOf returns the application identifier of an application data attribute, and empty for the
+// other scopes.
+func appIdOf(scope, applicationIdentifier string) string {
+
+	if scope != constants.ApplicationData {
+		return ""
+	}
+	return applicationIdentifier
+}
+
+// appOrgsOf returns, for each app of a shared application data attribute that reaches the org,
+// whether IS shares the app with the org. When IS cannot answer, the app is taken as not shared, so
+// its attributes are INACTIVE_APP_NOT_SHARED until IS answers again.
+func appOrgsOf(ctx context.Context, rootHandle string, policies []model.Policy,
+	attributes map[string]store.ChainAttribute, orgId string) map[string]map[string]bool {
+
+	result := map[string]map[string]bool{}
+	for _, p := range policies {
+		if p.ResourceType != model.ResourceSchemaAttribute {
+			continue
+		}
+		a, ok := attributes[p.ResourceId]
+		if !ok {
+			continue
+		}
+		app := appIdOf(a.Attribute.Scope, a.Attribute.ApplicationIdentifier)
+		if app == "" {
+			continue
+		}
+		if _, done := result[app]; done {
+			continue
+		}
+		orgIds, err := appReach(ctx, rootHandle, app)
+		if err != nil {
+			log.GetLogger().Warn(fmt.Sprintf("Could not read the orgs of app '%s' in '%s'. Its shared "+
+				"attributes are not active in '%s' for now.", app, rootHandle, orgId), log.Error(err))
+		}
+		result[app] = map[string]bool{orgId: orgIds[orgId]}
+	}
+	return result
+}
+
+// rootHandleOf returns the handle of the root of the org from its ancestor chain.
+func rootHandleOf(chain []orgModel.Organization, org orgModel.Organization) string {
+
+	for _, o := range chain {
+		if o.OrgId == org.RootOrgId {
+			return o.OrgHandle
+		}
+	}
+	return org.OrgHandle
 }
 
 func treeOrgs(orgs []orgModel.Organization) []TreeOrg {
@@ -391,8 +452,10 @@ func loadTree(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Or
 		input.Orgs[i].NotEnabled = !enabled[input.Orgs[i].Id]
 	}
 	for _, a := range attrs {
+		// AppOrgs stays empty: the share-time check is only for rules, and rules do not use
+		// application data.
 		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Id, Name: a.Name, ValueType: a.ValueType,
-			OwnerOrgId: a.OrgId})
+			OwnerOrgId: a.OrgId, AppId: appIdOf(a.Scope, a.ApplicationIdentifier)})
 	}
 	for _, r := range rules {
 		input.Rules = append(input.Rules, RuleInfo{Id: r.Id, PropertyName: r.PropertyName, PropertyId: r.PropertyId,

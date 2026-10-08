@@ -374,7 +374,7 @@ func GetRulesOfChain(ctx context.Context, orgId string) ([]ChainRule, error) {
 
 // TreeAttribute is an attribute of one org of the tree, for the share evaluation.
 type TreeAttribute struct {
-	Id, Name, Scope, ValueType, OrgHandle, OrgId string
+	Id, Name, Scope, ValueType, ApplicationIdentifier, OrgHandle, OrgId string
 }
 
 // GetAttributesByRoot returns the attributes of all orgs of one customer tree.
@@ -393,6 +393,8 @@ func GetAttributesByRoot(ctx context.Context, rootOrgId string) ([]TreeAttribute
 			ValueType: rows.String(row, "value_type"),
 			OrgHandle: rows.String(row, "org_handle"),
 			OrgId:     rows.String(row, "org_id"),
+
+			ApplicationIdentifier: rows.String(row, "application_identifier"),
 		})
 	}
 	return attrs, nil
