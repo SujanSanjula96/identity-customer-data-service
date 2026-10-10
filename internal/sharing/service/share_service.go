@@ -29,6 +29,7 @@ import (
 	appService "github.com/wso2/identity-customer-data-service/internal/application/service"
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/model"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -77,7 +78,8 @@ func resolveOrg(ctx context.Context, org orgModel.Organization) (*orgView, error
 		return nil, err
 	}
 
-	input := EngineInput{Orgs: treeOrgs(chain), Policies: policies}
+	input := EngineInput{Orgs: treeOrgs(chain), Policies: policies,
+		IdentitySourceOrgId: identitySourceOrgId(ctx, chain, org.OrgHandle)}
 	for _, a := range attrs {
 		view.attributes[a.Attribute.AttributeId] = a
 		input.Attributes = append(input.Attributes, AttributeInfo{Id: a.Attribute.AttributeId,
@@ -140,6 +142,19 @@ func appOrgsOf(ctx context.Context, rootHandle string, policies []model.Policy,
 		result[app] = map[string]bool{orgId: orgIds[orgId]}
 	}
 	return result
+}
+
+// identitySourceOrgId returns the ID of the org that stores the identity attributes of the org, from
+// the orgs that the engine reads (R-017).
+func identitySourceOrgId(ctx context.Context, orgs []orgModel.Organization, orgHandle string) string {
+
+	source := identitysource.HandleOf(ctx, orgHandle)
+	for _, o := range orgs {
+		if o.OrgHandle == source {
+			return o.OrgId
+		}
+	}
+	return ""
 }
 
 // rootHandleOf returns the handle of the root of the org from its ancestor chain.
@@ -437,6 +452,14 @@ func loadTree(ctx context.Context, rootOrgId string) (EngineInput, []orgModel.Or
 	}
 
 	input := EngineInput{Orgs: treeOrgs(orgs), Policies: policies}
+	// The sub orgs of one tree inherit the identity attributes of the same source org. Any sub org
+	// gives it; the root gives itself.
+	for _, o := range orgs {
+		if !o.IsRoot() {
+			input.IdentitySourceOrgId = identitySourceOrgId(ctx, orgs, o.OrgHandle)
+			break
+		}
+	}
 	access, err := store.GetPolicy(ctx, model.ResourceOrganizationAccess, model.OrganizationAccessResourceId,
 		rootOrgId)
 	if err != nil {

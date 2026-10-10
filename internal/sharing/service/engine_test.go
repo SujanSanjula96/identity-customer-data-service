@@ -424,3 +424,43 @@ func TestEvaluateAppDataNamesAreScopedToTheApp(t *testing.T) {
 			states["B"])
 	}
 }
+
+// A sub org inherits the identity attributes of the root (R-017), so a shared rule on an identity
+// attribute is active in the sub orgs, which store no identity attributes.
+func TestEvaluateRuleOnInheritedIdentityAttribute(t *testing.T) {
+
+	in := EngineInput{
+		Orgs: testTree(),
+		Attributes: []AttributeInfo{
+			{Id: "email", Name: "identity_attributes.emailaddress", ValueType: "string", OwnerOrgId: "R"},
+			{Id: "tier", Name: "traits.tier", ValueType: "string", OwnerOrgId: "R"},
+		},
+		Rules: []RuleInfo{
+			{Id: "email-rule", PropertyName: "identity_attributes.emailaddress", PropertyId: "email", OwnerOrgId: "R"},
+			{Id: "tier-rule", PropertyName: "traits.tier", PropertyId: "tier", OwnerOrgId: "R"},
+		},
+		Policies: []model.Policy{
+			policy(model.ResourceUnificationRule, "email-rule", "R", allChildren("R")),
+			policy(model.ResourceUnificationRule, "tier-rule", "R", allChildren("R")),
+		},
+		IdentitySourceOrgId: "R",
+	}
+	for org, s := range statesByOrg(Evaluate(in), "email-rule") {
+		if s.State != model.StateActive {
+			t.Errorf("expected ACTIVE in %s, which inherits the identity attribute, got %+v", org, s)
+		}
+	}
+	// Only identity attributes are inherited. A trait needs a share.
+	for org, s := range statesByOrg(Evaluate(in), "tier-rule") {
+		if s.State != model.StateInactiveMissingAttribute {
+			t.Errorf("expected INACTIVE_MISSING_ATTRIBUTE in %s for a trait that is not shared, got %+v", org, s)
+		}
+	}
+	// Without a source org, the sub orgs see no identity attributes.
+	in.IdentitySourceOrgId = ""
+	for org, s := range statesByOrg(Evaluate(in), "email-rule") {
+		if s.State != model.StateInactiveMissingAttribute {
+			t.Errorf("expected INACTIVE_MISSING_ATTRIBUTE in %s with no source org, got %+v", org, s)
+		}
+	}
+}

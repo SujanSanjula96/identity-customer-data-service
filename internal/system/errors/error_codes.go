@@ -445,6 +445,13 @@ var (
 		Message: "Use the path of the sub organization.",
 	}
 
+	INHERITED_ATTRIBUTE_READ_ONLY = ErrorMessage{
+		Code:    errorPrefix + "17010",
+		Message: "Inherited attribute is read-only.",
+		Description: "A sub organization inherits the identity attributes from its root organization. " +
+			"The identity provider controls them.",
+	}
+
 	INVALID_FILTER_FORMAT = ErrorMessage{
 		Code:    errorPrefix + "19001",
 		Message: "Invalid filter format.",

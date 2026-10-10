@@ -30,7 +30,6 @@ import (
 	consentService "github.com/wso2/identity-customer-data-service/internal/consent/service"
 	"github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"github.com/wso2/identity-customer-data-service/internal/organization/store"
-	schemaService "github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
 	sharingService "github.com/wso2/identity-customer-data-service/internal/sharing/service"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
@@ -192,17 +191,12 @@ func initializeIfEnabled(ctx context.Context, org model.Organization) {
 	}
 }
 
-// initializeOrg runs the per-org initialization for a new sub org: it syncs the identity
-// attributes and seeds the mandatory consent category. A failure is logged and is visible in the
-// org list as initial_sync_done=false.
+// initializeOrg runs the per-org initialization for a new sub org: it seeds the mandatory consent
+// category. The sub org inherits the identity attributes of its root, so CDS does not sync them
+// (R-017). A failure is logged and is visible in the org list as initial_sync_done=false.
 func initializeOrg(ctx context.Context, org model.Organization) {
 
 	logger := log.GetLogger()
-	if err := schemaService.GetProfileSchemaService().SyncProfileSchema(ctx, org.OrgHandle); err != nil {
-		logger.Warn(fmt.Sprintf("Failed to sync the identity attributes of organization '%s'.", org.OrgHandle),
-			log.Error(err))
-		return
-	}
 	if err := consentService.GetConsentCategoryService().SeedDefaultConsentCategory(ctx, org.OrgHandle); err != nil {
 		logger.Warn(fmt.Sprintf("Failed to seed the consent category of organization '%s'.", org.OrgHandle),
 			log.Error(err))

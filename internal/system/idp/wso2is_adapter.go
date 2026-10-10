@@ -85,7 +85,7 @@ func (a *WSO2ISAdapter) GetOrganization(_ context.Context, rootHandle, orgId str
 }
 
 // IdentityAttributeSourceHandle returns the root handle. In IS, a sub org inherits the claims of
-// its root org, and the claim APIs of a sub org need an org-switched token.
+// its root org and cannot change them.
 func (a *WSO2ISAdapter) IdentityAttributeSourceHandle(_ string, rootHandle string) string {
 	return rootHandle
 }

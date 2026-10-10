@@ -25,18 +25,19 @@ import (
 	"strings"
 
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	psstr "github.com/wso2/identity-customer-data-service/internal/profile_schema/store"
 	shareModel "github.com/wso2/identity-customer-data-service/internal/sharing/model"
 	sharingService "github.com/wso2/identity-customer-data-service/internal/sharing/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 )
 
 // The effective schema of an org is the set of attributes that CDS uses to validate, return, and
-// unify the profiles of the org: the attributes that the org owns, and the shared attributes
-// that are ACTIVE in the org.
+// unify the profiles of the org: the attributes that the org owns, the identity attributes that a
+// sub org inherits from its source org (R-017), and the shared attributes that are ACTIVE in the
+// org.
 
 // GetEffectiveProfileSchemaAttributes returns the effective schema of the org.
 func GetEffectiveProfileSchemaAttributes(ctx context.Context,
@@ -46,13 +47,14 @@ func GetEffectiveProfileSchemaAttributes(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	return withSharedAttributes(ctx, orgHandle, owned, "")
+	return withVisibleAttributes(ctx, orgHandle, owned, "")
 }
 
-// withSharedAttributes adds the active shared attributes of the org to the owned attributes. When
-// scope is not empty, it adds only the shared attributes of that scope. The origin fields are set
-// only when CDS knows the org, so the output does not change for an org without B2B data.
-func withSharedAttributes(ctx context.Context, orgHandle string, owned []model.ProfileSchemaAttribute,
+// withVisibleAttributes adds the inherited identity attributes and the active shared attributes of
+// the org to the owned attributes. When scope is not empty, it adds only the attributes of that
+// scope. The origin fields are set only when CDS knows the org, so the output does not change for
+// an org without B2B data.
+func withVisibleAttributes(ctx context.Context, orgHandle string, owned []model.ProfileSchemaAttribute,
 	scope string) ([]model.ProfileSchemaAttribute, error) {
 
 	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
@@ -62,10 +64,22 @@ func withSharedAttributes(ctx context.Context, orgHandle string, owned []model.P
 	if org == nil {
 		return owned, nil
 	}
+	source, inherits := identitysource.IsInherited(ctx, orgHandle)
 	result := make([]model.ProfileSchemaAttribute, 0, len(owned))
 	for _, attr := range owned {
+		if inherits && attr.Scope == constants.IdentityAttributes {
+			// A copy from before R-017. The inherited attribute replaces it.
+			continue
+		}
 		attr.Origin = shareModel.OriginOwned
 		result = append(result, attr)
+	}
+	if inherits && (scope == "" || scope == constants.IdentityAttributes) {
+		inherited, err := inheritedAttributes(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, inherited...)
 	}
 	shared, err := sharingService.ActiveSharedAttributes(ctx, orgHandle)
 	if err != nil {
@@ -120,18 +134,84 @@ func checkSharedNameConflict(ctx context.Context, orgHandle, attributeName, appl
 	return nil
 }
 
-// identityAttributeSourceHandle returns the org to read the identity attributes of the org from.
-func identityAttributeSourceHandle(ctx context.Context, orgHandle string) string {
+// inheritedAttributes returns the identity attributes of the source org, as a sub org sees them.
+func inheritedAttributes(ctx context.Context, sourceHandle string) ([]model.ProfileSchemaAttribute, error) {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil || org.IsRoot() {
-		return orgHandle
+	attrs, err := psstr.GetProfileSchemaAttributesByScope(ctx, sourceHandle, constants.IdentityAttributes)
+	if err != nil {
+		return nil, err
 	}
-	root, err := orgStore.GetOrganizationById(ctx, org.RootOrgId)
-	if err != nil || root == nil {
-		return orgHandle
+	for i := range attrs {
+		attrs[i].Origin = shareModel.OriginInherited
+		attrs[i].OwnerOrgHandle = sourceHandle
 	}
-	return idp.GetAdapter().IdentityAttributeSourceHandle(orgHandle, root.OrgHandle)
+	return attrs, nil
+}
+
+// getInheritedAttribute returns the identity attribute of the source org when the org inherits it,
+// or nil.
+func getInheritedAttribute(ctx context.Context, orgHandle,
+	attributeId string) (*model.ProfileSchemaAttribute, error) {
+
+	source, inherits := identitysource.IsInherited(ctx, orgHandle)
+	if !inherits {
+		return nil, nil
+	}
+	attr, err := psstr.GetProfileSchemaAttributeById(ctx, source, attributeId)
+	if err != nil {
+		if _, isClientError := err.(*errors2.ClientError); isClientError {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if attr.Scope != constants.IdentityAttributes {
+		return nil, nil
+	}
+	attr.Origin = shareModel.OriginInherited
+	attr.OwnerOrgHandle = source
+	return &attr, nil
+}
+
+// getInheritedAttributeByName returns the identity attribute of the source org with the name when
+// the org inherits it, or nil.
+func getInheritedAttributeByName(ctx context.Context, orgHandle,
+	attributeName string) (*model.ProfileSchemaAttribute, error) {
+
+	if !strings.HasPrefix(attributeName, constants.IdentityAttributes+".") {
+		return nil, nil
+	}
+	source, inherits := identitysource.IsInherited(ctx, orgHandle)
+	if !inherits {
+		return nil, nil
+	}
+	attr, err := psstr.GetProfileSchemaAttributeByName(ctx, source, attributeName)
+	if err != nil || attr == nil {
+		return nil, err
+	}
+	attr.Origin = shareModel.OriginInherited
+	attr.OwnerOrgHandle = source
+	return attr, nil
+}
+
+// inheritedReadOnlyError is the error for a write to an inherited identity attribute.
+func inheritedReadOnlyError() error {
+
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
+		Message:     errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
+		Description: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Description,
+	}, http.StatusForbidden)
+}
+
+// identityAttributeNotDeletableError is the error for a delete of an identity attribute in the org
+// that stores it. The IdP controls the identity attributes, and the next sync adds them again.
+func identityAttributeNotDeletableError() error {
+
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.ATTRIBUTE_UPATE_NOT_SUPPORTED.Code,
+		Message:     errors2.ATTRIBUTE_UPATE_NOT_SUPPORTED.Message,
+		Description: "Identity attributes cannot be deleted or modified. Please update through the Identity Provider.",
+	}, http.StatusBadRequest)
 }
 
 // keepIdentityAttributeIds gives each synced attribute the ID that the org already stores for

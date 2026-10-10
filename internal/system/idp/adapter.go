@@ -44,8 +44,9 @@ type Adapter interface {
 	ListDescendants(ctx context.Context, rootHandle string) ([]Organization, error)
 	// GetOrganization returns one org below the root. It returns nil when the org does not exist.
 	GetOrganization(ctx context.Context, rootHandle, orgId string) (*Organization, error)
-	// IdentityAttributeSourceHandle returns the handle of the org to read the identity attributes
-	// of an org from. An IdP that manages attributes for each org returns orgHandle.
+	// IdentityAttributeSourceHandle returns the handle of the org that stores the identity
+	// attributes of a sub org. The sub org inherits them on read (R-017). An IdP that manages
+	// attributes for each org returns orgHandle.
 	IdentityAttributeSourceHandle(orgHandle, rootHandle string) string
 }
 

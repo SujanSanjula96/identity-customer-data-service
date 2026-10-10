@@ -31,6 +31,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
 	"github.com/google/uuid"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -518,6 +519,17 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
 			Description: errMsg,
+		}, http.StatusBadRequest)
+		utils.HandleError(w, clientError)
+		return
+	}
+
+	if source, inherits := identitysource.IsInherited(ctx, orgId); inherits {
+		clientError := errors2.NewClientError(errors2.ErrorMessage{
+			Code:    errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
+			Message: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
+			Description: fmt.Sprintf("The organization '%s' inherits the identity attributes from '%s'. "+
+				"Sync the identity attributes of '%s'.", orgId, source, source),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return

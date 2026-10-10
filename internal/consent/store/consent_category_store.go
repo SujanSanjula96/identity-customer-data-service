@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	model "github.com/wso2/identity-customer-data-service/internal/consent/model"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
@@ -430,7 +431,9 @@ func SeedDefaultIdentityDataCategory(ctx context.Context, orgHandle string) erro
 func resolveMandatoryAttributes(ctx context.Context, dbClient client.DBClientInterface, orgHandle string) (
 	[]model.ConsentAttribute, error) {
 	query := scripts.GetProfileSchemaAttributeByScope
-	rows, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, constants.IdentityAttributes)
+	// A sub org inherits the identity attributes of its source org (R-017).
+	rows, err := dbClient.ExecuteQueryContext(ctx, query, identitysource.HandleOf(ctx, orgHandle),
+		constants.IdentityAttributes)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +561,9 @@ func GetConsentedCategoryAttributesByProfileId(ctx context.Context,
 	// category covers — no reseeding or migration needed.
 	if len(mandatoryIds) > 0 {
 		schemaQuery := scripts.GetProfileSchemaAttributeByScope
-		schemaResults, err := dbClient.ExecuteQueryContext(ctx, schemaQuery, orgHandle, constants.IdentityAttributes)
+		// A sub org inherits the identity attributes of its source org (R-017).
+		schemaResults, err := dbClient.ExecuteQueryContext(ctx, schemaQuery, identitysource.HandleOf(ctx, orgHandle),
+			constants.IdentityAttributes)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Failed to fetch identity attributes from schema for org: %s", orgHandle)
 			logger.Debug(errorMsg, log.Error(err))
