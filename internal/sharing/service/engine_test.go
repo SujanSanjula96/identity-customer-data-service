@@ -371,8 +371,9 @@ func TestValidateOrgAccess(t *testing.T) {
 	}
 }
 
-// An application data attribute applies only in the orgs where the IdP shares its app (R-016).
-func TestEvaluateAppDataNeedsTheAppShare(t *testing.T) {
+// An application data attribute is active in each org that its policy reaches. CDS does not check
+// where the IdP shares the app: the developer keeps the CDS shares in line with the app shares.
+func TestEvaluateAppDataFollowsThePolicyOnly(t *testing.T) {
 
 	in := EngineInput{
 		Orgs: testTree(),
@@ -380,24 +381,11 @@ func TestEvaluateAppDataNeedsTheAppShare(t *testing.T) {
 			{Id: "cart", Name: "application_data.cart", ValueType: "string", OwnerOrgId: "R", AppId: "shop"},
 		},
 		Policies: []model.Policy{policy(model.ResourceSchemaAttribute, "cart", "R", allChildren("R"))},
-		AppOrgs:  map[string]map[string]bool{"shop": {"A": true, "A1": true}},
 	}
 	states := statesByOrg(Evaluate(in), "cart")
-	for _, org := range []string{"A", "A1"} {
+	for _, org := range []string{"A", "A1", "B", "A1x"} {
 		if states[org].State != model.StateActive {
-			t.Errorf("expected ACTIVE in %s, where the app is shared, got %+v", org, states[org])
-		}
-	}
-	for _, org := range []string{"B", "A1x"} {
-		if states[org].State != model.StateInactiveAppNotShared || states[org].Reason != model.ReasonAppNotShared {
-			t.Errorf("expected INACTIVE_APP_NOT_SHARED in %s, got %+v", org, states[org])
-		}
-	}
-	// Without the app information, the attribute is active in no org.
-	in.AppOrgs = nil
-	for org, s := range statesByOrg(Evaluate(in), "cart") {
-		if s.State != model.StateInactiveAppNotShared {
-			t.Errorf("expected INACTIVE_APP_NOT_SHARED in %s with no app information, got %+v", org, s)
+			t.Errorf("expected ACTIVE in %s, got %+v", org, states[org])
 		}
 	}
 }
@@ -413,7 +401,6 @@ func TestEvaluateAppDataNamesAreScopedToTheApp(t *testing.T) {
 			{Id: "b-shop-cart", Name: "application_data.cart", ValueType: "string", OwnerOrgId: "B", AppId: "shop"},
 		},
 		Policies: []model.Policy{policy(model.ResourceSchemaAttribute, "shop-cart", "R", allChildren("R"))},
-		AppOrgs:  map[string]map[string]bool{"shop": {"A": true, "B": true}},
 	}
 	states := statesByOrg(Evaluate(in), "shop-cart")
 	if states["A"].State != model.StateActive {

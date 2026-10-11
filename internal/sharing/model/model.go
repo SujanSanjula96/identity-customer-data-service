@@ -44,7 +44,6 @@ const (
 	StateActive                   = "ACTIVE"
 	StateConflicted               = "CONFLICTED"
 	StateInactiveMissingAttribute = "INACTIVE_MISSING_ATTRIBUTE"
-	StateInactiveAppNotShared     = "INACTIVE_APP_NOT_SHARED"
 )
 
 // Reasons for a state that is not ACTIVE.
@@ -52,7 +51,6 @@ const (
 	ReasonLocalNameConflict  = "LOCAL_NAME_CONFLICT"
 	ReasonSharedNameConflict = "SHARED_NAME_CONFLICT"
 	ReasonMissingAttribute   = "MISSING_ATTRIBUTE"
-	ReasonAppNotShared       = "APP_NOT_SHARED"
 )
 
 // Origin of a resource in the view of an org.

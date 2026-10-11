@@ -143,8 +143,6 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	// Common scope for both flows.
 	scope := strings.Join([]string{
 		"internal_application_mgt_view",
-		// The orgs where the root shares an app (R-016).
-		"internal_shared_application_view",
 		"internal_claim_meta_view",
 		"internal_user_mgt_list",
 		"internal_user_mgt_view",
@@ -404,60 +402,6 @@ func (c *IdentityClient) GetApplication(appID, orgHandle string) (idpModel.Appli
 			appID, orgHandle), err)
 	}
 	return app, true, nil
-}
-
-// GetSharedApplications returns the shared apps of an app, one for each org that the app is shared
-// with. The org of the handle must own the app. exists is false when the app is not found.
-func (c *IdentityClient) GetSharedApplications(appID, orgHandle string) (idpModel.SharedApplicationsResponse,
-	bool, error) {
-
-	var result idpModel.SharedApplicationsResponse
-	token, err := c.FetchToken(orgHandle)
-	if err != nil {
-		return result, false, err
-	}
-	failed := func(desc string, cause error) error {
-		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.GET_APPLICATIONS_FAILED.Code,
-			Message:     errors2.GET_APPLICATIONS_FAILED.Message,
-			Description: desc,
-		}, cause)
-	}
-	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/applications/%s/shared-apps",
-		c.BaseURL, url.PathEscape(orgHandle), url.PathEscape(appID))
-	req, err := http.NewRequest("GET", endpoint, nil)
-	if err != nil {
-		return result, false, err
-	}
-	if config.GetCDSRuntime().Config.AuthServer.IsSystemAppGrantEnabled {
-		req.Header.Set("Authorization", constants.SystemAppHeader+constants.SpaceSeparator+token)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return result, false, failed(fmt.Sprintf("Failed to fetch the shared apps of app:%s in org:%s", appID,
-			orgHandle), err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return result, false, nil
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return result, false, failed(fmt.Sprintf("Failed to read the shared apps of app:%s in org:%s", appID,
-			orgHandle), err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return result, false, failed(fmt.Sprintf("The shared apps endpoint returned status %d for app:%s org:%s. "+
-			"Response: %s", resp.StatusCode, appID, orgHandle, strings.TrimSpace(string(body))),
-			fmt.Errorf("shared apps endpoint non-200: %d", resp.StatusCode))
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return result, false, failed(fmt.Sprintf("Failed to parse the shared apps of app:%s in org:%s", appID,
-			orgHandle), err)
-	}
-	return result, true, nil
 }
 
 // IntrospectToken introspects an opaque token using the introspection endpoint.

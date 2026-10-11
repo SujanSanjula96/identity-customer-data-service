@@ -72,16 +72,14 @@ type RuleInfo struct {
 	OwnerOrgId   string
 }
 
-// EngineInput is everything the engine reads for one tree. AppOrgs maps the application identifier
-// of each shared application data attribute to the orgs where the IdP shares the app. An app that
-// is not in the map is shared with no org. IdentitySourceOrgId is the org whose identity attributes
-// the other orgs of the tree inherit (R-017). When it is empty, each org sees only its own.
+// EngineInput is everything the engine reads for one tree. IdentitySourceOrgId is the org whose
+// identity attributes the other orgs of the tree inherit (R-017). When it is empty, each org sees
+// only its own.
 type EngineInput struct {
 	Orgs                []TreeOrg
 	Attributes          []AttributeInfo
 	Rules               []RuleInfo
 	Policies            []model.Policy
-	AppOrgs             map[string]map[string]bool
 	IdentitySourceOrgId string
 }
 
@@ -347,11 +345,7 @@ func evaluate(in EngineInput, only string) []model.State {
 			state := model.State{ResourceType: p.ResourceType, ResourceId: p.ResourceId, OrgId: orgId,
 				OrgHandle: t.byId[orgId].Handle, State: model.StateActive}
 			key := attr.nameKey()
-			if attr.AppId != "" && !in.AppOrgs[attr.AppId][orgId] {
-				// An application data attribute applies only where the IdP shares the app (spec
-				// decision 5). It does not take the name in the org.
-				state.State, state.Reason = model.StateInactiveAppNotShared, model.ReasonAppNotShared
-			} else if local, exists := localAttributes[orgId][key]; exists {
+			if local, exists := localAttributes[orgId][key]; exists {
 				state.State, state.Reason, state.ConflictingResourceId = model.StateConflicted,
 					model.ReasonLocalNameConflict, local.Id
 			} else if other, exists := activeShared[orgId][key]; exists && other.Id != attr.Id {

@@ -31,14 +31,3 @@ type ApplicationItem struct {
 	ClientId string `json:"clientId"`
 	Issuer   string `json:"issuer"`
 }
-
-// SharedApplicationsResponse is the response of GET /applications/{id}/shared-apps in the org that
-// owns the app. Each item is the shared app of the app in one org.
-type SharedApplicationsResponse struct {
-	SharedApplications []SharedApplication `json:"sharedApplications"`
-}
-
-type SharedApplication struct {
-	ApplicationId  string `json:"applicationId"`
-	OrganizationId string `json:"organizationId"`
-}

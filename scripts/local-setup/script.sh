@@ -1116,9 +1116,6 @@ provision_is() {
     || die "management API resource /api/server/v1/claim-dialects not found"
   authorize_api "$sys_id" "/scim2/Users" internal_user_mgt_list internal_user_mgt_view \
     || die "management API resource /scim2/Users not found"
-  # B2B: CDS reads the orgs where the root shares an app (R-016).
-  authorize_api "$sys_id" "/api/server/v1/applications/share" internal_shared_application_view \
-    || die "management API resource /api/server/v1/applications/share not found"
   # B2B: CDS reads the org tree of the root org.
   authorize_api "$sys_id" "/api/server/v1/organizations" internal_organization_view \
     || die "management API resource /api/server/v1/organizations not found"

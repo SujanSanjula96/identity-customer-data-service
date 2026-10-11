@@ -21,8 +21,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
 	"github.com/wso2/identity-customer-data-service/internal/application/store"
@@ -97,74 +95,4 @@ func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context
 		return "", err
 	}
 	return store.GetAppIdentifierByClientID(ctx, root.OrgHandle, clientID)
-}
-
-// appReachTTL is how long CDS keeps the orgs where IS shares an app.
-const appReachTTL = 2 * time.Minute
-
-type appReachEntry struct {
-	orgIds    map[string]bool
-	fetchedAt time.Time
-}
-
-var (
-	appReachMu    sync.Mutex
-	appReachCache = map[string]appReachEntry{}
-)
-
-// AppReach returns the IDs of the orgs where IS shares the app. The app belongs to the root of the
-// handle, and appIdentifier is its identifier in the root: the clientId or issuer, or the app ID in
-// app_id mode. CDS reads GET /applications/{id}/shared-apps in the root and keeps the result for
-// appReachTTL (R-016). When IS fails, the last result is used if CDS has one.
-func AppReach(ctx context.Context, rootHandle, appIdentifier string) (map[string]bool, error) {
-
-	key := rootHandle + "|" + appIdentifier
-	appReachMu.Lock()
-	entry, cached := appReachCache[key]
-	appReachMu.Unlock()
-	if cached && time.Since(entry.fetchedAt) < appReachTTL {
-		return entry.orgIds, nil
-	}
-	orgIds, err := fetchAppReach(rootHandle, appIdentifier)
-	if err != nil {
-		if cached {
-			log.GetLogger().Warn(fmt.Sprintf("Could not refresh the orgs of app '%s' in '%s'. Using the last "+
-				"result.", appIdentifier, rootHandle), log.Error(err))
-			return entry.orgIds, nil
-		}
-		return nil, err
-	}
-	appReachMu.Lock()
-	appReachCache[key] = appReachEntry{orgIds: orgIds, fetchedAt: time.Now()}
-	appReachMu.Unlock()
-	return orgIds, nil
-}
-
-func fetchAppReach(rootHandle, appIdentifier string) (map[string]bool, error) {
-
-	cfg := config.GetCDSRuntime().Config
-	identityClient := client.NewIdentityClient(cfg)
-	appID := appIdentifier
-	if !cfg.UsesAppIDIdentifier() {
-		apps, err := identityClient.FetchApplicationIdentifier(appIdentifier, rootHandle)
-		if err != nil {
-			return nil, err
-		}
-		if len(apps.Applications) != 1 {
-			return map[string]bool{}, nil
-		}
-		appID = apps.Applications[0].ID
-	}
-	shared, exists, err := identityClient.GetSharedApplications(appID, rootHandle)
-	if err != nil {
-		return nil, err
-	}
-	orgIds := map[string]bool{}
-	if !exists {
-		return orgIds, nil
-	}
-	for _, app := range shared.SharedApplications {
-		orgIds[app.OrganizationId] = true
-	}
-	return orgIds, nil
 }
