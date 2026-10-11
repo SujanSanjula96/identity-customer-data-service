@@ -158,6 +158,72 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	return c.fetchClientCredentialsToken(orgHandle, authCfg, scope)
 }
 
+// OrgTarget is the org whose IS API CDS calls. For a sub org, RootHandle is the handle of its root
+// and OrgId is its ID. For a root, RootHandle is empty (R-019).
+type OrgTarget struct {
+	Handle     string
+	OrgId      string
+	RootHandle string
+}
+
+// IsSubOrg reports whether the target is a sub org.
+func (t OrgTarget) IsSubOrg() bool {
+	return t.RootHandle != "" && t.RootHandle != t.Handle
+}
+
+// apiBase returns the base URL of the IS server API of the org, and the value of the Authorization
+// header. A sub org uses /t/{root}/o/api/server/v1 with an organization switch token.
+func (c *IdentityClient) apiBase(t OrgTarget) (string, string, error) {
+
+	if !t.IsSubOrg() {
+		token, err := c.FetchToken(t.Handle)
+		if err != nil {
+			return "", "", err
+		}
+		header := "Bearer " + token
+		if config.GetCDSRuntime().Config.AuthServer.IsSystemAppGrantEnabled {
+			header = constants.SystemAppHeader + constants.SpaceSeparator + token
+		}
+		return fmt.Sprintf("https://%s/t/%s/api/server/v1", c.BaseURL, url.PathEscape(t.Handle)), header, nil
+	}
+	token, err := c.FetchSubOrgToken(t.RootHandle, t.OrgId)
+	if err != nil {
+		return "", "", err
+	}
+	return fmt.Sprintf("https://%s/t/%s/o/api/server/v1", c.BaseURL, url.PathEscape(t.RootHandle)),
+		"Bearer " + token, nil
+}
+
+// FetchSubOrgToken gets a token for a sub org by organization switch: a client_credentials token in
+// the root, then the organization_switch grant with the org ID. The CDS system app must be shared
+// with the sub org (R-019). The system_app_grant mode is not supported for sub orgs in this phase.
+func (c *IdentityClient) FetchSubOrgToken(rootHandle, orgId string) (string, error) {
+
+	authCfg := config.GetCDSRuntime().Config.AuthServer
+	failed := func(desc string) error {
+		return errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.TOKEN_FETCH_FAILED.Code,
+			Message:     errors2.TOKEN_FETCH_FAILED.Message,
+			Description: desc,
+		}, nil)
+	}
+	if authCfg.IsSystemAppGrantEnabled {
+		return "", failed(fmt.Sprintf("A token for the sub organization:%s needs the client_credentials mode.", orgId))
+	}
+	scope := "internal_org_application_mgt_view"
+	rootToken, err := c.fetchClientCredentialsToken(rootHandle, authCfg, scope)
+	if err != nil {
+		return "", err
+	}
+	form := url.Values{}
+	form.Set("grant_type", "organization_switch")
+	form.Set("token", rootToken)
+	form.Set("switching_organization", orgId)
+	form.Set("scope", scope)
+	return c.requestToken(c.buildTokenEndpoint(rootHandle, authCfg.TokenEndpoint), authCfg.ClientID,
+		authCfg.ClientSecret, form, orgId)
+}
+
 func (c *IdentityClient) buildTokenEndpoint(orgId, tokenEndpoint string) string {
 	return fmt.Sprintf("https://%s/t/%s%s", c.BaseURL, orgId, tokenEndpoint)
 }
@@ -343,13 +409,20 @@ func (c *IdentityClient) FetchApplicationIdentifier(applicationIdentifier, orgHa
 	return result, nil
 }
 
-// GetApplication fetches an application by ID. exists is false when it is not found.
+// GetApplication fetches an application of a root by ID. exists is false when it is not found.
 func (c *IdentityClient) GetApplication(appID, orgHandle string) (idpModel.ApplicationItem, bool, error) {
+	return c.GetApplicationIn(appID, OrgTarget{Handle: orgHandle})
+}
+
+// GetApplicationIn fetches an application of the org by ID. exists is false when it is not found. For
+// a sub org, it calls the app API of the sub org (R-019).
+func (c *IdentityClient) GetApplicationIn(appID string, t OrgTarget) (idpModel.ApplicationItem, bool, error) {
 
 	logger := log.GetLogger()
 	var app idpModel.ApplicationItem
+	orgHandle := t.Handle
 
-	token, err := c.FetchToken(orgHandle)
+	base, authHeader, err := c.apiBase(t)
 	if err != nil {
 		logger.Debug(fmt.Sprintf("Failed to get token for resolving application:%s of org:%s", appID, orgHandle),
 			log.Error(err))
@@ -364,18 +437,12 @@ func (c *IdentityClient) GetApplication(appID, orgHandle string) (idpModel.Appli
 		}, cause)
 	}
 
-	appEndpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/applications/%s",
-		c.BaseURL, url.PathEscape(orgHandle), url.PathEscape(appID))
+	appEndpoint := fmt.Sprintf("%s/applications/%s", base, url.PathEscape(appID))
 	req, err := http.NewRequest("GET", appEndpoint, nil)
 	if err != nil {
 		return app, false, err
 	}
-	authCfg := config.GetCDSRuntime().Config.AuthServer
-	if authCfg.IsSystemAppGrantEnabled {
-		req.Header.Set("Authorization", constants.SystemAppHeader+constants.SpaceSeparator+token)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+	req.Header.Set("Authorization", authHeader)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

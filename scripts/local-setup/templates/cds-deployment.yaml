@@ -63,7 +63,7 @@ tls:
 
 # Must match [console.extensions] cds_application_identifier_type in
 # is-deployment.toml.
-application_identifier_type: client_id
+application_identifier_type: app_id
 
 # required_scopes comes last so the block appended from the repository's own
 # configuration lands inside auth_server.

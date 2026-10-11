@@ -1119,7 +1119,9 @@ provision_is() {
   # B2B: CDS reads the org tree of the root org.
   authorize_api "$sys_id" "/api/server/v1/organizations" internal_organization_view \
     || die "management API resource /api/server/v1/organizations not found"
-  ok "'$SYS_APP_NAME' authorized for applications, shared apps, claim-dialects, scim2/Users and organizations"
+  # B2B (R-019): CDS reads the apps of a sub org with an organization switch token.
+  provision_sys_app_for_sub_orgs "$sys_id"
+  ok "'$SYS_APP_NAME' authorized for applications, claim-dialects, scim2/Users, organizations, and the apps of sub orgs"
 
   SYS_CLIENT_ID="$(oidc_config "$sys_id" | jq -r '.clientId // empty')"
   SYS_CLIENT_SECRET="$(oidc_config "$sys_id" | jq -r '.clientSecret // empty')"
@@ -1152,6 +1154,28 @@ provision_is() {
   state_set CLIENT_SECRET "$CLIENT_SECRET"
 
   provision_console_app
+}
+
+# provision_sys_app_for_sub_orgs APP_ID: lets the CDS system app read the apps of each sub org (R-019).
+# The app gets the organization_switch grant and the org app API, IS shares it with all sub orgs,
+# and an app role gives the scope in the sub orgs.
+provision_sys_app_for_sub_orgs() {
+  local app_id="$1" oidc role_name="cds-system-app-org-role"
+  oidc="$(oidc_config "$app_id")"
+  if ! echo "$oidc" | jq -e '.grantTypes // [] | index("organization_switch")' >/dev/null; then
+    isapi -X PUT "$MGMT_API/applications/$app_id/inbound-protocols/oidc" -H 'Content-Type: application/json' \
+      -d "$(echo "$oidc" | jq '.grantTypes += ["organization_switch"] | .grantTypes |= unique')" -o /dev/null
+  fi
+  authorize_api "$app_id" "/o/api/server/v1/applications" internal_org_application_mgt_view \
+    || die "organization API resource /o/api/server/v1/applications not found"
+  isapi -X POST "$MGMT_API/applications/$app_id/share" -H 'Content-Type: application/json' \
+    -d '{"shareWithAllChildren": true}' -o /dev/null
+  if [ -z "$(isapi "${IS_BASE}/scim2/v2/Roles?filter=displayName+eq+$role_name" | jq -r '.Resources[0].id // empty')" ]; then
+    isapi -X POST "${IS_BASE}/scim2/v2/Roles" -H 'Content-Type: application/scim+json' -o /dev/null \
+      -d "$(jq -n --arg app "$app_id" --arg n "$role_name" '{schemas: ["urn:ietf:params:scim:schemas:extension:2.0:Role"],
+        displayName: $n, audience: {type: "application", value: $app},
+        permissions: [{value: "internal_org_application_mgt_view"}]}')"
+  fi
 }
 
 # Adds $AUDIENCE to an application's token audience, for the audience check in

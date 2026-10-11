@@ -440,7 +440,7 @@ exposed_headers = ["Location"]
 # CDS URLs off the IS origin, where nothing serves /cds/api/v1.
 [console.extensions]
 cds_host = "${CDS_BASE}"
-cds_application_identifier_type = "client_id"
+cds_application_identifier_type = "app_id"
 # B2B: the unified Customer Data page has the enable toggle and the organization box.
 cdsUnifiedProfileView = true
 

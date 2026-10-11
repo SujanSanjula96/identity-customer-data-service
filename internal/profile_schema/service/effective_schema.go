@@ -247,9 +247,8 @@ func keepIdentityAttributeIds(ctx context.Context, orgHandle string, incoming []
 	return incoming, nil
 }
 
-// isShareableAttribute checks that the org can share the attribute in this phase. An application
-// data attribute is keyed by the identifier of the app in the root (R-016), so only the root shares
-// one.
+// isShareableAttribute checks that the org can share the attribute in this phase. Any org can share
+// its own application data attributes with the orgs below it (R-019).
 func isShareableAttribute(ctx context.Context, orgHandle string, attr model.ProfileSchemaAttribute) error {
 
 	reject := func(description string) error {
@@ -265,20 +264,10 @@ func isShareableAttribute(ctx context.Context, orgHandle string, attr model.Prof
 		return reject("Identity attributes are not shared. The identity provider controls them for each organization.")
 	case scope == constants.ApplicationData && attr.ApplicationIdentifier == "":
 		return reject("The application data attribute has no application identifier.")
-	case scope == constants.ApplicationData && !isRootOrg(ctx, orgHandle):
-		return reject("Only the root organization can share application data attributes in this phase.")
 	case attr.ValueType == constants.ComplexDataType:
 		return reject("Sharing of complex attributes is not supported in this phase.")
 	case strings.Count(attr.AttributeName, ".") > 1:
 		return reject("Sharing of a sub-attribute is not supported in this phase.")
 	}
 	return nil
-}
-
-// isRootOrg reports whether the org of the handle is a root org, or an org that CDS does not know
-// as a B2B org.
-func isRootOrg(ctx context.Context, orgHandle string) bool {
-
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	return err == nil && (org == nil || org.IsRoot())
 }

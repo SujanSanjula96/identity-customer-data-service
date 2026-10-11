@@ -26,8 +26,20 @@ type ApplicationsListResponse struct {
 }
 
 type ApplicationItem struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	ClientId string `json:"clientId"`
-	Issuer   string `json:"issuer"`
+	ID                     string                  `json:"id"`
+	Name                   string                  `json:"name"`
+	ClientId               string                  `json:"clientId"`
+	Issuer                 string                  `json:"issuer"`
+	AdvancedConfigurations *AdvancedConfigurations `json:"advancedConfigurations,omitempty"`
+}
+
+// AdvancedConfigurations holds the advanced configurations of an app that CDS reads. Fragment is true
+// for a shared app in a sub org (R-019).
+type AdvancedConfigurations struct {
+	Fragment bool `json:"fragment"`
+}
+
+// IsFragment reports whether the app is a shared app in a sub org.
+func (a ApplicationItem) IsFragment() bool {
+	return a.AdvancedConfigurations != nil && a.AdvancedConfigurations.Fragment
 }
