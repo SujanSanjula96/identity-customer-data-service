@@ -26,6 +26,12 @@ subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE
 name = "cds.authentication.listener"
 subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
 
+# PATCH /api/server/v1/configs/cds in IS fires PRE_UPDATE_CDS_CONFIG. This
+# handler sends the value to PATCH /config in CDS before IS stores it.
+[[event_handler]]
+name = "cds.config.event.handler"
+subscriptions = ["PRE_UPDATE_CDS_CONFIG"]
+
 # --- Console feature scopes ------------------------------------------------ #
 [[api_resources]]
 name = "Customer Data Service Feature"

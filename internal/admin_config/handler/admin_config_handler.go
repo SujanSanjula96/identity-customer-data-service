@@ -21,6 +21,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -70,7 +71,7 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 
 	ctx := r.Context()
 
-	if err := security.AuthnAndAuthz(r, "admin_config:update"); err != nil {
+	if err := authnAdminConfigUpdate(r); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
@@ -123,4 +124,15 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 		SystemApplications: configToUpdate.SystemApplications,
 	}
 	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
+}
+
+// authnAdminConfigUpdate accepts an OAuth token with the admin_config:update permission, or the admin credentials
+// with Basic auth. Identity Server uses the admin credentials to send the tenant CDS enable config
+// (PATCH /api/server/v1/configs/cds in Identity Server).
+func authnAdminConfigUpdate(r *http.Request) error {
+
+	if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
+		return security.AuthnWithAdminCredentials(r)
+	}
+	return security.AuthnAndAuthz(r, "admin_config:update")
 }
