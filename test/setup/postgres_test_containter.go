@@ -23,6 +23,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -32,6 +35,12 @@ import (
 
 // postgresReadyTimeout bounds the wait for a server that answers a query.
 const postgresReadyTimeout = 60 * time.Second
+
+// ExistingPostgresEnv names an environment variable that holds the DSN (key=value form) of an
+// existing PostgreSQL server. When it is set, the suites use that server instead of a container, so
+// that they can run where no container runtime is available. The suite drops and creates the public
+// schema of the database, so give it a database of its own.
+const ExistingPostgresEnv = "CDS_TEST_POSTGRES_DSN"
 
 // TestPostgres is a running PostgreSQL container and the settings needed to
 // reach it. The settings are what a test needs when it drives the production
@@ -47,6 +56,9 @@ type TestPostgres struct {
 }
 
 func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
+	if dsn := os.Getenv(ExistingPostgresEnv); dsn != "" {
+		return existingPostgres(ctx, dsn)
+	}
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:15-alpine",
 		Name:         "cds-test-postgres",
@@ -135,4 +147,37 @@ func waitForQuery(ctx context.Context, db *sql.DB) error {
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// existingPostgres connects to the server of ExistingPostgresEnv and empties its public schema.
+// Container is nil.
+func existingPostgres(ctx context.Context, dsn string) (*TestPostgres, error) {
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := waitForQuery(ctx, db); err != nil {
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public"); err != nil {
+		return nil, fmt.Errorf("failed to empty the public schema: %w", err)
+	}
+
+	settings := map[string]string{}
+	for _, field := range strings.Fields(dsn) {
+		if key, value, ok := strings.Cut(field, "="); ok {
+			settings[key] = value
+		}
+	}
+	port, _ := strconv.Atoi(settings["port"])
+	log.Printf("Using the existing PostgreSQL server at %s:%d", settings["host"], port)
+	return &TestPostgres{
+		DB:       db,
+		Host:     settings["host"],
+		Port:     port,
+		Username: settings["user"],
+		Password: settings["password"],
+		Database: settings["dbname"],
+	}, nil
 }

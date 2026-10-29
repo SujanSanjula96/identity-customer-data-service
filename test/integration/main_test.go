@@ -90,6 +90,10 @@ func TestMain(m *testing.M) {
 		db = pg.DB
 		suitePostgres = pg
 		teardown = func() {
+			if pg.Container == nil {
+				_ = pg.DB.Close() // an existing server (setup.ExistingPostgresEnv)
+				return
+			}
 			// Terminate container manually after tests complete
 			_ = pg.Container.Terminate(ctx)
 
