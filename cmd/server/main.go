@@ -43,6 +43,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 )
 
 func initDatabaseFromConfig(cdsConfig *config.Config) error {
@@ -64,6 +65,10 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 		database.SetOrgPhase(orgPhase)
 		log.GetLogger().Info(fmt.Sprintf("org_id_migration.phase is %q", orgPhase))
 	}
+
+	// The org key resolver must be set before the inbuilt database migrates, which resolves the
+	// stored org handles.
+	orgService.RegisterOrgKeyResolver()
 
 	if err := provider.EnsureDatabase(); err != nil {
 		return err

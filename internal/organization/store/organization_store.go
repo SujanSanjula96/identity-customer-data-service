@@ -31,6 +31,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 func serverError(description string, err error) error {
@@ -59,6 +60,7 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 	if err != nil {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
 	}
+	orgkey.Invalidate(org.OrgHandle)
 	return nil
 }
 
@@ -77,6 +79,13 @@ func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Orga
 	if !config.OrganizationManagementEnabled() {
 		return nil, nil
 	}
+	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
+}
+
+// LookupOrganizationByHandle returns the organization, or nil when it is not stored. Unlike
+// GetOrganizationByHandle it reads the table when organization management is disabled: the org key
+// of every deployment comes from it.
+func LookupOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Organization, error) {
 	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
 }
 
