@@ -33,6 +33,14 @@ idp:
 organization_management:
   enabled: false
 
+# The phase of the org handle to org ID migration of a PostgreSQL database: dual_write, read_org_id
+# or org_id_only (the default). A fresh install uses org_id_only. A deployment that upgrades from
+# org handles moves one phase forward at a time, after the schema step that the phase needs, and
+# the server refuses to start when the schema does not match the phase. The inbuilt database
+# ignores this setting: it migrates at start-up. Read docs/guides/org-id-migration.md.
+org_id_migration:
+  phase: "org_id_only"
+
 auth_server:
   host: "localhost"
   port : 9443

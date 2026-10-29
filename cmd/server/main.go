@@ -51,6 +51,20 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 		return err
 	}
 
+	orgPhase, err := database.ResolveOrgPhase(cdsConfig.OrgIdMigration.Phase)
+	if err != nil {
+		return err
+	}
+	if database.ResolveType(cdsConfig.DataSource.Type) == database.TypeSQLite {
+		if orgPhase != database.OrgPhaseOrgIdOnly {
+			log.GetLogger().Warn(fmt.Sprintf("org_id_migration.phase %q is ignored: the inbuilt database "+
+				"migrates at start-up and uses %q.", orgPhase, database.OrgPhaseOrgIdOnly))
+		}
+	} else {
+		database.SetOrgPhase(orgPhase)
+		log.GetLogger().Info(fmt.Sprintf("org_id_migration.phase is %q", orgPhase))
+	}
+
 	if err := provider.EnsureDatabase(); err != nil {
 		return err
 	}

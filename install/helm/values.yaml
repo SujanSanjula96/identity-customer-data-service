@@ -46,6 +46,16 @@ cloud:
           schema:
             enabled: true
             interval: 3600 # in seconds
+        # Organization management: the organization tree, sub organization paths, and sharing.
+        # Create the organization tables (dbscripts/migrations/002) before you enable it.
+        organizationManagement:
+          enabled: false
+        # The phase of the org handle to org ID migration: dual_write, read_org_id or org_id_only.
+        # Move one phase forward at a time, after the schema step that the phase needs. A
+        # deployment that upgrades from org handles sets dual_write before the upgrade. Read
+        # docs/guides/org-id-migration.md.
+        orgIdMigration:
+          phase: "org_id_only"
         datasource:
           type: "postgres"
           hostname: "localhost"
