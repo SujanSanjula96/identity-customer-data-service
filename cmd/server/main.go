@@ -59,15 +59,13 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 	if database.ResolveType(cdsConfig.DataSource.Type) == database.TypeSQLite {
 		if orgPhase != database.OrgPhaseOrgIdOnly {
 			log.GetLogger().Warn(fmt.Sprintf("org_id_migration.phase %q is ignored: the inbuilt database "+
-				"migrates at start-up and uses %q.", orgPhase, database.OrgPhaseOrgIdOnly))
+				"uses %q.", orgPhase, database.OrgPhaseOrgIdOnly))
 		}
 	} else {
 		database.SetOrgPhase(orgPhase)
 		log.GetLogger().Info(fmt.Sprintf("org_id_migration.phase is %q", orgPhase))
 	}
 
-	// The org key resolver must be set before the inbuilt database migrates, which resolves the
-	// stored org handles.
 	orgService.RegisterOrgKeyResolver()
 
 	if err := provider.EnsureDatabase(); err != nil {

@@ -80,8 +80,8 @@ func SetOrgPhase(phase OrgPhase) {
 	postgresOrgPhase.Store(phase)
 }
 
-// OrgPhaseFor returns the phase that the statements of dbType use. The inbuilt datasource
-// migrates at start-up and always uses OrgPhaseOrgIdOnly.
+// OrgPhaseFor returns the phase that the statements of dbType use. The inbuilt datasource always
+// uses OrgPhaseOrgIdOnly.
 func OrgPhaseFor(dbType string) OrgPhase {
 
 	if dbType == TypeSQLite {

@@ -7,7 +7,7 @@ from org handles to org IDs without downtime.
 A fresh install needs no migration. It uses the default phase, `org_id_only`, and the schema of
 `dbscripts/postgres.sql`.
 
-The inbuilt SQLite database needs no procedure. It migrates at start-up (see [SQLite](#sqlite)).
+This guide does not apply to the inbuilt SQLite database (see [SQLite](#sqlite)).
 
 ## What changes
 
@@ -169,15 +169,13 @@ Rollback: restore the backup.
 
 ## SQLite
 
-The inbuilt database runs on one node, so it does all the steps at once when the server starts:
+The inbuilt database has no migration. A new database file gets the final schema of `dbscripts/sqlite.sql`.
 
-1. It reads each handle that has no `organizations` row from the identity server.
-2. In one transaction, it renames each org handle column to its org ID column and replaces each handle with the
-   org ID.
-3. It records the migration in `PRAGMA user_version`, so that it runs only once.
+CDS does not migrate a database file from a release before the migration. That file does not work with the new
+release.
 
-If the identity server cannot be reached, or does not know a handle, the server does not start and the database
-does not change. The error names the unknown handles. Delete their rows, or restore the organizations, and start
-the server again.
+Caution: When you delete the old file, you lose its data.
 
-The inbuilt database ignores `org_id_migration.phase`.
+Delete the old file before you start the new release.
+
+The inbuilt database ignores `org_id_migration.phase`. It always uses `org_id_only`.

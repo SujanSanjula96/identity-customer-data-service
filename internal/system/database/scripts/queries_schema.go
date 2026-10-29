@@ -19,7 +19,7 @@
 package scripts
 
 // Statements that read the PostgreSQL catalog, for the start-up check of the org_id_migration
-// phase. They run on PostgreSQL only; the inbuilt database migrates at start-up instead.
+// phase. They run on PostgreSQL only.
 
 // GetOrgColumns returns the org columns of the tables $1 (a text array), with their nullability.
 var GetOrgColumns = newQuery("CDS-SYS-02",

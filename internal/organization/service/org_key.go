@@ -24,19 +24,16 @@ import (
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/organization/store"
-	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
-// RegisterOrgKeyResolver installs ResolveOrganization as the org key resolver of the stores, and
-// the identity provider lookup of the inbuilt database migration. It applies whether organization
-// management is enabled or not: every deployment keys its data by org ID.
+// RegisterOrgKeyResolver installs ResolveOrganization as the org key resolver of the stores. It
+// applies whether organization management is enabled or not: every deployment keys its data by
+// org ID.
 func RegisterOrgKeyResolver() {
 
 	orgkey.SetResolver(ResolveOrganization)
-	provider.SetPrimaryOrganizationLookup(lookupPrimaryOrganization)
 }
 
 // ResolveOrganization returns the stored organization of the handle. When store is true and the
@@ -64,20 +61,6 @@ func ResolveOrganization(ctx context.Context, handle string, storeIt bool) (orgk
 		return orgkey.Ref{}, false, err
 	}
 	return orgkey.Ref{ID: primary.OrgId, Handle: primary.OrgHandle}, true, nil
-}
-
-// lookupPrimaryOrganization reads the primary organization of the handle from the identity
-// provider, without storing it.
-func lookupPrimaryOrganization(ctx context.Context, handle string) (provider.PrimaryOrganization, bool, error) {
-
-	info, err := idp.GetAdapter().GetPrimaryOrganization(ctx, handle)
-	if isNotFound(err) {
-		return provider.PrimaryOrganization{}, false, nil
-	}
-	if err != nil {
-		return provider.PrimaryOrganization{}, false, err
-	}
-	return provider.PrimaryOrganization{Id: info.Id, Name: info.Name}, true, nil
 }
 
 func isNotFound(err error) bool {

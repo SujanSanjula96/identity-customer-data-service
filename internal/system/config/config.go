@@ -167,7 +167,7 @@ type Config struct {
 }
 
 // OrgIdMigrationConfig selects the phase of the org handle to org ID migration of a PostgreSQL
-// datasource. The inbuilt datasource ignores it: it migrates at start-up.
+// datasource. The inbuilt datasource ignores it: it always uses org_id_only.
 type OrgIdMigrationConfig struct {
 	// Phase is "dual_write", "read_org_id" or "org_id_only", the default when it is empty. Move
 	// one phase forward at a time, and only after the schema step that the phase needs. The server

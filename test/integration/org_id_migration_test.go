@@ -51,7 +51,7 @@ import (
 func Test_OrgIdMigration(t *testing.T) {
 
 	if suiteDBType != database.TypePostgres {
-		t.Skip("the migration scripts are for PostgreSQL; the inbuilt database migrates at start-up")
+		t.Skip("the migration scripts are for PostgreSQL")
 	}
 	ctx := context.Background()
 	db := migrationDatabase(t)
