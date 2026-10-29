@@ -90,6 +90,10 @@ func TestMain(m *testing.M) {
 		db = pg.DB
 		suitePostgres = pg
 		teardown = func() {
+			if pg.Container == nil {
+				_ = pg.DB.Close() // an existing server (setup.ExistingPostgresEnv)
+				return
+			}
 			// Terminate container manually after tests complete
 			_ = pg.Container.Terminate(ctx)
 
@@ -111,6 +115,16 @@ func TestMain(m *testing.M) {
 
 	provider.SetTestDB(db, dbType)
 	suiteDB, suiteDBType = db, dbType
+
+	// CDS_TEST_ORG_PHASE selects the org_id_migration phase of a PostgreSQL run. The test schema
+	// is in the state after step 4 of the migration, which every phase runs on.
+	orgPhase, err := database.ResolveOrgPhase(os.Getenv("CDS_TEST_ORG_PHASE"))
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	database.SetOrgPhase(orgPhase)
+	setup.InstallTestOrgResolver()
 
 	if err := workers.StartProfileWorker(); err != nil { // Start the real enrichment queue worker
 		fmt.Println("Failed to start profile worker:", err)

@@ -46,7 +46,7 @@ func insertRule(t *testing.T, org, name, property string, priority int, attribut
 
 	now := time.Now().UTC()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		uuid.New().String(), org, name, property, priority, true, attributeType, method, now, now)
+		uuid.New().String(), writeOrgKey(t, org), name, property, priority, true, attributeType, method, now, now)
 	if err != nil {
 		t.Fatalf("store rule %q: %v", name, err)
 	}

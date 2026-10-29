@@ -25,8 +25,9 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
-func BuildProfileLocation(orgId, profileId string) string {
-	return fmt.Sprintf("%s/cds/api/v1/profiles/%s", orgId, profileId)
+// BuildProfileLocation returns the location of a profile, relative to the server URL.
+func BuildProfileLocation(orgHandle, profileId string) string {
+	return fmt.Sprintf("%s/cds/api/v1/profiles/%s", orgHandle, profileId)
 }
 
 // ResolveDisplayNameFromAttribute takes an attribute name (potentially in dot notation) and converts it to a human-readable display name.

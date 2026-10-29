@@ -32,11 +32,17 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 )
 
 // AddUnificationRule adds a new unification rule to the database
 func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId string) error {
+
+	orgKey, err := orgkey.ForWrite(ctx, orgId)
+	if err != nil {
+		return err
+	}
 
 	defer invalidateRulesCache()
 
@@ -56,7 +62,7 @@ func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId s
 
 	query := scripts.InsertUnificationRule
 
-	_, err = dbClient.ExecuteQueryContext(ctx, query, rule.RuleId, orgId, rule.RuleName, rule.PropertyName,
+	_, err = dbClient.ExecuteQueryContext(ctx, query, rule.RuleId, orgKey, rule.RuleName, rule.PropertyName,
 		rule.PropertyId, rule.Priority, rule.IsActive, rule.AttributeType, rule.UnificationMethod,
 		rule.MatchStrength, rule.MismatchStrength, rule.CreatedAt, rule.UpdatedAt)
 	if err != nil {
@@ -75,7 +81,7 @@ func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId s
 }
 
 // GetUnificationRules fetches all unification rules from the database
-// rulesCache holds an organisation's rule set between writes.
+// rulesCache holds an organisation's rule set between writes, keyed by its org key.
 //
 // Every profile write reads the rules at least twice — once to decide whether the write is
 // worth resolving, once in the worker that resolves it — and rules change perhaps a few
@@ -93,7 +99,13 @@ func invalidateRulesCache() {
 
 func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.UnificationRule, error) {
 
-	if cached, found := rulesCache.Get(orgHandle); found {
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	if cached, found := rulesCache.Get(orgKey); found {
 		if rules, ok := cached.([]model.UnificationRule); ok {
 			return rules, nil
 		}
@@ -114,7 +126,7 @@ func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.Unifica
 	defer dbClient.Close()
 
 	query := scripts.GetUnificationRules
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed in fetching all unification rules for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))
@@ -131,7 +143,7 @@ func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.Unifica
 		rules = append(rules, scanUnificationRule(row))
 	}
 
-	rulesCache.Set(orgHandle, rules)
+	rulesCache.Set(orgKey, rules)
 
 	logger.Info(fmt.Sprintf("Successfully fetched all unification rules for organization: %s", orgHandle))
 	return rules, nil
@@ -139,6 +151,12 @@ func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.Unifica
 
 // GetUnificationRule fetches a specific unification rule by its Id
 func GetUnificationRule(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error) {
+
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -155,7 +173,7 @@ func GetUnificationRule(ctx context.Context, ruleId, orgHandle string) (*model.U
 	defer dbClient.Close()
 
 	query := scripts.GetUnificationRule
-	results, err := dbClient.ExecuteQueryContext(ctx, query, ruleId, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, ruleId, orgKey)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			logger.Debug(fmt.Sprintf("No unification rule found for rule_id: %s ", ruleId))
@@ -222,6 +240,12 @@ func GetUnificationRulesByIds(ctx context.Context, ruleIds []string) ([]model.Un
 // PatchUnificationRule applies partial updates to a unification rule.
 func PatchUnificationRule(ctx context.Context, ruleId, orgHandle string, updatedRule model.UnificationRule) error {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+
 	defer invalidateRulesCache()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -242,7 +266,7 @@ func PatchUnificationRule(ctx context.Context, ruleId, orgHandle string, updated
 	_, err = dbClient.ExecuteQueryContext(ctx, query, updatedRule.RuleName, updatedRule.Priority,
 		updatedRule.IsActive, updatedRule.AttributeType, updatedRule.UnificationMethod,
 		updatedRule.MatchStrength, updatedRule.MismatchStrength, time.Now().UTC(), ruleId,
-		orgHandle)
+		orgKey)
 
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while updating unification rule for rule_id: %s", ruleId)
@@ -262,6 +286,12 @@ func PatchUnificationRule(ctx context.Context, ruleId, orgHandle string, updated
 // DeleteUnificationRule deletes a unification rule by its Id
 func DeleteUnificationRule(ctx context.Context, ruleId, orgHandle string) error {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+
 	defer invalidateRulesCache()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -279,7 +309,7 @@ func DeleteUnificationRule(ctx context.Context, ruleId, orgHandle string) error 
 	defer dbClient.Close()
 
 	query := scripts.DeleteUnificationRule
-	_, err = dbClient.ExecuteQueryContext(ctx, query, ruleId, orgHandle)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, ruleId, orgKey)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to delete unification rule: %s", ruleId)
 		logger.Debug(errorMsg, log.Error(err))

@@ -51,13 +51,20 @@ type isOrganizationList struct {
 	} `json:"links"`
 }
 
-// GetSelfOrganization returns the organization that primaryHandle names.
-func (c *IdentityClient) GetSelfOrganization(orgHandle string) (ISOrganization, error) {
+// GetSelfOrganization returns the organization that primaryHandle names. The bool is false when the
+// organization does not exist.
+func (c *IdentityClient) GetSelfOrganization(orgHandle string) (ISOrganization, bool, error) {
 
 	var org ISOrganization
 	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/organizations/self", c.BaseURL, url.PathEscape(orgHandle))
-	_, err := c.getJSON(endpoint, orgHandle, &org)
-	return org, err
+	status, err := c.getJSON(endpoint, orgHandle, &org)
+	if status == http.StatusNotFound {
+		return org, false, nil
+	}
+	if err != nil {
+		return org, false, err
+	}
+	return org, true, nil
 }
 
 // GetOrganization returns a descendant organization of the primary organization. The bool is false
