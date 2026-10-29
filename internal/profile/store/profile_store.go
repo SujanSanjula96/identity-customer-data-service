@@ -14,9 +14,12 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/profile/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
+	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
 // Unmarshal JSONB fields separately
@@ -30,10 +33,16 @@ func scanProfileRow(row map[string]interface{}) (model.Profile, error) {
 
 	profile.ProfileId = row["profile_id"].(string)
 	profile.UserId = row["user_id"].(string)
-	profile.OrgHandle = row["org_handle"].(string)
+	profile.OrgHandle = rows.String(row, "org_handle")
 	profile.CreatedAt = row["created_at"].(time.Time)
 	profile.UpdatedAt = row["updated_at"].(time.Time)
-	profile.Location = row["location"].(string)
+	if orgkey.Phase().ReadsOrgId() {
+		// The stored location names the org handle of the time the profile was written, and the
+		// org_id_only phase stores none. The location follows the current handle instead.
+		profile.Location = utils.BuildProfileLocation(profile.OrgHandle, profile.ProfileId)
+	} else {
+		profile.Location = rows.String(row, "location")
+	}
 	profileStatus := row["profile_status"].(string)
 	if profileStatus != "" && profileStatus != "null" {
 		if profileStatus == constants.WaitOnAdmin {
@@ -92,6 +101,16 @@ func scanProfileConsentRow(row map[string]interface{}) (model.ConsentRecord, err
 // InsertProfile inserts a new profile into the database
 func InsertProfile(ctx context.Context, profile model.Profile) error {
 
+	orgKey, err := orgkey.ForWrite(ctx, profile.OrgHandle)
+	if err != nil {
+		return err
+	}
+	// Servers of the phases before org_id_only read the stored location; org_id_only builds it.
+	var location interface{} = profile.Location
+	if !orgkey.Phase().WritesOrgHandle() {
+		location = nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -124,10 +143,10 @@ func InsertProfile(ctx context.Context, profile model.Profile) error {
 	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		profile.ProfileId,
 		profile.UserId,
-		profile.OrgHandle,
+		orgKey,
 		profile.CreatedAt,
 		profile.UpdatedAt,
-		profile.Location,
+		location,
 		profile.ProfileStatus.ListProfile,
 		false, // delete_profile is not used in this context, set to false
 		traitsJSON,
@@ -152,8 +171,8 @@ func InsertProfile(ctx context.Context, profile model.Profile) error {
 		profileStatus,
 		profile.ProfileStatus.ReferenceProfileId,
 		profile.ProfileStatus.ReferenceReason,
-		profile.OrgHandle,
-		profile.OrgHandle,
+		orgKey,
+		orgKey,
 	)
 
 	if err != nil {
@@ -226,6 +245,12 @@ func GetProfile(ctx context.Context, profileId, orgHandle string) (*model.Profil
 func GetProfileWithOptions(ctx context.Context, profileId, orgHandle string,
 	options GetProfileOptions) (*model.Profile, error) {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -242,7 +267,7 @@ func GetProfileWithOptions(ctx context.Context, profileId, orgHandle string,
 
 	query := scripts.GetProfileById
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId, orgKey)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
@@ -462,6 +487,12 @@ func FetchApplicationDataWithAppId(ctx context.Context, profileId string, appId 
 // UpdateProfile updates the profile
 func UpdateProfile(ctx context.Context, profile model.Profile) error {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, profile.OrgHandle)
+	if err != nil {
+		return err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -500,7 +531,7 @@ func UpdateProfile(ctx context.Context, profile model.Profile) error {
 		identityJSON,
 		profile.UpdatedAt,
 		profile.ProfileId,
-		profile.OrgHandle,
+		orgKey,
 	)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed updating the profile: %s", profile.ProfileId)
@@ -553,6 +584,12 @@ func UpdateProfile(ctx context.Context, profile model.Profile) error {
 func GetAllProfiles(ctx context.Context,
 	orgHandle string, limit int, cursor *model.ProfileCursor) ([]model.Profile, bool, error) {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, false, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -594,7 +631,7 @@ func GetAllProfiles(ctx context.Context,
 	// lookahead
 	limitPlusOne := limit + 1
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, cursorTime, cursorProfileId, direction, limitPlusOne)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, cursorTime, cursorProfileId, direction, limitPlusOne)
 	if err != nil {
 		errorMsg := "Failed fetching all profiles"
 		logger.Debug(errorMsg, log.Error(err))
@@ -1034,6 +1071,12 @@ func GetAllProfilesWithFilter(ctx context.Context,
 	cursor *model.ProfileCursor,
 ) ([]model.Profile, bool, error) {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, false, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1068,8 +1111,8 @@ func GetAllProfilesWithFilter(ctx context.Context,
 	argID := 1
 	joinedAppIDs := map[string]bool{}
 
-	conditions = append(conditions, fmt.Sprintf("p.org_handle = $%d", argID))
-	args = append(args, orgHandle)
+	conditions = append(conditions, fmt.Sprintf("%s = $%d", scripts.OrgColumn("p"), argID))
+	args = append(args, orgKey)
 	argID++
 
 	// dynamic filter conditions
@@ -1337,6 +1380,12 @@ func GetAllProfilesWithFilter(ctx context.Context,
 // so pushing it down bounds both the query and the memory it returns.
 func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []string,
 	restrictTo []string) ([]string, error) {
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1357,8 +1406,8 @@ func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []s
 	argID := 1
 	joinedAppIDs := map[string]bool{}
 
-	conditions = append(conditions, fmt.Sprintf("p.org_handle = $%d", argID))
-	args = append(args, orgHandle)
+	conditions = append(conditions, fmt.Sprintf("%s = $%d", scripts.OrgColumn("p"), argID))
+	args = append(args, orgKey)
 	argID++
 
 	for _, f := range filters {
@@ -1787,6 +1836,12 @@ func toInt(val interface{}) (int, bool) {
 
 func GetProfileWithUserId(ctx context.Context, userId, orgHandle string) (*model.Profile, error) {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1803,7 +1858,7 @@ func GetProfileWithUserId(ctx context.Context, userId, orgHandle string) (*model
 
 	query := scripts.GetProfileByUserId
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, userId, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, userId, orgKey)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given userId: %s", userId))
@@ -1922,6 +1977,12 @@ func GetProfileCookieByProfileId(ctx context.Context, profileId string) (*model.
 // GetProfileCookie retrieves a profile cookie by profileId
 func GetProfileCookie(ctx context.Context, cookie, orgHandle string) (*model.ProfileCookie, error) {
 
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -1938,7 +1999,7 @@ func GetProfileCookie(ctx context.Context, cookie, orgHandle string) (*model.Pro
 
 	query := scripts.GetCookieByCookieId
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie, orgHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie, orgKey)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))
@@ -2197,13 +2258,18 @@ func FindOldestReferenceProfileIDByUserID(ctx context.Context, orgHandle, userID
 	if userID == "" {
 		return "", nil
 	}
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return "", err
+	}
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return "", fmt.Errorf("get database client for user-ID profile lookup: %w", err)
 	}
 	defer dbClient.Close()
 	rows, err := dbClient.ExecuteQueryContext(ctx, scripts.FindOldestReferenceProfileIDByUserID,
-		orgHandle, excludedProfileID, userID)
+		orgKey, excludedProfileID, userID)
 	if err != nil {
 		return "", fmt.Errorf("find reference profile by user ID: %w", err)
 	}
@@ -2222,6 +2288,11 @@ func FindOldestReferenceProfileIDByAttributeValues(ctx context.Context, orgHandl
 	if len(values) == 0 {
 		return "", nil
 	}
+	// An organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return "", err
+	}
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return "", fmt.Errorf("get database client for attribute profile lookup: %w", err)
@@ -2232,7 +2303,7 @@ func FindOldestReferenceProfileIDByAttributeValues(ctx context.Context, orgHandl
 	if err != nil {
 		return "", fmt.Errorf("build attribute profile lookup: %w", err)
 	}
-	args := []interface{}{orgHandle, excludedProfileID, incomingUserID}
+	args := []interface{}{orgKey, excludedProfileID, incomingUserID}
 	args = append(args, matchArgs...)
 	rows, err := dbClient.ExecuteQueryContext(ctx, query, args...)
 	if err != nil {

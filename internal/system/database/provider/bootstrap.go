@@ -138,8 +138,35 @@ func ensureSQLiteDir(configuredPath string) error {
 }
 
 // initializeSQLiteSchema applies the embedded schema. The script is idempotent,
-// so applying it to an existing database is a no-op.
+// so applying it to an existing database is a no-op. A database from before
+// the org ID migration is migrated first, because the script indexes the org
+// ID columns.
 func initializeSQLiteSchema(db *sql.DB) error {
+
+	version, err := sqliteUserVersion(db)
+	if err != nil {
+		return err
+	}
+	if version < sqliteSchemaVersion {
+		if err := migrateSQLiteOrgIds(db); err != nil {
+			return err
+		}
+	}
+
+	if err := applySQLiteSchema(db); err != nil {
+		return err
+	}
+
+	if version < sqliteSchemaVersion {
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", sqliteSchemaVersion)); err != nil {
+			return fmt.Errorf("failed to record the inbuilt database version: %v", err)
+		}
+	}
+	return nil
+}
+
+// applySQLiteSchema applies the embedded schema script.
+func applySQLiteSchema(db *sql.DB) error {
 
 	// A transaction keeps a partial failure from leaving a half-built database.
 	tx, err := db.Begin()

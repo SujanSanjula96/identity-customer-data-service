@@ -32,7 +32,7 @@ func Test_QueriesPrepare(t *testing.T) {
 
 	for name, query := range scripts.AllQueries() {
 		t.Run(name, func(t *testing.T) {
-			statement := setup.CompleteStatement(name, query.GetQuery(suiteDBType))
+			statement := setup.CompleteStatement(name, query.GetQuery(suiteDBType), suiteDBType)
 			stmt, err := suiteDB.Prepare(statement)
 			if err != nil {
 				t.Fatalf("failed to prepare the query: %v\n%s", err, statement)

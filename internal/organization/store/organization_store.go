@@ -207,13 +207,21 @@ func UpdateOrganizationStatus(ctx context.Context, orgId, status string) error {
 // GetTreeSyncStatus returns the tree sync state of the primary organization.
 func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSyncStatus, error) {
 
+	orgKey, known, err := orgkey.ForRead(ctx, primaryHandle)
+	if err != nil {
+		return nil, err
+	}
+	if !known {
+		return &model.TreeSyncStatus{State: model.TreeSyncNotSynced}, nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read the organization sync state.", err)
 	}
 	defer dbClient.Close()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, primaryHandle)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, orgKey)
 	if err != nil {
 		return nil, serverError(fmt.Sprintf("Failed to read the organization sync state of: %s", primaryHandle), err)
 	}
@@ -242,6 +250,11 @@ func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSy
 // empty value clears the key.
 func SetTreeSyncValues(ctx context.Context, primaryHandle string, values map[string]string) error {
 
+	orgKey, err := orgkey.ForWrite(ctx, primaryHandle)
+	if err != nil {
+		return err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return serverError("Failed to get a database client to store the organization sync state.", err)
@@ -253,7 +266,7 @@ func SetTreeSyncValues(ctx context.Context, primaryHandle string, values map[str
 		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", primaryHandle), err)
 	}
 	for key, value := range values {
-		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, primaryHandle, key, value); err != nil {
+		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, orgKey, key, value); err != nil {
 			_ = tx.Rollback()
 			return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", primaryHandle), err)
 		}

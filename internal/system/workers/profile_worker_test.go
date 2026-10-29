@@ -56,6 +56,7 @@ func candidateWorkerDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	provider.SetTestDB(db.DB, database.TypeSQLite)
 	t.Cleanup(func() { provider.SetTestDB(nil, ""); db.Terminate() })
+	require.NoError(t, setup.InsertTestOrganization(db.DB, setup.TestOrgId("tenant"), "tenant"))
 	return db.DB
 }
 
@@ -63,11 +64,11 @@ func workerProfile(t *testing.T, db *sql.DB, id, userID, attrs string, age time.
 	t.Helper()
 	created := time.Now().UTC().Add(-age)
 	_, err := db.Exec(`INSERT INTO profiles
-		(profile_id, org_handle, user_id, identity_attributes, created_at, location)
-		VALUES (?, 'tenant', ?, ?, ?, '')`, id, userID, attrs, created)
+		(profile_id, org_id, user_id, identity_attributes, created_at, location)
+		VALUES (?, 'org-id-tenant', ?, ?, ?, '')`, id, userID, attrs, created)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO profile_reference (profile_id, org_handle, profile_status, reference_reason)
-		VALUES (?, 'tenant', 'REFERENCE_PROFILE', '')`, id)
+	_, err = db.Exec(`INSERT INTO profile_reference (profile_id, org_id, profile_status, reference_reason)
+		VALUES (?, 'org-id-tenant', 'REFERENCE_PROFILE', '')`, id)
 	require.NoError(t, err)
 	p, err := profileStore.GetProfileWithOptions(context.Background(), id, "tenant",
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
@@ -79,13 +80,13 @@ func workerProfile(t *testing.T, db *sql.DB, id, userID, attrs string, age time.
 func workerRule(t *testing.T, db *sql.DB, id, property string, priority int, active bool) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO profile_schema
-		(attribute_id, org_handle, attribute_name, display_name, value_type, merge_strategy,
+		(attribute_id, org_id, attribute_name, display_name, value_type, merge_strategy,
 		application_identifier, mutability, scope)
-		VALUES (?, 'tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`, id, property, property)
+		VALUES (?, 'org-id-tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`, id, property, property)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO unification_rules
-		(rule_id, org_handle, rule_name, property_name, property_id, priority, is_active)
-		VALUES (?, 'tenant', ?, ?, ?, ?, ?)`, id, id, property, id, priority, active)
+		(rule_id, org_id, rule_name, property_name, property_id, priority, is_active)
+		VALUES (?, 'org-id-tenant', ?, ?, ?, ?, ?)`, id, id, property, id, priority, active)
 	require.NoError(t, err)
 }
 

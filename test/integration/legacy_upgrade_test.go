@@ -41,13 +41,13 @@ import (
 var legacyRuleInsert = dbmodel.DBQuery{
 	ID: "TEST-LEGACY-01",
 	Query: `INSERT INTO unification_rules
-		(rule_id, org_handle, rule_name, property_name, priority, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		(rule_id, {{org_cols}}, rule_name, property_name, priority, is_active, created_at, updated_at)
+		VALUES ($1, {{org_val $2}}, $3, $4, $5, $6, $7, $8)`,
 }
 
 var legacyConfigInsert = dbmodel.DBQuery{
 	ID:    "TEST-LEGACY-02",
-	Query: `INSERT INTO cds_config (org_handle, config, value) VALUES ($1, $2, $3)`,
+	Query: `INSERT INTO cds_config ({{org_cols}}, config, value) VALUES ({{org_val $1}}, $2, $3)`,
 }
 
 // insertLegacyRule writes a unification rule the way one existed before typed matching:
@@ -65,7 +65,7 @@ func insertLegacyRule(t *testing.T, org, property string, priority int) {
 	defer dbClient.Close()
 
 	_, err = dbClient.ExecuteQueryContext(context.Background(), legacyRuleInsert,
-		uuid.New().String(), org, fmt.Sprintf("legacy-%s", property), property,
+		uuid.New().String(), writeOrgKey(t, org), fmt.Sprintf("legacy-%s", property), property,
 		priority, true, time.Now().UTC(), time.Now().UTC())
 	if err != nil {
 		t.Fatalf("insert legacy rule %s: %v", property, err)
@@ -84,7 +84,7 @@ func insertLegacyAdminConfig(t *testing.T, org string) {
 	defer dbClient.Close()
 
 	if _, err := dbClient.ExecuteQueryContext(context.Background(), legacyConfigInsert,
-		org, constants.ConfigCDSEnabled, "true"); err != nil {
+		writeOrgKey(t, org), constants.ConfigCDSEnabled, "true"); err != nil {
 		t.Fatalf("insert legacy admin config: %v", err)
 	}
 }

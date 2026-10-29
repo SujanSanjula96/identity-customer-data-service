@@ -1,16 +1,16 @@
 CREATE TABLE IF NOT EXISTS profile_unification_modes
 (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    org_handle VARCHAR(255) NOT NULL,
+    org_id     VARCHAR(255) NOT NULL,
     merge_type VARCHAR(255) NOT NULL,
     rule       VARCHAR(255) NOT NULL,
-    UNIQUE (org_handle, merge_type, rule)
+    UNIQUE (org_id, merge_type, rule)
 );
 
 CREATE TABLE IF NOT EXISTS profile_unification_triggers
 (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    org_handle   VARCHAR(255) NOT NULL UNIQUE,
+    org_id       VARCHAR(255) NOT NULL UNIQUE,
     trigger_type VARCHAR(255) NOT NULL,
     last_trigger BIGINT DEFAULT 0,
     duration     BIGINT DEFAULT 0
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles
 (
     profile_id          VARCHAR(255) PRIMARY KEY,
     user_id             VARCHAR(255),
-    org_handle          VARCHAR(255),
+    org_id              VARCHAR(255),
     created_at          TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     updated_at          TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     location            VARCHAR(255),
@@ -35,10 +35,10 @@ CREATE TABLE IF NOT EXISTS profiles
 CREATE TABLE IF NOT EXISTS profile_reference
 (
     profile_id                   VARCHAR(255) PRIMARY KEY,
-    org_handle                   VARCHAR(255) NOT NULL,
+    org_id                       VARCHAR(255) NOT NULL,
     profile_status               VARCHAR(255),
     reference_profile_id         VARCHAR(255),
-    reference_profile_org_handle VARCHAR(255),
+    reference_profile_org_id    VARCHAR(255),
     reference_reason             VARCHAR(255)
 );
 
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS profile_schema
 (
     attribute_id           VARCHAR(255) NOT NULL PRIMARY KEY,
     scope                  VARCHAR(255),
-    org_handle             VARCHAR(255) NOT NULL,
+    org_id                 VARCHAR(255) NOT NULL,
     attribute_name         VARCHAR(255) NOT NULL,
     display_name           VARCHAR(255) NOT NULL,
     value_type             VARCHAR(255) NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS profile_schema
 CREATE TABLE IF NOT EXISTS unification_rules
 (
     rule_id       VARCHAR(255) PRIMARY KEY,
-    org_handle    VARCHAR(255) NOT NULL,
+    org_id        VARCHAR(255) NOT NULL,
     rule_name     VARCHAR(255) NOT NULL,
     property_name VARCHAR(255) NOT NULL,
     property_id   VARCHAR(255) REFERENCES profile_schema (attribute_id) ON DELETE CASCADE,
@@ -91,17 +91,17 @@ CREATE TABLE IF NOT EXISTS application_data
 CREATE TABLE IF NOT EXISTS applications
 (
     app_id     VARCHAR(255) PRIMARY KEY,
-    org_handle VARCHAR(255) NOT NULL,
+    org_id     VARCHAR(255) NOT NULL,
     client_id  VARCHAR(255),
     created_at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     updated_at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
-    UNIQUE (org_handle, client_id)
+    UNIQUE (org_id, client_id)
 );
 
 CREATE TABLE IF NOT EXISTS consent_categories
 (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    org_handle          VARCHAR(255)        NOT NULL,
+    org_id              VARCHAR(255)        NOT NULL,
     category_name       VARCHAR(255)        NOT NULL,
     category_identifier VARCHAR(255) UNIQUE NOT NULL,
     purpose             VARCHAR(255)        NOT NULL,
@@ -140,10 +140,10 @@ CREATE TABLE IF NOT EXISTS profile_cookies
 -- CDS Config Table
 CREATE TABLE IF NOT EXISTS cds_config
 (
-    org_handle VARCHAR(255) NOT NULL,
+    org_id     VARCHAR(255) NOT NULL,
     config     VARCHAR(255) NOT NULL,
     value      VARCHAR(500),
-    PRIMARY KEY (org_handle, config)
+    PRIMARY KEY (org_id, config)
 );
 
 CREATE TABLE IF NOT EXISTS organizations
@@ -179,12 +179,12 @@ CREATE TABLE IF NOT EXISTS resource_sharing_policy_target
 -- ================================
 -- PROFILES (Hot path: tenant + cursor pagination + ordering)
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_profiles_org_created_profile
-    ON profiles (org_handle, created_at, profile_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id_created_profile
+    ON profiles (org_id, created_at, profile_id);
 
 -- user_id filtering within tenant
-CREATE INDEX IF NOT EXISTS idx_profiles_org_user
-    ON profiles (org_handle, user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id_user
+    ON profiles (org_id, user_id);
 
 -- ================================
 -- PROFILE_REFERENCE (Join + status filtering)
@@ -193,8 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_profile_reference_status_profile
     ON profile_reference (profile_status, profile_id);
 
 -- Optional but useful if org filtering is frequent on reference table
-CREATE INDEX IF NOT EXISTS idx_profile_reference_org_status_profile
-    ON profile_reference (org_handle, profile_status, profile_id);
+CREATE INDEX IF NOT EXISTS idx_profile_reference_org_id_status_profile
+    ON profile_reference (org_id, profile_status, profile_id);
 
 -- For lookups by reference_profile_id
 CREATE INDEX IF NOT EXISTS idx_profile_reference_reference_profile
@@ -213,17 +213,17 @@ CREATE INDEX IF NOT EXISTS idx_application_data_app_id
 -- ================================
 -- PROFILE_SCHEMA (Rare filtering, minimal indexes)
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_profile_schema_org_scope
-    ON profile_schema (org_handle, scope);
+CREATE INDEX IF NOT EXISTS idx_profile_schema_org_id_scope
+    ON profile_schema (org_id, scope);
 
-CREATE INDEX IF NOT EXISTS idx_profile_schema_org_attr_name
-    ON profile_schema (org_handle, attribute_name);
+CREATE INDEX IF NOT EXISTS idx_profile_schema_org_id_attr_name
+    ON profile_schema (org_id, attribute_name);
 
 -- ================================
 -- UNIFICATION_RULES
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_unification_rules_org_active_priority
-    ON unification_rules (org_handle, is_active, priority);
+CREATE INDEX IF NOT EXISTS idx_unification_rules_org_id_active_priority
+    ON unification_rules (org_id, is_active, priority);
 
 CREATE INDEX IF NOT EXISTS idx_unification_rules_property_id
     ON unification_rules (property_id);
