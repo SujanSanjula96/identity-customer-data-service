@@ -19,6 +19,7 @@
 package integration
 
 import (
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"testing"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
@@ -31,6 +32,9 @@ import (
 func Test_QueriesPrepare(t *testing.T) {
 
 	for name, query := range scripts.AllQueries() {
+		if suiteDBType != database.TypePostgres && scripts.IsPostgresOnly(name) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			statement := setup.CompleteStatement(name, query.GetQuery(suiteDBType), suiteDBType)
 			stmt, err := suiteDB.Prepare(statement)

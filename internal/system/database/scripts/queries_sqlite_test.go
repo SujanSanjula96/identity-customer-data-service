@@ -69,6 +69,9 @@ func TestSQLiteQueriesPrepare(t *testing.T) {
 	defer testDB.Terminate()
 
 	for name, query := range scripts.AllQueries() {
+		if scripts.IsPostgresOnly(name) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			statement := setup.CompleteStatement(name, query.GetQuery(database.TypeSQLite), database.TypeSQLite)
 			stmt, err := testDB.DB.Prepare(statement)
