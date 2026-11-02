@@ -94,26 +94,14 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgHandle, 
 	return false, nil
 }
 
-// GetCORSAllowedOrigins returns the browser origins the organisation allows, served from a
-// short-lived cache because the CORS middleware consults it on every request. An empty
-// result means the organisation has configured none and the caller should fall back to the
-// deployment-wide list. A read failure is reported the same way, so that a database blip
-// leaves the deployment-wide origins working rather than blocking every browser client.
+// GetCORSAllowedOrigins returns the browser origins the organisation allows, served from an
+// in-memory snapshot of every organisation's origins because the CORS middleware consults
+// it on every request, before authentication. An empty result means the organisation has
+// configured none and the caller should fall back to the deployment-wide list. A failed
+// reload keeps the previously loaded origins, so that a database blip does not change what
+// browser clients are allowed.
 func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgHandle string) []string {
-
-	if cached, found := corsOriginsCache.Get(orgHandle); found {
-		if origins, ok := cached.([]string); ok {
-			return origins
-		}
-	}
-
-	config, err := store.GetAdminConfig(ctx, orgHandle)
-	if err != nil || config == nil {
-		return nil
-	}
-
-	corsOriginsCache.Set(orgHandle, config.CORSAllowedOrigins)
-	return config.CORSAllowedOrigins
+	return corsOrigins.get(ctx, orgHandle)
 }
 
 func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgHandle string) (model.AdminConfig, error) {
@@ -304,9 +292,9 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		return err
 	}
 
-	// Drop the cached origins so this process serves the new list at once. Other replicas
-	// pick it up when their own entry expires.
-	corsOriginsCache.Delete(orgHandle)
+	// Reload the origins so this process serves the new list at once. Other replicas pick it
+	// up on their next reload.
+	corsOrigins.invalidate()
 
 	if !sysconfig.OrganizationManagementEnabled() {
 		return nil

@@ -19,11 +19,15 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 func TestValidateCORSOriginsAcceptsWellFormedOrigins(t *testing.T) {
@@ -110,5 +114,107 @@ func TestValidateCORSOriginsRejectsWholeListOnOneBadEntry(t *testing.T) {
 	_, err := validateCORSOrigins([]string{"https://app.acme.com", "*"})
 	if err == nil {
 		t.Fatal("expected an error for a list containing a wildcard")
+	}
+}
+
+// countingLoader stands in for the database read, counting how often the snapshot reads.
+type countingLoader struct {
+	reads   int
+	origins map[string][]string
+	err     error
+}
+
+func (l *countingLoader) load(context.Context) (map[string][]string, error) {
+	l.reads++
+	return l.origins, l.err
+}
+
+func TestCORSOriginsSnapshotReadsOnceForAnyNumberOfOrganisations(t *testing.T) {
+
+	loader := &countingLoader{origins: map[string][]string{"acme": {"https://app.acme.com"}}}
+	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+	ctx := context.Background()
+
+	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+		t.Errorf("origins of acme = %v, want those it configured", got)
+	}
+	// Handles that are not organisations, as an unauthenticated caller may send, are
+	// answered from the snapshot without a read each.
+	for i := 0; i < 100; i++ {
+		if got := snapshot.get(ctx, fmt.Sprintf("made-up-%d", i)); got != nil {
+			t.Fatalf("origins of an unknown organisation = %v, want none", got)
+		}
+	}
+	if loader.reads != 1 {
+		t.Errorf("reads = %d, want 1", loader.reads)
+	}
+}
+
+func TestCORSOriginsSnapshotReloadsOnceStale(t *testing.T) {
+
+	loader := &countingLoader{origins: map[string][]string{}}
+	snapshot := &corsOriginsSnapshot{load: loader.load, interval: 0}
+	ctx := context.Background()
+
+	snapshot.get(ctx, "acme")
+	loader.origins = map[string][]string{"acme": {"https://app.acme.com"}}
+	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+		t.Errorf("origins of acme = %v, want those loaded by the reload", got)
+	}
+	if loader.reads != 2 {
+		t.Errorf("reads = %d, want 2", loader.reads)
+	}
+}
+
+func TestCORSOriginsSnapshotReloadsAfterAnUpdate(t *testing.T) {
+
+	loader := &countingLoader{origins: map[string][]string{}}
+	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+	ctx := context.Background()
+
+	snapshot.get(ctx, "acme")
+	loader.origins = map[string][]string{"acme": {"https://app.acme.com"}}
+	snapshot.invalidate()
+	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+		t.Errorf("origins of acme = %v, want the updated ones", got)
+	}
+	if loader.reads != 2 {
+		t.Errorf("reads = %d, want 2", loader.reads)
+	}
+}
+
+func TestCORSOriginsSnapshotKeepsPreviousOriginsWhenAReloadFails(t *testing.T) {
+
+	if err := log.Init("ERROR"); err != nil {
+		t.Fatalf("failed to set up the logger: %v", err)
+	}
+	loader := &countingLoader{origins: map[string][]string{"acme": {"https://app.acme.com"}}}
+	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+	ctx := context.Background()
+
+	snapshot.get(ctx, "acme")
+	loader.origins, loader.err = nil, fmt.Errorf("database unavailable")
+	snapshot.invalidate()
+	for i := 0; i < 3; i++ {
+		if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+			t.Errorf("origins of acme = %v, want the previously loaded ones", got)
+		}
+	}
+	// The failed reload counts as one, so the database is not read again on every request.
+	if loader.reads != 2 {
+		t.Errorf("reads = %d, want 2", loader.reads)
+	}
+}
+
+func TestCORSOriginsSnapshotWithFailedFirstLoadHasNoOrigins(t *testing.T) {
+
+	if err := log.Init("ERROR"); err != nil {
+		t.Fatalf("failed to set up the logger: %v", err)
+	}
+	loader := &countingLoader{err: fmt.Errorf("database unavailable")}
+	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+
+	if got := snapshot.get(context.Background(), "acme"); got != nil {
+		t.Errorf("origins of acme = %v, want none, so the deployment-wide origins apply", got)
 	}
 }

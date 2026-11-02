@@ -531,6 +531,9 @@ var UpdateInitialSchemaSyncDoneConfig = newQuery("CDS-CFG-04",
                  ON CONFLICT (org_handle, config) 
                  DO UPDATE SET value = EXCLUDED.value`)
 
+var GetConfigurationOfAllOrgs = newQuery("CDS-CFG-05",
+	`SELECT org_handle, value FROM cds_config WHERE config = $1`)
+
 // HealthCheckPing checks that the datasource answers.
 var HealthCheckPing = newQuery("CDS-SYS-01", `SELECT 1;`)
 

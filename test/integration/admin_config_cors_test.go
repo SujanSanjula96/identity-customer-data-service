@@ -79,6 +79,52 @@ func TestCORSAllowedOriginsEmptyForUnconfiguredOrg(t *testing.T) {
 	}
 }
 
+// The origins of every organisation that configured any are read in one go, which is what
+// lets the middleware answer a lookup without a read per request.
+func TestAllCORSAllowedOriginsAreReadTogether(t *testing.T) {
+
+	ctx := context.Background()
+
+	configs := []adminConfigModel.AdminConfig{
+		{
+			OrgHandle:          "cors-all-acme",
+			CDSEnabled:         true,
+			SystemApplications: []string{},
+			CORSAllowedOrigins: []string{"https://app.acme.com", "http://localhost:3000"},
+		},
+		{
+			OrgHandle:          "cors-all-globex",
+			CDSEnabled:         true,
+			SystemApplications: []string{},
+			CORSAllowedOrigins: []string{"https://app.globex.com"},
+		},
+		{
+			OrgHandle:          "cors-all-initech",
+			CDSEnabled:         true,
+			SystemApplications: []string{},
+			CORSAllowedOrigins: []string{},
+		},
+	}
+	for _, config := range configs {
+		if err := adminConfigStore.UpdateAdminConfig(ctx, config, config.OrgHandle); err != nil {
+			t.Fatalf("failed to store config for %s: %v", config.OrgHandle, err)
+		}
+	}
+
+	originsByOrg, err := adminConfigStore.GetAllCORSAllowedOrigins(ctx)
+	if err != nil {
+		t.Fatalf("failed to read the origins of every organisation: %v", err)
+	}
+	for _, config := range configs[:2] {
+		if got := originsByOrg[config.OrgHandle]; !reflect.DeepEqual(got, config.CORSAllowedOrigins) {
+			t.Errorf("origins for %s = %v, want %v", config.OrgHandle, got, config.CORSAllowedOrigins)
+		}
+	}
+	if got, found := originsByOrg["cors-all-initech"]; found {
+		t.Errorf("origins for cors-all-initech = %v, want no entry for an organisation with none", got)
+	}
+}
+
 // The stored origins drive the middleware end to end: each organisation's own origin is
 // allowed on its own path and refused on the other's.
 func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
