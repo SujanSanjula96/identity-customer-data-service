@@ -473,9 +473,6 @@ name = "internal_org_cds_profile_create"
 name = "internal_org_cds_profile_update"
 
 [[api_resource_collections.scopes.update]]
-name = "internal_org_cds_profile_link"
-
-[[api_resource_collections.scopes.update]]
 name = "internal_org_cds_identity_resolution_update"
 
 [[api_resource_collections.scopes.delete]]
