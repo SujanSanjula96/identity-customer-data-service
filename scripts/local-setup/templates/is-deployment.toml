@@ -134,9 +134,14 @@ displayName = "Profile schema attribute delete"
 description = "Delete profile schema attribute(s)"
 
 [[api_resources.scopes]]
-name = "internal_cds_profile_schema_share"
-displayName = "Profile schema attribute share"
-description = "Share profile schema attribute(s) with child organizations"
+name = "internal_cds_profile_schema_share_view"
+displayName = "Profile schema attribute share view"
+description = "View the sharing policies of profile schema attribute(s)"
+
+[[api_resources.scopes]]
+name = "internal_cds_profile_schema_share_update"
+displayName = "Profile schema attribute share update"
+description = "Update the sharing policies of profile schema attribute(s)"
 
 [[api_resources]]
 name = "Customer Data Service profile unification rule management API"
@@ -166,9 +171,14 @@ displayName = "Profile unification rule delete"
 description = "Delete unification rule"
 
 [[api_resources.scopes]]
-name = "internal_cds_unification_rule_share"
-displayName = "Profile unification rule share"
-description = "Share unification rule(s) with child organizations"
+name = "internal_cds_unification_rule_share_view"
+displayName = "Profile unification rule share view"
+description = "View the sharing policies of unification rule(s)"
+
+[[api_resources.scopes]]
+name = "internal_cds_unification_rule_share_update"
+displayName = "Profile unification rule share update"
+description = "Update the sharing policies of unification rule(s)"
 
 [[api_resources]]
 name = "Customer Data Service config management API"
@@ -191,18 +201,18 @@ description = "Update customer data service configurations"
 name = "Customer Data Service organization management API"
 identifier = "/cds/api/v1/organizations"
 requiresAuthorization = true
-description = "API representation of the organization sync and organization access API"
+description = "API representation of the organization management API"
 type = "TENANT"
 
 [[api_resources.scopes]]
 name = "internal_cds_organization_view"
-displayName = "Organization settings view"
-description = "View the organization sync and the organization access"
+displayName = "Organization view"
+description = "View organization(s)"
 
 [[api_resources.scopes]]
 name = "internal_cds_organization_update"
-displayName = "Organization settings update"
-description = "Sync the organizations and update the organization access"
+displayName = "Organization update"
+description = "Update organization(s)"
 
 [[api_resources]]
 name = "Customer Data Service consent category management API"
@@ -285,7 +295,7 @@ type = "ORGANIZATION"
 [[api_resources.scopes]]
 name = "internal_org_cds_profile_schema_view"
 displayName = "Profile schema attribute view"
-description = "Profile schema attribute view"
+description = "View profile schema attribute(s)"
 [[api_resources]]
 name = "Customer Data Service profile unification rule management API (organization)"
 identifier = "/o/cds/api/v1/unification-rules"
@@ -295,7 +305,7 @@ type = "ORGANIZATION"
 [[api_resources.scopes]]
 name = "internal_org_cds_unification_rule_view"
 displayName = "Profile unification rule view"
-description = "Profile unification rule view"
+description = "View unification rule"
 [[api_resources]]
 name = "Customer Data Service config management API (organization)"
 identifier = "/o/cds/api/v1/config"
@@ -362,6 +372,12 @@ name = "internal_cds_admin_config_view"
 name = "internal_cds_organization_view"
 
 [[api_resource_collections.scopes.read]]
+name = "internal_cds_profile_schema_share_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_cds_unification_rule_share_view"
+
+[[api_resource_collections.scopes.read]]
 name = "internal_cds_consent_category_view"
 
 [[api_resource_collections.scopes.read]]
@@ -395,10 +411,10 @@ name = "internal_cds_admin_config_update"
 name = "internal_cds_organization_update"
 
 [[api_resource_collections.scopes.update]]
-name = "internal_cds_profile_schema_share"
+name = "internal_cds_profile_schema_share_update"
 
 [[api_resource_collections.scopes.update]]
-name = "internal_cds_unification_rule_share"
+name = "internal_cds_unification_rule_share_update"
 
 [[api_resource_collections.scopes.update]]
 name = "internal_cds_consent_category_update"
