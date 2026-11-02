@@ -577,7 +577,7 @@ func isCDSEnabled(ctx context.Context, orgHandle string) bool {
 // CreateSharingPolicy shares an attribute of the organization.
 func (h *ProfileSchemaHandler) CreateSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
 	if !ok {
 		return
 	}
@@ -599,7 +599,7 @@ func (h *ProfileSchemaHandler) CreateSharingPolicy(w http.ResponseWriter, r *htt
 // ListSharingPolicies returns the sharing policies of an attribute of the organization.
 func (h *ProfileSchemaHandler) ListSharingPolicies(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:view")
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_view")
 	if !ok {
 		return
 	}
@@ -617,7 +617,7 @@ func (h *ProfileSchemaHandler) ListSharingPolicies(w http.ResponseWriter, r *htt
 // GetSharingPolicy returns a sharing policy of an attribute of the organization.
 func (h *ProfileSchemaHandler) GetSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:view")
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_view")
 	if !ok {
 		return
 	}
@@ -635,7 +635,7 @@ func (h *ProfileSchemaHandler) GetSharingPolicy(w http.ResponseWriter, r *http.R
 // UpdateSharingPolicy replaces a sharing policy of an attribute of the organization.
 func (h *ProfileSchemaHandler) UpdateSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
 	if !ok {
 		return
 	}
@@ -657,7 +657,7 @@ func (h *ProfileSchemaHandler) UpdateSharingPolicy(w http.ResponseWriter, r *htt
 // DeleteSharingPolicy removes a sharing policy of an attribute of the organization.
 func (h *ProfileSchemaHandler) DeleteSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
 	if !ok {
 		return
 	}

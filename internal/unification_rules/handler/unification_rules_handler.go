@@ -516,7 +516,7 @@ func isCDSEnabled(ctx context.Context, orgHandle string) bool {
 // CreateSharingPolicy shares a rule of the organization.
 func (h *UnificationRulesHandler) CreateSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
 	}
@@ -537,7 +537,7 @@ func (h *UnificationRulesHandler) CreateSharingPolicy(w http.ResponseWriter, r *
 // ListSharingPolicies returns the sharing policies of a rule of the organization.
 func (h *UnificationRulesHandler) ListSharingPolicies(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:view")
+	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_view")
 	if !ok {
 		return
 	}
@@ -554,7 +554,7 @@ func (h *UnificationRulesHandler) ListSharingPolicies(w http.ResponseWriter, r *
 // GetSharingPolicy returns a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) GetSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:view")
+	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_view")
 	if !ok {
 		return
 	}
@@ -572,7 +572,7 @@ func (h *UnificationRulesHandler) GetSharingPolicy(w http.ResponseWriter, r *htt
 // UpdateSharingPolicy replaces a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) UpdateSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
 	}
@@ -594,7 +594,7 @@ func (h *UnificationRulesHandler) UpdateSharingPolicy(w http.ResponseWriter, r *
 // DeleteSharingPolicy removes a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) DeleteSharingPolicy(w http.ResponseWriter, r *http.Request) {
 
-	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share")
+	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
 	}
