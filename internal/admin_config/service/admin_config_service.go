@@ -147,6 +147,9 @@ func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgHandle string
 			config.AutoMergeThreshold = primaryConfig.AutoMergeThreshold
 			config.ManualReviewThreshold = primaryConfig.ManualReviewThreshold
 			config.DeterministicMatchDecisive = primaryConfig.DeterministicMatchDecisive
+			// Its requests arrive under the path of the primary organization, so the CORS
+			// middleware answers them with the origins of the primary organization.
+			config.CORSAllowedOrigins = primaryConfig.CORSAllowedOrigins
 		}
 	}
 	return *config, nil

@@ -32,7 +32,8 @@ func TestExtractOrgHandleFromPath(t *testing.T) {
 		want string
 	}{
 		{"/t/carbon.super/cds/api/v1/profiles", "carbon.super"},
-		{"/o/4b1e/cds/api/v1/profiles", "4b1e"},
+		{"/t/acme/o/4b1e/cds/api/v1/profiles", "acme"},
+		{"/o/4b1e/cds/api/v1/profiles", ""},
 		{"/t/acme", "acme"},
 		{"/t/acme/", "acme"},
 		{"/health", ""},

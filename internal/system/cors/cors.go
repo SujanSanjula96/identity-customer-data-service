@@ -91,21 +91,20 @@ func isOriginAllowed(r *http.Request, origin string, lookup OriginsLookup,
 	return false
 }
 
-// ExtractOrgHandleFromPath returns the organisation segment of a /t/{tenant}/... or
-// /o/{org}/... path, matching how the request is dispatched further down. It returns an
-// empty string for any other path, such as the health check. The middleware runs before
-// dispatch, so the segment cannot yet be read from the request context.
+// ExtractOrgHandleFromPath returns the organisation segment of a /t/{tenant}/... path,
+// matching how the request is dispatched further down. A sub organisation is addressed as
+// /t/{primary_handle}/o/{org_id}/..., so its requests resolve to the primary organisation,
+// whose origins it uses. It returns an empty string for any other path, such as the health
+// check. The middleware runs before dispatch, so the segment cannot yet be read from the
+// request context.
 func ExtractOrgHandleFromPath(path string) string {
 
-	for _, prefix := range []string{"/t/", "/o/"} {
-		if !strings.HasPrefix(path, prefix) {
-			continue
-		}
-		remainder := path[len(prefix):]
-		handle, _, _ := strings.Cut(remainder, "/")
-		return handle
+	remainder, found := strings.CutPrefix(path, "/t/")
+	if !found {
+		return ""
 	}
-	return ""
+	handle, _, _ := strings.Cut(remainder, "/")
+	return handle
 }
 
 // normalizeOrigin lower-cases the scheme and host so that a configured origin compares
