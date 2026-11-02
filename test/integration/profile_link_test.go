@@ -101,7 +101,7 @@ func Test_ProfileLink(t *testing.T) {
 		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
 		require.Equal(t, userId, linkResponse.UserId)
 
-		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
 		require.NoError(t, err)
 		require.Equal(t, userId, linked.UserId)
 		// Nothing to unify against, so the profile stays a master of its own.
@@ -126,7 +126,7 @@ func Test_ProfileLink(t *testing.T) {
 				status, body := doLink(t, router, org, payload)
 				require.Equal(t, http.StatusBadRequest, status, string(body))
 
-				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
+				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
 				require.NoError(t, err)
 				require.Empty(t, unchanged.UserId)
 			})
@@ -153,7 +153,7 @@ func Test_ProfileLink(t *testing.T) {
 		status, body = doLink(t, router, org, linkBody(anonymous.ProfileId, secondUser))
 		require.Equal(t, http.StatusConflict, status, string(body))
 
-		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
+		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
 		require.NoError(t, err)
 		require.Equal(t, firstUser, unchanged.UserId)
 	})
@@ -179,7 +179,7 @@ func Test_ProfileLink(t *testing.T) {
 		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
 		require.Equal(t, userId, linkResponse.UserId)
 
-		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
 		require.NoError(t, err)
 		require.Equal(t, userId, linked.UserId)
 	})
@@ -206,14 +206,14 @@ func Test_ProfileLink(t *testing.T) {
 
 		// The pre-existing permanent profile stays the master and the linked profile
 		// becomes its child, matched on the userId the link supplied.
-		merged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId)
+		merged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
 		require.NoError(t, err)
 		require.NotNil(t, merged.MergedTo)
 		require.Equal(t, existing.ProfileId, merged.MergedTo.ProfileId)
 		require.Equal(t, constants.SystemUserIdMatchReason, merged.MergedTo.Reason)
 		require.Equal(t, userId, merged.UserId)
 
-		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileId)
+		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileId, org)
 		require.NoError(t, err)
 		require.Equal(t, userId, master.UserId)
 		require.Contains(t, master.IdentityAttributes["email"].([]interface{}), "anon-3@wso2.com")

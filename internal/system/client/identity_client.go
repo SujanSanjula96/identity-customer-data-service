@@ -146,6 +146,7 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 		"internal_claim_meta_view",
 		"internal_user_mgt_list",
 		"internal_user_mgt_view",
+		"internal_organization_view",
 	}, constants.SpaceSeparator)
 
 	if authCfg.IsSystemAppGrantEnabled {
@@ -157,7 +158,21 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	return c.fetchClientCredentialsToken(orgHandle, authCfg, scope)
 }
 
+// orgAPIPathPrefix returns the IS URL segment used for API calls (claims, apps, SCIM).
+// Sub-org UUIDs use /o — the org context is carried by the token, no UUID in path.
+// Regular tenant handles use /t/{handle}.
+func (c *IdentityClient) orgAPIPathPrefix(orgHandle string) string {
+	if _, err := uuid.Parse(orgHandle); err == nil {
+		return "/o"
+	}
+	return "/t/" + orgHandle
+}
+
 func (c *IdentityClient) buildTokenEndpoint(orgId, tokenEndpoint string) string {
+	if _, err := uuid.Parse(orgId); err == nil {
+		// Sub-org token endpoint lives under carbon.super: /t/carbon.super/o/{uuid}/oauth2/token
+		return fmt.Sprintf("https://%s/t/carbon.super/o/%s%s", c.BaseURL, orgId, tokenEndpoint)
+	}
 	return fmt.Sprintf("https://%s/t/%s%s", c.BaseURL, orgId, tokenEndpoint)
 }
 
@@ -198,6 +213,7 @@ func (c *IdentityClient) fetchClientCredentialsToken(orgId string, authCfg confi
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("scope", scope)
+
 	return c.requestToken(endpoint, authCfg.ClientID, authCfg.ClientSecret, form, orgId)
 }
 
@@ -279,7 +295,7 @@ func (c *IdentityClient) FetchApplicationIdentifier(applicationIdentifier, orgHa
 	logger := log.GetLogger()
 	var result idpModel.ApplicationsListResponse
 	filter := fmt.Sprintf(`clientId eq %s or issuer eq %s`, applicationIdentifier, applicationIdentifier)
-	base := fmt.Sprintf("https://%s/t/%s/api/server/v1/applications", c.BaseURL, orgHandle)
+	base := fmt.Sprintf("https://%s%s/api/server/v1/applications", c.BaseURL, c.orgAPIPathPrefix(orgHandle))
 	u, err := url.Parse(base)
 	if err != nil {
 		return result, err
@@ -413,7 +429,7 @@ func (c *IdentityClient) IntrospectToken(token, orgHandle string) (map[string]in
 	var introspectionEndpoint string
 	if authConfig.IsSystemAppGrantEnabled {
 		log.GetLogger().Debug("Token introspection with IS through internal host as system_app_grant is enabled")
-		introspectionEndpoint = "https://" + authConfig.ADUISHostname + "/t/" + orgHandle + authConfig.IntrospectionEndPoint
+		introspectionEndpoint = "https://" + authConfig.ADUISHostname + c.orgAPIPathPrefix(orgHandle) + authConfig.IntrospectionEndPoint
 		form.Set("appTenant", "carbon.super")
 	} else {
 		// It is possible to introspect any token against super tenant introspection endpoint and super tenant client credentials
@@ -559,7 +575,7 @@ func (c *IdentityClient) GetProfileSchema(orgHandle string) ([]model.ProfileSche
 }
 
 func (c *IdentityClient) GetAllDialects(orgHandle string) ([]map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/claim-dialects", c.BaseURL, orgHandle)
+	endpoint := fmt.Sprintf("https://%s%s/api/server/v1/claim-dialects", c.BaseURL, c.orgAPIPathPrefix(orgHandle))
 	req, _ := http.NewRequest("GET", endpoint, nil)
 	logger := log.GetLogger()
 	token, err := c.FetchToken(orgHandle)
@@ -603,7 +619,7 @@ func (c *IdentityClient) GetAllDialects(orgHandle string) ([]map[string]interfac
 }
 
 func (c *IdentityClient) GetClaimsByDialect(dialectID, orgId string) ([]map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/claim-dialects/%s/claims", c.BaseURL, orgId, dialectID)
+	endpoint := fmt.Sprintf("https://%s%s/api/server/v1/claim-dialects/%s/claims", c.BaseURL, c.orgAPIPathPrefix(orgId), dialectID)
 	req, _ := http.NewRequest("GET", endpoint, nil)
 	token, err := c.FetchToken(orgId)
 	logger := log.GetLogger()
@@ -647,7 +663,7 @@ func (c *IdentityClient) GetClaimsByDialect(dialectID, orgId string) ([]map[stri
 
 func (c *IdentityClient) GetLocalClaimsMap(orgId string) (map[string]map[string]interface{}, error) {
 
-	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/claim-dialects/local/claims", c.BaseURL, orgId)
+	endpoint := fmt.Sprintf("https://%s%s/api/server/v1/claim-dialects/local/claims", c.BaseURL, c.orgAPIPathPrefix(orgId))
 	logger := log.GetLogger()
 	logger.Info("Fetching local claims from endpoint: " + endpoint)
 	req, _ := http.NewRequest("GET", endpoint, nil)
@@ -734,7 +750,11 @@ func ConvertSCIMClaimWithLocal(
 	}
 	if props, ok := local["properties"].([]interface{}); ok {
 		for _, p := range props {
-			prop := p.(map[string]interface{})
+			prop, ok := p.(map[string]interface{})
+			if !ok {
+				log.GetLogger().Debug(fmt.Sprintf("GetProfileSchema: skipping non-map property entry (type=%T) for org=%s", p, orgId))
+				continue
+			}
 			if prop["key"] == "multiValued" && prop["value"] == "true" {
 				multiValued = true
 			}
@@ -844,7 +864,7 @@ func ifThenElse(cond bool, a, b string) string {
 // GetSCIMUser fetches a SCIM user by ID
 func (c *IdentityClient) GetSCIMUser(orgId, userId string) (map[string]interface{}, error) {
 
-	endpoint := fmt.Sprintf("https://%s/t/%s/scim2/Users/%s", c.BaseURL, orgId, userId)
+	endpoint := fmt.Sprintf("https://%s%s/scim2/Users/%s", c.BaseURL, c.orgAPIPathPrefix(orgId), userId)
 	req, _ := http.NewRequest("GET", endpoint, nil)
 	token, err := c.FetchToken(orgId)
 	logger := log.GetLogger()

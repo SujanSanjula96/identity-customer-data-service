@@ -26,6 +26,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	adminModel "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
+	adminStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	identityResolutionService "github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -131,6 +134,15 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	}
 	_ = unificationSvc.AddUnificationRule(context.Background(), phoneRule, SuperTenantOrg)
 
+	// The score-based pipeline only auto-merges when AutoMergeEnabled is true on the
+	// org's admin config; otherwise high-score matches are routed to manual review.
+	require.NoError(t, adminStore.UpdateAdminConfig(context.Background(), adminModel.AdminConfig{
+		OrgHandle:             SuperTenantOrg,
+		AutoMergeEnabled:      true,
+		AutoMergeThreshold:    constants.DefaultAutoMergeThreshold,
+		ManualReviewThreshold: constants.DefaultManualReviewThreshold,
+	}, SuperTenantOrg))
+
 	t.Run("Scenario10_MultipleCascadingMerges_FourTempProfiles", func(t *testing.T) {
 		// Scenario: Four temporary profiles cascade merge through shared attributes
 		// P1 shares email with P2, P2 shares phone with P3, P3 shares email with P4
@@ -151,10 +163,10 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 
 		time.Sleep(3 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
-		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
-		merged4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
+		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId, SuperTenantOrg)
+		merged4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId, SuperTenantOrg)
 
 		// All profiles should be merged (either same master or same MergedTo)
 		require.NotEmpty(t, merged1.MergedTo.ProfileId, "Profile 1 should be merged")
@@ -188,8 +200,8 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// Verify initial merge happened
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId, "T1 and T2 should merge")
 
 		// Now add T3 with matching phone
@@ -197,7 +209,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		prof3, _ := profileSvc.CreateProfile(context.Background(), t3, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
+		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId, SuperTenantOrg)
 
 		// T3 should be merged (a new master may be created when merging with existing hierarchy)
 		require.NotEmpty(t, merged3.MergedTo.ProfileId, "T3 should be merged")
@@ -230,8 +242,8 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId, "Profiles should merge")
 
@@ -260,8 +272,8 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// Verify they are NOT merged initially
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 		if merged1.MergedTo != nil {
 			require.Empty(t, merged1.MergedTo.ProfileId, "P1 should not be merged initially")
 		}
@@ -282,8 +294,8 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// After update, profiles should be unified
-		afterUpdate1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		afterUpdate2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		afterUpdate1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		afterUpdate2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 
 		// At least one should show merge status
 		mergeHappened := afterUpdate1.MergedTo.ProfileId != "" || afterUpdate2.MergedTo.ProfileId != ""
@@ -304,12 +316,11 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		prof2, _ := profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 
 		require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId, "Profiles should merge")
-		// The merge reason should be email_based (higher priority)
-		require.Equal(t, EmailBased, merged1.MergedTo.Reason, "Should merge via email (higher priority)")
+		requireRuleDrivenMergeReason(t, merged1.MergedTo.Reason, EmailBased, PhoneBased, UserIdBased)
 
 		cleanProfiles(profileSvc, SuperTenantOrg)
 	})
@@ -333,10 +344,10 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		profD, _ := profileSvc.CreateProfile(context.Background(), pD, SuperTenantOrg)
 		time.Sleep(3 * time.Second)
 
-		mergedA, _ := profileSvc.GetProfile(context.Background(), profA.ProfileId)
-		mergedB, _ := profileSvc.GetProfile(context.Background(), profB.ProfileId)
-		mergedC, _ := profileSvc.GetProfile(context.Background(), profC.ProfileId)
-		mergedD, _ := profileSvc.GetProfile(context.Background(), profD.ProfileId)
+		mergedA, _ := profileSvc.GetProfile(context.Background(), profA.ProfileId, SuperTenantOrg)
+		mergedB, _ := profileSvc.GetProfile(context.Background(), profB.ProfileId, SuperTenantOrg)
+		mergedC, _ := profileSvc.GetProfile(context.Background(), profC.ProfileId, SuperTenantOrg)
+		mergedD, _ := profileSvc.GetProfile(context.Background(), profD.ProfileId, SuperTenantOrg)
 
 		// A and B should be merged (email match)
 		require.NotEmpty(t, mergedA.MergedTo.ProfileId, "A should be merged")
@@ -348,7 +359,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		require.NotEmpty(t, mergedD.MergedTo.ProfileId, "D should be merged")
 
 		// All should ultimately point to the same master or be part of the same hierarchy
-		masterProfile, _ := profileSvc.GetProfile(context.Background(), mergedA.MergedTo.ProfileId)
+		masterProfile, _ := profileSvc.GetProfile(context.Background(), mergedA.MergedTo.ProfileId, SuperTenantOrg)
 		require.NotNil(t, masterProfile, "Master profile should exist")
 
 		// Verify preferences from all profiles are combined
@@ -378,10 +389,10 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		profT3, _ := profileSvc.CreateProfile(context.Background(), t3, SuperTenantOrg)
 		time.Sleep(3 * time.Second)
 
-		mergedPerm, _ := profileSvc.GetProfile(context.Background(), profPerm.ProfileId)
-		mergedT1, _ := profileSvc.GetProfile(context.Background(), profT1.ProfileId)
-		mergedT2, _ := profileSvc.GetProfile(context.Background(), profT2.ProfileId)
-		mergedT3, _ := profileSvc.GetProfile(context.Background(), profT3.ProfileId)
+		mergedPerm, _ := profileSvc.GetProfile(context.Background(), profPerm.ProfileId, SuperTenantOrg)
+		mergedT1, _ := profileSvc.GetProfile(context.Background(), profT1.ProfileId, SuperTenantOrg)
+		mergedT2, _ := profileSvc.GetProfile(context.Background(), profT2.ProfileId, SuperTenantOrg)
+		mergedT3, _ := profileSvc.GetProfile(context.Background(), profT3.ProfileId, SuperTenantOrg)
 
 		// Permanent profile should be the master
 		require.Empty(t, mergedPerm.MergedTo, "Permanent profile should be master")
@@ -389,7 +400,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 
 		// T1 should merge to permanent via email
 		require.Equal(t, profPerm.ProfileId, mergedT1.MergedTo.ProfileId, "T1 should merge to permanent")
-		require.Equal(t, EmailBased, mergedT1.MergedTo.Reason)
+		requireRuleDrivenMergeReason(t, mergedT1.MergedTo.Reason, EmailBased, PhoneBased, UserIdBased)
 
 		// T2 and T3 should merge to permanent via phone (transitive through T1)
 		require.Equal(t, profPerm.ProfileId, mergedT2.MergedTo.ProfileId, "T2 should merge to permanent")
@@ -414,7 +425,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		_, _ = profileSvc.CreateProfile(context.Background(), p2, SuperTenantOrg)
 		time.Sleep(2 * time.Second)
 
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
 
 		// Interests should be combined (combine strategy)
 		interests := merged1.Traits["interests"].([]interface{})
@@ -447,8 +458,8 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// Verify no unification happened
-		check1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		check2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
+		check1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		check2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
 		require.Empty(t, check1.MergedTo, "Should not merge while rule inactive")
 		require.Empty(t, check2.MergedTo, "Should not merge while rule inactive")
 
@@ -462,20 +473,25 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		// Third profile should trigger unification
-		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
+		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId, SuperTenantOrg)
 		require.NotEmpty(t, merged3.MergedTo.ProfileId, "Third profile should trigger unification")
 
 		cleanProfiles(profileSvc, SuperTenantOrg)
 	})
 
-	t.Run("Scenario19_TwoMastersWithExistingHierarchiesMerge", func(t *testing.T) {
-		// Scenario: Two masters with existing hierarchies merge
-		// Master1 has 3 children
-		// Master2 has 2 children
-		// P3 and P4 share an attribute should trigger merge
-		// Expected: All 5 children end up under unified hierarchy with merged data
+	t.Run("Scenario19_BridgeProfileChoosesBestFitMaster", func(t *testing.T) {
+		// Scenario: A profile (P6) carries identifiers from two pre-existing master
+		// hierarchies (Master1, Master2). Under the conservative best-fit policy,
+		// auto-merge picks ONE master (the highest-scoring one) and surfaces the
+		// other hierarchy as a manual review task, never auto-merging two
+		// independent hierarchies in a single pass (avoids false-positive bridges).
 
-		// Step 1: Create first hierarchy (Master1 with 3 children)
+		// Expected:
+		//   - P6 ends up under exactly one of {Master1, Master2}
+		//   - The OTHER master is left intact (still its own master, original children)
+		//   - A pending review task exists between the chosen master and the other master
+
+		// Step 1: First hierarchy (Master1 with 3 children sharing email + phone)
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["hierarchy1@wso2.com"]},"traits":{"interests":["reading"]}}`)
 		p2 := mustUnmarshalProfile(`{"identity_attributes":{"email":["hierarchy1@wso2.com"]},"traits":{"interests":["writing"]}}`)
 		p3 := mustUnmarshalProfile(`{"identity_attributes":{"email":["hierarchy1@wso2.com"],"phone_number":["0771111111"]},"traits":{"interests":["coding"]}}`)
@@ -487,25 +503,23 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		prof3, _ := profileSvc.CreateProfile(context.Background(), p3, SuperTenantOrg)
 		time.Sleep(3 * time.Second)
 
-		// Verify first hierarchy is created
-		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
-		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
+		merged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		merged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
+		merged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId, SuperTenantOrg)
 
 		require.NotEmpty(t, merged1.MergedTo.ProfileId, "P1 should be merged")
 		require.NotEmpty(t, merged2.MergedTo.ProfileId, "P2 should be merged")
 		require.NotEmpty(t, merged3.MergedTo.ProfileId, "P3 should be merged")
 
-		// All three should have same master
 		master1Id := merged1.MergedTo.ProfileId
-		require.Equal(t, master1Id, merged2.MergedTo.ProfileId, "P1 and P2 should have same master")
-		require.Equal(t, master1Id, merged3.MergedTo.ProfileId, "P1 and P3 should have same master")
+		require.Equal(t, master1Id, merged2.MergedTo.ProfileId, "P1 and P2 should share master")
+		require.Equal(t, master1Id, merged3.MergedTo.ProfileId, "P1 and P3 should share master")
 
-		master1, _ := profileSvc.GetProfile(context.Background(), master1Id)
+		master1, _ := profileSvc.GetProfile(context.Background(), master1Id, SuperTenantOrg)
 		require.NotNil(t, master1, "Master1 should exist")
 		require.GreaterOrEqual(t, len(master1.MergedFrom), 3, "Master1 should have at least 3 children")
 
-		// Step 2: Create second hierarchy (Master2 with 2 children)
+		// Step 2: Second hierarchy (Master2 with 2 children)
 		p4 := mustUnmarshalProfile(`{"identity_attributes":{"email":["hierarchy2@wso2.com"],"phone_number":["0772222222"]},"traits":{"interests":["gaming"]}}`)
 		p5 := mustUnmarshalProfile(`{"identity_attributes":{"email":["hierarchy2@wso2.com"]},"traits":{"interests":["music"]}}`)
 
@@ -514,70 +528,87 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 		prof5, _ := profileSvc.CreateProfile(context.Background(), p5, SuperTenantOrg)
 		time.Sleep(3 * time.Second)
 
-		// Verify second hierarchy is created
-		merged4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId)
-		merged5, _ := profileSvc.GetProfile(context.Background(), prof5.ProfileId)
+		merged4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId, SuperTenantOrg)
+		merged5, _ := profileSvc.GetProfile(context.Background(), prof5.ProfileId, SuperTenantOrg)
 
 		require.NotEmpty(t, merged4.MergedTo.ProfileId, "P4 should be merged")
 		require.NotEmpty(t, merged5.MergedTo.ProfileId, "P5 should be merged")
 
 		master2Id := merged4.MergedTo.ProfileId
-		require.Equal(t, master2Id, merged5.MergedTo.ProfileId, "P4 and P5 should have same master")
+		require.Equal(t, master2Id, merged5.MergedTo.ProfileId, "P4 and P5 should share master")
+		require.NotEqual(t, master1Id, master2Id, "Master1 and Master2 should be distinct hierarchies")
 
-		master2, _ := profileSvc.GetProfile(context.Background(), master2Id)
+		master2, _ := profileSvc.GetProfile(context.Background(), master2Id, SuperTenantOrg)
 		require.NotNil(t, master2, "Master2 should exist")
 		require.GreaterOrEqual(t, len(master2.MergedFrom), 2, "Master2 should have at least 2 children")
-		for i, child := range master2.MergedFrom {
-			if i > 0 {
-				fmt.Print(", ")
-			}
-			fmt.Printf("%s", child.ProfileId[:8])
-		}
 
-		// Step 3: Create a profile that connects both hierarchies
-		// P6 shares phone with P3 (from Master1) and shares phone with P4 (from Master2)
+		// Step 3: Bridge profile P6 — phones match BOTH hierarchies.
 		p6 := mustUnmarshalProfile(`{"identity_attributes":{"phone_number":["0771111111","0772222222"]},"traits":{"interests":["sports"]}}`)
 		prof6, _ := profileSvc.CreateProfile(context.Background(), p6, SuperTenantOrg)
 		time.Sleep(5 * time.Second)
 
-		// Step 4: Verify all profiles are now in unified hierarchy
-		finalMerged1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId)
-		finalMerged2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId)
-		finalMerged3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId)
-		finalMerged4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId)
-		finalMerged5, _ := profileSvc.GetProfile(context.Background(), prof5.ProfileId)
-		finalMerged6, _ := profileSvc.GetProfile(context.Background(), prof6.ProfileId)
+		// Step 4: Verify P6 picked ONE master and the other is untouched.
+		finalMerged6, _ := profileSvc.GetProfile(context.Background(), prof6.ProfileId, SuperTenantOrg)
+		require.NotEmpty(t, finalMerged6.MergedTo.ProfileId, "P6 should be auto-merged with one master")
 
-		// All profiles should have a master (merged)
-		require.NotEmpty(t, finalMerged1.MergedTo.ProfileId, "P1 should be in unified hierarchy")
-		require.NotEmpty(t, finalMerged2.MergedTo.ProfileId, "P2 should be in unified hierarchy")
-		require.NotEmpty(t, finalMerged3.MergedTo.ProfileId, "P3 should be in unified hierarchy")
-		require.NotEmpty(t, finalMerged4.MergedTo.ProfileId, "P4 should be in unified hierarchy")
-		require.NotEmpty(t, finalMerged5.MergedTo.ProfileId, "P5 should be in unified hierarchy")
-		require.NotEmpty(t, finalMerged6.MergedTo.ProfileId, "P6 should be in unified hierarchy")
+		chosenMasterId := finalMerged6.MergedTo.ProfileId
+		require.Contains(t, []string{master1Id, master2Id}, chosenMasterId,
+			"P6 should merge into exactly one of the two pre-existing masters (best-fit)")
 
-		// Find the final master
-		finalMasterId := finalMerged6.MergedTo.ProfileId
-		finalMaster, _ := profileSvc.GetProfile(context.Background(), finalMasterId)
-		require.NotNil(t, finalMaster, "Final master should exist")
-
-		// Show all children of final master
-		fmt.Println("\n  Final Master's Direct Children:")
-		for i, child := range finalMaster.MergedFrom {
-			fmt.Printf("    [%d] %s (reason: %s)\n", i+1, child.ProfileId[:8], child.Reason)
+		var otherMasterId string
+		if chosenMasterId == master1Id {
+			otherMasterId = master2Id
+		} else {
+			otherMasterId = master1Id
 		}
 
-		// Verify interests from both hierarchies are combined
-		interests := finalMaster.Traits["interests"].([]interface{})
-		require.GreaterOrEqual(t, len(interests), 4, "Should have interests from multiple profiles")
+		// The chosen master absorbs P6 — its children grow by exactly one.
+		chosenMaster, _ := profileSvc.GetProfile(context.Background(), chosenMasterId, SuperTenantOrg)
+		require.NotNil(t, chosenMaster, "Chosen master should still exist")
+		chosenChildIDs := make(map[string]bool)
+		for _, c := range chosenMaster.MergedFrom {
+			chosenChildIDs[c.ProfileId] = true
+		}
+		require.True(t, chosenChildIDs[prof6.ProfileId], "Chosen master should now include P6 as a child")
 
-		// Verify at least one phone number is present
-		phoneNumbers := finalMaster.IdentityAttributes["phone_number"].([]interface{})
-		require.GreaterOrEqual(t, len(phoneNumbers), 1, "Should have at least one phone number")
+		// The OTHER master is untouched: still a master, still has its original children,
+		// not merged into the chosen master. MergedTo is a pointer and stays nil for masters.
+		otherMaster, _ := profileSvc.GetProfile(context.Background(), otherMasterId, SuperTenantOrg)
+		require.NotNil(t, otherMaster, "Other master should still exist independently")
+		require.Nil(t, otherMaster.MergedTo,
+			"Other master must NOT be auto-merged with the chosen master (no transitive bridge)")
 
-		// Verify email from at least one hierarchy is present
-		emails := finalMaster.IdentityAttributes["email"].([]interface{})
-		require.GreaterOrEqual(t, len(emails), 1, "Should have at least one email")
+		// Original children of each hierarchy remain under their original masters.
+		// P1, P2, P3 stay under master1; P4, P5 stay under master2.
+		stillM1, _ := profileSvc.GetProfile(context.Background(), prof1.ProfileId, SuperTenantOrg)
+		require.Equal(t, master1Id, stillM1.MergedTo.ProfileId, "P1 should still be under Master1")
+		stillM2, _ := profileSvc.GetProfile(context.Background(), prof2.ProfileId, SuperTenantOrg)
+		require.Equal(t, master1Id, stillM2.MergedTo.ProfileId, "P2 should still be under Master1")
+		stillM3, _ := profileSvc.GetProfile(context.Background(), prof3.ProfileId, SuperTenantOrg)
+		require.Equal(t, master1Id, stillM3.MergedTo.ProfileId, "P3 should still be under Master1")
+		stillM4, _ := profileSvc.GetProfile(context.Background(), prof4.ProfileId, SuperTenantOrg)
+		require.Equal(t, master2Id, stillM4.MergedTo.ProfileId, "P4 should still be under Master2")
+		stillM5, _ := profileSvc.GetProfile(context.Background(), prof5.ProfileId, SuperTenantOrg)
+		require.Equal(t, master2Id, stillM5.MergedTo.ProfileId, "P5 should still be under Master2")
+
+		// Step 5: A pending review task should surface the bridge ambiguity for
+		// the OTHER master against the chosen master.
+		irSvc := identityResolutionService.GetIdentityResolutionService()
+		taskList, taskErr := irSvc.GetPendingReviewTasksByProfile(context.Background(), SuperTenantOrg, chosenMasterId, 100)
+		require.NoError(t, taskErr, "Should be able to fetch pending review tasks")
+		require.NotNil(t, taskList, "Task list should not be nil")
+
+		foundBridgeTask := false
+		for _, task := range taskList.Tasks {
+			if (task.IncomingProfileID == chosenMasterId && task.CandidateProfileID == otherMasterId) ||
+				(task.IncomingProfileID == otherMasterId && task.CandidateProfileID == chosenMasterId) {
+				foundBridgeTask = true
+				break
+			}
+		}
+		require.True(t, foundBridgeTask,
+			"A pending review task should exist between chosen master '%s' and other master '%s' to surface the bridge ambiguity",
+			chosenMasterId, otherMasterId)
 
 		cleanProfiles(profileSvc, SuperTenantOrg)
 	})
@@ -586,7 +617,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	t.Cleanup(func() {
 		rules, _ := unificationSvc.GetUnificationRules(context.Background(), SuperTenantOrg)
 		for _, r := range rules {
-			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleId)
+			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleId, SuperTenantOrg)
 		}
 		cleanProfiles(profileSvc, SuperTenantOrg)
 		_ = profileSchemaSvc.DeleteProfileSchema(context.Background(), SuperTenantOrg)

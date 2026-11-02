@@ -218,12 +218,13 @@ type GetProfileOptions struct {
 }
 
 // GetProfile retrieves a profile by its ID, including application data.
-func GetProfile(ctx context.Context, profileId string) (*model.Profile, error) {
-	return GetProfileWithOptions(ctx, profileId, GetProfileOptions{IncludeApplicationData: true})
+func GetProfile(ctx context.Context, profileId, orgHandle string) (*model.Profile, error) {
+	return GetProfileWithOptions(ctx, profileId, orgHandle, GetProfileOptions{IncludeApplicationData: true})
 }
 
 // GetProfileWithOptions retrieves a profile by its ID using the supplied loading options.
-func GetProfileWithOptions(ctx context.Context, profileId string, options GetProfileOptions) (*model.Profile, error) {
+func GetProfileWithOptions(ctx context.Context, profileId, orgHandle string,
+	options GetProfileOptions) (*model.Profile, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -241,7 +242,7 @@ func GetProfileWithOptions(ctx context.Context, profileId string, options GetPro
 
 	query := scripts.GetProfileById
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, profileId, orgHandle)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
@@ -280,7 +281,7 @@ func GetProfileWithOptions(ctx context.Context, profileId string, options GetPro
 }
 
 // GetProfileConsents retrieves the consents of a profile by its profileId
-func GetProfileConsents(ctx context.Context, profileId string) ([]model.ConsentRecord, error) {
+func GetProfileConsents(ctx context.Context, profileId, orgHandle string) ([]model.ConsentRecord, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -316,7 +317,7 @@ func GetProfileConsents(ctx context.Context, profileId string) ([]model.ConsentR
 	}
 	if len(results) == 0 {
 		logger.Debug(fmt.Sprintf("No profile found with the given Id: %s", profileId))
-		var profile, _ = GetProfile(ctx, profileId)
+		var profile, _ = GetProfile(ctx, profileId, orgHandle)
 		if profile != nil {
 			// If no consents found and the user exists, return an empty slice instead of nil
 			return []model.ConsentRecord{}, nil
@@ -499,6 +500,7 @@ func UpdateProfile(ctx context.Context, profile model.Profile) error {
 		identityJSON,
 		profile.UpdatedAt,
 		profile.ProfileId,
+		profile.OrgHandle,
 	)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed updating the profile: %s", profile.ProfileId)
@@ -904,9 +906,9 @@ func DetachRefererProfileFromReference(ctx context.Context, referenceProfileId, 
 }
 
 // InsertMergedMasterProfileAppData adds or updates application-specific context data.
-func InsertMergedMasterProfileAppData(ctx context.Context, profileId string, newAppCtx model.ApplicationData) error {
+func InsertMergedMasterProfileAppData(ctx context.Context, profileId, orgHandle string, newAppCtx model.ApplicationData) error {
 
-	profile, err := GetProfile(ctx, profileId)
+	profile, err := GetProfile(ctx, profileId, orgHandle)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for app data update.", profileId)
@@ -959,9 +961,9 @@ func InsertMergedMasterProfileAppData(ctx context.Context, profileId string, new
 
 // InsertMergedMasterProfileTraitData replaces (PUT) the traits data inside Profile
 func InsertMergedMasterProfileTraitData(ctx context.Context,
-	profileId string, traitsData map[string]interface{}) error {
+	profileId, orgHandle string, traitsData map[string]interface{}) error {
 
-	profile, err := GetProfile(ctx, profileId)
+	profile, err := GetProfile(ctx, profileId, orgHandle)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for trait data update.", profileId)
@@ -989,9 +991,9 @@ func InsertMergedMasterProfileTraitData(ctx context.Context,
 }
 
 // MergeIdentityDataOfProfiles replaces or adds to identity_attributes in Profile
-func MergeIdentityDataOfProfiles(ctx context.Context, profileId string, identityData map[string]interface{}) error {
+func MergeIdentityDataOfProfiles(ctx context.Context, profileId, orgHandle string, identityData map[string]interface{}) error {
 
-	profile, err := GetProfile(ctx, profileId)
+	profile, err := GetProfile(ctx, profileId, orgHandle)
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to fetch profile %s for identity data update.", profileId)
@@ -1324,6 +1326,216 @@ func GetAllProfilesWithFilter(ctx context.Context,
 	return profiles, hasMore, nil
 }
 
+// GetProfileIDsWithFilters returns distinct profile IDs that match the given deterministic filters.
+// Used by the hybrid fuzzy+deterministic search to narrow the fuzzy candidate set.
+// GetProfileIDsWithFilters returns the profiles in an org matching the given filters,
+// restricted to restrictTo when it is non-empty.
+//
+// The restriction exists so hybrid search can intersect in the database rather than in Go.
+// Fetching every matching id and intersecting in memory made a loose filter a full-tenant
+// scan whose result was then mostly discarded; the fuzzy candidate set is already capped,
+// so pushing it down bounds both the query and the memory it returns.
+func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []string,
+	restrictTo []string) ([]string, error) {
+	dbClient, err := provider.NewDBProvider().GetDBClient()
+	logger := log.GetLogger()
+	if err != nil {
+		errorMsg := "Failed to get database client for GetProfileIDsWithFilters."
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.FILTER_PROFILE.Code,
+			Message:     errors2.FILTER_PROFILE.Message,
+			Description: errorMsg,
+		}, err)
+	}
+	defer dbClient.Close()
+
+	baseSQL := scripts.GetProfileIDsWithFiltersBase.GetQuery(dbClient.DBType())
+
+	var conditions []string
+	var args []interface{}
+	argID := 1
+	joinedAppIDs := map[string]bool{}
+
+	conditions = append(conditions, fmt.Sprintf("p.org_handle = $%d", argID))
+	args = append(args, orgHandle)
+	argID++
+
+	for _, f := range filters {
+		parts := strings.SplitN(f, " ", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		field, operator, value := parts[0], parts[1], parts[2]
+
+		var scope, key string
+		if field == "user_id" || field == "profile_id" {
+			scope = field
+			key = ""
+		} else {
+			scopeKey := strings.SplitN(field, ".", 2)
+			if len(scopeKey) != 2 {
+				continue
+			}
+			scope, key = scopeKey[0], scopeKey[1]
+		}
+
+		switch scope {
+		case "identity_attributes", "traits":
+			jsonCol := "p." + scope
+			switch operator {
+			case "eq":
+				valBytes, err := json.Marshal(value)
+				if err != nil {
+					continue
+				}
+				jsonObj := fmt.Sprintf(`{"%s": %s}`, key, string(valBytes))
+				conditions = append(conditions, fmt.Sprintf("%s @> $%d::jsonb", jsonCol, argID))
+				args = append(args, jsonObj)
+			case "co":
+				conditions = append(conditions, fmt.Sprintf("%s ->> '%s' ILIKE $%d", jsonCol, key, argID))
+				args = append(args, "%"+value+"%")
+			case "sw":
+				conditions = append(conditions, fmt.Sprintf("%s ->> '%s' ILIKE $%d", jsonCol, key, argID))
+				args = append(args, value+"%")
+			case "ew":
+				conditions = append(conditions, fmt.Sprintf("%s ->> '%s' ILIKE $%d", jsonCol, key, argID))
+				args = append(args, "%"+value)
+			default:
+				continue
+			}
+			argID++
+
+		case "user_id":
+			switch operator {
+			case "eq":
+				conditions = append(conditions, fmt.Sprintf("p.user_id = $%d", argID))
+				args = append(args, value)
+			case "co":
+				conditions = append(conditions, fmt.Sprintf("p.user_id ILIKE $%d", argID))
+				args = append(args, "%"+value+"%")
+			case "sw":
+				conditions = append(conditions, fmt.Sprintf("p.user_id ILIKE $%d", argID))
+				args = append(args, value+"%")
+			case "ew":
+				conditions = append(conditions, fmt.Sprintf("p.user_id ILIKE $%d", argID))
+				args = append(args, "%"+value)
+			default:
+				continue
+			}
+			argID++
+
+		case "profile_id":
+			switch operator {
+			case "eq":
+				conditions = append(conditions, fmt.Sprintf("p.profile_id = $%d", argID))
+				args = append(args, value)
+			case "co":
+				conditions = append(conditions, fmt.Sprintf("p.profile_id ILIKE $%d", argID))
+				args = append(args, "%"+value+"%")
+			case "sw":
+				conditions = append(conditions, fmt.Sprintf("p.profile_id ILIKE $%d", argID))
+				args = append(args, value+"%")
+			case "ew":
+				conditions = append(conditions, fmt.Sprintf("p.profile_id ILIKE $%d", argID))
+				args = append(args, "%"+value)
+			default:
+				continue
+			}
+			argID++
+
+		case "application_data":
+			var appAlias, appKey string
+
+			if strings.Contains(key, ".") {
+				appScope := strings.SplitN(key, ".", 2)
+				appID := appScope[0]
+				appKey = appScope[1]
+				appAlias = "a_" + sanitizeForAlias(appID)
+
+				if !joinedAppIDs[appID] {
+					baseSQL += fmt.Sprintf(`
+                INNER JOIN application_data %s
+                  ON %s.profile_id = p.profile_id AND %s.app_id = $%d`, appAlias, appAlias, appAlias, argID)
+					args = append(args, appID)
+					argID++
+					joinedAppIDs[appID] = true
+				}
+			} else {
+				appKey = key
+				appAlias = "a"
+				if !joinedAppIDs["__generic"] {
+					baseSQL += ` INNER JOIN application_data a ON a.profile_id = p.profile_id`
+					joinedAppIDs["__generic"] = true
+				}
+			}
+
+			switch operator {
+			case "eq":
+				valBytes, err := json.Marshal(value)
+				if err != nil {
+					continue
+				}
+				jsonObj := fmt.Sprintf(`{"app_specific_data": {"%s": %s}}`, appKey, string(valBytes))
+				conditions = append(conditions, fmt.Sprintf("%s.application_data @> $%d::jsonb", appAlias, argID))
+				args = append(args, jsonObj)
+				argID++
+			case "co":
+				conditions = append(conditions,
+					fmt.Sprintf("%s.application_data -> 'app_specific_data' ->> '%s' ILIKE $%d", appAlias, appKey, argID))
+				args = append(args, "%"+value+"%")
+				argID++
+			case "sw":
+				conditions = append(conditions,
+					fmt.Sprintf("%s.application_data -> 'app_specific_data' ->> '%s' ILIKE $%d", appAlias, appKey, argID))
+				args = append(args, value+"%")
+				argID++
+			case "ew":
+				conditions = append(conditions,
+					fmt.Sprintf("%s.application_data -> 'app_specific_data' ->> '%s' ILIKE $%d", appAlias, appKey, argID))
+				args = append(args, "%"+value)
+				argID++
+			default:
+				continue
+			}
+		}
+	}
+
+	conditions = append(conditions, "r.profile_status = 'REFERENCE_PROFILE'")
+
+	if len(restrictTo) > 0 {
+		placeholders := make([]string, 0, len(restrictTo))
+		for _, id := range restrictTo {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", argID))
+			args = append(args, id)
+			argID++
+		}
+		conditions = append(conditions, "p.profile_id IN ("+strings.Join(placeholders, ", ")+")")
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+	finalSQL := fmt.Sprintf("%s\n%s", baseSQL, whereClause)
+
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetProfileIDsWithFiltersBase.WithSQL(finalSQL), args...)
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to execute GetProfileIDsWithFilters query: %s", err)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.FILTER_PROFILE.Code,
+			Message:     errors2.FILTER_PROFILE.Message,
+			Description: errorMsg,
+		}, err)
+	}
+
+	ids := make([]string, 0, len(results))
+	for _, row := range results {
+		if id, ok := row["profile_id"].(string); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 // sanitizeForAlias converts a string to a valid SQL alias by replacing special characters
 func sanitizeForAlias(input string) string {
 	// Replace any non-alphanumeric character with underscore
@@ -1573,7 +1785,7 @@ func toInt(val interface{}) (int, bool) {
 	return 0, false
 }
 
-func GetProfileWithUserId(ctx context.Context, userId string) (*model.Profile, error) {
+func GetProfileWithUserId(ctx context.Context, userId, orgHandle string) (*model.Profile, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1591,7 +1803,7 @@ func GetProfileWithUserId(ctx context.Context, userId string) (*model.Profile, e
 
 	query := scripts.GetProfileByUserId
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, userId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, userId, orgHandle)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile found with the given userId: %s", userId))
@@ -1708,7 +1920,7 @@ func GetProfileCookieByProfileId(ctx context.Context, profileId string) (*model.
 }
 
 // GetProfileCookie retrieves a profile cookie by profileId
-func GetProfileCookie(ctx context.Context, cookie string) (*model.ProfileCookie, error) {
+func GetProfileCookie(ctx context.Context, cookie, orgHandle string) (*model.ProfileCookie, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -1726,7 +1938,7 @@ func GetProfileCookie(ctx context.Context, cookie string) (*model.ProfileCookie,
 
 	query := scripts.GetCookieByCookieId
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie, orgHandle)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))

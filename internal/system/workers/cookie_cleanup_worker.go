@@ -22,6 +22,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/store"
@@ -70,6 +72,7 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 
 	go func() {
 		defer close(done)
+		defer utils.RecoverPanic("cookie cleanup worker")
 		defer ticker.Stop()
 		for {
 			select {

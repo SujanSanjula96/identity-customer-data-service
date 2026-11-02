@@ -379,6 +379,142 @@ var (
 		Description: "Customer data service is not enabled for the organization",
 	}
 
+	IR_SEARCH_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15501",
+		Message: "Identity resolution failed.",
+	}
+
+	IR_MERGE_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15502",
+		Message: "Merge failed.",
+	}
+
+	IR_REVIEW_TASK_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15503",
+		Message: "Review task operation failed.",
+	}
+
+	IR_BLOCKING_KEYS_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15504",
+		Message: "Blocking key operation failed.",
+	}
+
+	IR_AUDIT_LOG = ErrorMessage{
+		Code:    errorPrefix + "15505",
+		Message: "Merge audit log failed.",
+	}
+
+	IR_SAMPLE_VALUES = ErrorMessage{
+		Code:    errorPrefix + "15506",
+		Message: "Attribute sampling failed.",
+	}
+
+	IR_WORKER_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15507",
+		Message: "Identity resolution worker failed.",
+	}
+
+	IR_CANNOT_MERGE = ErrorMessage{
+		Code:    errorPrefix + "17001",
+		Message: "Cannot merge profiles.",
+	}
+
+	IR_REVIEW_TASK_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17002",
+		Message: "Review task not found.",
+	}
+
+	IR_REVIEW_TASK_RESOLVED = ErrorMessage{
+		Code:    errorPrefix + "17003",
+		Message: "Review task already resolved.",
+	}
+
+	// Organizations and sharing.
+	//   156xx - Server errors
+	//   17xxx - Client errors
+
+	ORGANIZATION_STORE = ErrorMessage{
+		Code:    errorPrefix + "15601",
+		Message: "Error while accessing organizations.",
+	}
+
+	ORGANIZATION_SYNC = ErrorMessage{
+		Code:    errorPrefix + "15602",
+		Message: "Error while syncing organizations with the identity provider.",
+	}
+
+	SHARE_STORE = ErrorMessage{
+		Code:    errorPrefix + "15603",
+		Message: "Error while accessing share policies.",
+	}
+
+	SHARE_BAD_REQUEST = ErrorMessage{
+		Code:    errorPrefix + "17014",
+		Message: "Invalid share request.",
+	}
+
+	SHARED_RESOURCE_READ_ONLY = ErrorMessage{
+		Code:        errorPrefix + "17015",
+		Message:     "Shared resource is read-only.",
+		Description: "Only the owner organization can change a shared resource.",
+	}
+
+	SHARE_POLICY_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17016",
+		Message: "Share policy not found.",
+	}
+
+	SHARED_NAME_CONFLICT = ErrorMessage{
+		Code:    errorPrefix + "17004",
+		Message: "Name is used by a shared resource.",
+	}
+
+	ORGANIZATION_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17006",
+		Message: "Organization not found.",
+	}
+
+	SUB_ORG_CONFIG_NOT_ALLOWED = ErrorMessage{
+		Code:        errorPrefix + "17007",
+		Message:     "Configuration is inherited.",
+		Description: "A child organization inherits the CDS enablement from its primary organization.",
+	}
+
+	SHARE_POLICY_EXISTS = ErrorMessage{
+		Code:    errorPrefix + "17008",
+		Message: "Policy already exists.",
+	}
+
+	ORGANIZATION_PATH_NOT_SUPPORTED = ErrorMessage{
+		Code:        errorPrefix + "17009",
+		Message:     "Organization path not supported.",
+		Description: "The requested organization cannot be accessed using this API path.",
+	}
+	SUB_ORG_WRITE_NOT_ALLOWED = ErrorMessage{
+		Code:    errorPrefix + "17013",
+		Message: "Child organization is read-only.",
+		Description: "A child organization cannot change the profile schema, the unification rules, the consent " +
+			"categories, the sharing policies, or the configuration.",
+	}
+
+	INHERITED_ATTRIBUTE_READ_ONLY = ErrorMessage{
+		Code:        errorPrefix + "17010",
+		Message:     "Inherited attribute is read-only.",
+		Description: "A child organization only inherits the identity attributes from its primary organization.",
+	}
+
+	ORGANIZATIONS_NOT_SYNCED = ErrorMessage{
+		Code:        errorPrefix + "17011",
+		Message:     "Organizations are not synced.",
+		Description: "Sync the organizations with POST /organizations/sync, and wait until it completes.",
+	}
+
+	TREE_SYNC_RUNNING = ErrorMessage{
+		Code:        errorPrefix + "17012",
+		Message:     "Organization sync is running.",
+		Description: "Wait until the running sync completes. GET /organizations/sync-status returns its state.",
+	}
+
 	INVALID_FILTER_FORMAT = ErrorMessage{
 		Code:    errorPrefix + "19001",
 		Message: "Invalid filter format.",

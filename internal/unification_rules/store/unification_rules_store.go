@@ -23,8 +23,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -34,6 +37,8 @@ import (
 
 // AddUnificationRule adds a new unification rule to the database
 func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId string) error {
+
+	defer invalidateRulesCache()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -51,8 +56,9 @@ func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId s
 
 	query := scripts.InsertUnificationRule
 
-	_, err = dbClient.ExecuteQueryContext(ctx, query, rule.RuleId, orgId, rule.RuleName, rule.PropertyName, rule.PropertyId, rule.Priority, rule.IsActive,
-		rule.CreatedAt, rule.UpdatedAt)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, rule.RuleId, orgId, rule.RuleName, rule.PropertyName,
+		rule.PropertyId, rule.Priority, rule.IsActive, rule.AttributeType, rule.UnificationMethod,
+		rule.MatchStrength, rule.MismatchStrength, rule.CreatedAt, rule.UpdatedAt)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while adding unification rule: %s", rule.RuleName)
 		logger.Debug(errorMsg, log.Error(err))
@@ -69,7 +75,29 @@ func AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId s
 }
 
 // GetUnificationRules fetches all unification rules from the database
+// rulesCache holds an organisation's rule set between writes.
+//
+// Every profile write reads the rules at least twice — once to decide whether the write is
+// worth resolving, once in the worker that resolves it — and rules change perhaps a few
+// times a year. The TTL is a backstop rather than the mechanism: a write on this instance
+// invalidates immediately, and the TTL bounds how long another instance can serve a stale
+// set after a rule changes elsewhere.
+var rulesCache = cache.NewCache(constants.UnificationRulesCacheTTL)
+
+// invalidateRulesCache drops every cached rule set. Rule writes are rare and the cache is
+// small, so clearing all of it is cheaper than threading an org handle through the write
+// paths that only carry a rule id.
+func invalidateRulesCache() {
+	rulesCache.Clear()
+}
+
 func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.UnificationRule, error) {
+
+	if cached, found := rulesCache.Get(orgHandle); found {
+		if rules, ok := cached.([]model.UnificationRule); ok {
+			return rules, nil
+		}
+	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -100,25 +128,17 @@ func GetUnificationRules(ctx context.Context, orgHandle string) ([]model.Unifica
 
 	var rules []model.UnificationRule
 	for _, row := range results {
-		var rule model.UnificationRule
-		rule.RuleId = row["rule_id"].(string)
-		rule.RuleName = row["rule_name"].(string)
-		rule.PropertyName = row["property_name"].(string)
-		rule.PropertyId = row["property_id"].(string)
-		rule.Priority = int(row["priority"].(int64))
-		rule.IsActive = row["is_active"].(bool)
-		rule.CreatedAt = row["created_at"].(time.Time)
-		rule.UpdatedAt = row["updated_at"].(time.Time)
-
-		rules = append(rules, rule)
+		rules = append(rules, scanUnificationRule(row))
 	}
+
+	rulesCache.Set(orgHandle, rules)
 
 	logger.Info(fmt.Sprintf("Successfully fetched all unification rules for organization: %s", orgHandle))
 	return rules, nil
 }
 
 // GetUnificationRule fetches a specific unification rule by its Id
-func GetUnificationRule(ctx context.Context, ruleId string) (*model.UnificationRule, error) {
+func GetUnificationRule(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -135,7 +155,7 @@ func GetUnificationRule(ctx context.Context, ruleId string) (*model.UnificationR
 	defer dbClient.Close()
 
 	query := scripts.GetUnificationRule
-	results, err := dbClient.ExecuteQueryContext(ctx, query, ruleId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, ruleId, orgHandle)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			logger.Debug(fmt.Sprintf("No unification rule found for rule_id: %s ", ruleId))
@@ -156,23 +176,53 @@ func GetUnificationRule(ctx context.Context, ruleId string) (*model.UnificationR
 		return nil, nil
 	}
 
-	row := results[0]
-	var rule model.UnificationRule
-	rule.RuleId = row["rule_id"].(string)
-	rule.RuleName = row["rule_name"].(string)
-	rule.PropertyName = row["property_name"].(string)
-	rule.PropertyId = row["property_id"].(string)
-	rule.Priority = int(row["priority"].(int64))
-	rule.IsActive = row["is_active"].(bool)
-	rule.CreatedAt = row["created_at"].(time.Time)
-	rule.UpdatedAt = row["updated_at"].(time.Time)
+	rule := scanUnificationRule(results[0])
 
 	logger.Info("Successfully fetched unification rule for rule_id: " + ruleId)
 	return &rule, nil
 }
 
+// GetUnificationRulesByIds returns the rules with the IDs.
+func GetUnificationRulesByIds(ctx context.Context, ruleIds []string) ([]model.UnificationRule, error) {
+
+	if len(ruleIds) == 0 {
+		return nil, nil
+	}
+	serverError := func(description string, err error) error {
+		return errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_UNIFICATION_RULE.Code,
+			Message:     errors2.GET_UNIFICATION_RULE.Message,
+			Description: description,
+		}, err)
+	}
+	dbClient, err := provider.NewDBProvider().GetDBClient()
+	if err != nil {
+		return nil, serverError("Failed to get a database client to read rules by ID.", err)
+	}
+	defer dbClient.Close()
+
+	placeholders := make([]string, len(ruleIds))
+	args := make([]interface{}, len(ruleIds))
+	for i, id := range ruleIds {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	results, err := dbClient.ExecuteQueryContext(ctx,
+		scripts.GetUnificationRulesByIds.Format(strings.Join(placeholders, ", ")), args...)
+	if err != nil {
+		return nil, serverError("Failed to read rules by ID.", err)
+	}
+	rules := make([]model.UnificationRule, 0, len(results))
+	for _, row := range results {
+		rules = append(rules, scanUnificationRule(row))
+	}
+	return rules, nil
+}
+
 // PatchUnificationRule applies partial updates to a unification rule.
-func PatchUnificationRule(ctx context.Context, ruleId string, updatedRule model.UnificationRule) error {
+func PatchUnificationRule(ctx context.Context, ruleId, orgHandle string, updatedRule model.UnificationRule) error {
+
+	defer invalidateRulesCache()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -189,7 +239,10 @@ func PatchUnificationRule(ctx context.Context, ruleId string, updatedRule model.
 	defer dbClient.Close()
 
 	query := scripts.UpdateUnificationRule
-	_, err = dbClient.ExecuteQueryContext(ctx, query, updatedRule.RuleName, updatedRule.Priority, updatedRule.IsActive, time.Now().UTC(), ruleId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, updatedRule.RuleName, updatedRule.Priority,
+		updatedRule.IsActive, updatedRule.AttributeType, updatedRule.UnificationMethod,
+		updatedRule.MatchStrength, updatedRule.MismatchStrength, time.Now().UTC(), ruleId,
+		orgHandle)
 
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while updating unification rule for rule_id: %s", ruleId)
@@ -207,7 +260,9 @@ func PatchUnificationRule(ctx context.Context, ruleId string, updatedRule model.
 }
 
 // DeleteUnificationRule deletes a unification rule by its Id
-func DeleteUnificationRule(ctx context.Context, ruleId string) error {
+func DeleteUnificationRule(ctx context.Context, ruleId, orgHandle string) error {
+
+	defer invalidateRulesCache()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -224,7 +279,7 @@ func DeleteUnificationRule(ctx context.Context, ruleId string) error {
 	defer dbClient.Close()
 
 	query := scripts.DeleteUnificationRule
-	_, err = dbClient.ExecuteQueryContext(ctx, query, ruleId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, ruleId, orgHandle)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to delete unification rule: %s", ruleId)
 		logger.Debug(errorMsg, log.Error(err))
@@ -237,4 +292,62 @@ func DeleteUnificationRule(ctx context.Context, ruleId string) error {
 	}
 	logger.Info("Successfully deleted unification rule with rule_id: " + ruleId)
 	return nil
+}
+
+// scanUnificationRule reads one row without asserting column types outright.
+//
+// A bare assertion panics on an unexpected NULL, and this runs on the unification worker's
+// goroutine where a panic would take the process down rather than fail one request.
+// property_id in particular is a nullable foreign key, so the value really can be nil.
+func scanUnificationRule(row map[string]interface{}) model.UnificationRule {
+	var rule model.UnificationRule
+
+	rule.RuleId = stringColumn(row, "rule_id")
+	rule.OrgHandle = stringColumn(row, "org_handle")
+	rule.RuleName = stringColumn(row, "rule_name")
+	rule.PropertyName = stringColumn(row, "property_name")
+	rule.PropertyId = stringColumn(row, "property_id")
+	rule.AttributeType = stringColumn(row, "attribute_type")
+	rule.UnificationMethod = stringColumn(row, "unification_method")
+	rule.MatchStrength = stringColumn(row, "match_strength")
+	rule.MismatchStrength = stringColumn(row, "mismatch_strength")
+	rule.Priority = intColumn(row, "priority")
+
+	if value, ok := row["is_active"].(bool); ok {
+		rule.IsActive = value
+	}
+	if value, ok := row["created_at"].(time.Time); ok {
+		rule.CreatedAt = value
+	}
+	if value, ok := row["updated_at"].(time.Time); ok {
+		rule.UpdatedAt = value
+	}
+
+	return rule
+}
+
+func stringColumn(row map[string]interface{}, column string) string {
+	switch value := row[column].(type) {
+	case string:
+		return value
+	case []byte:
+		return string(value)
+	default:
+		return ""
+	}
+}
+
+func intColumn(row map[string]interface{}, column string) int {
+	switch value := row[column].(type) {
+	case int64:
+		return int(value)
+	case int32:
+		return int(value)
+	case int:
+		return value
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
 }

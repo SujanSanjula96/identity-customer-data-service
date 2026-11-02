@@ -69,7 +69,7 @@ func workerProfile(t *testing.T, db *sql.DB, id, userID, attrs string, age time.
 	_, err = db.Exec(`INSERT INTO profile_reference (profile_id, org_handle, profile_status, reference_reason)
 		VALUES (?, 'tenant', 'REFERENCE_PROFILE', '')`, id)
 	require.NoError(t, err)
-	p, err := profileStore.GetProfileWithOptions(context.Background(), id,
+	p, err := profileStore.GetProfileWithOptions(context.Background(), id, "tenant",
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -120,37 +120,40 @@ func TestUnificationUserIDPrecedesRulesAndPreservesApplicationData(t *testing.T)
 	require.Equal(t, map[string]interface{}{"theme": "dark"}, data["new-app"])
 }
 
-func TestUnificationRulePriorityAndSingleMerge(t *testing.T) {
-	db := candidateWorkerDB(t)
-	workerRule(t, db, "phone-rule", "identity_attributes.phone", 1, true)
-	workerRule(t, db, "email-rule", "identity_attributes.email", 2, true)
-	workerRule(t, db, "inactive-rule", "identity_attributes.inactive", 0, false)
-	workerProfile(t, db, "email-master", "email-user", `{"email":"shared","inactive":"yes"}`, 2*time.Hour)
-	workerProfile(t, db, "phone-master", "phone-user", `{"phone":"123"}`, time.Hour)
-	incoming := workerProfile(t, db, "incoming", "", `{"email":"shared","phone":"123","inactive":"yes"}`, 0)
-	unifyProfiles(context.Background(), incoming)
-	var parent, reason string
-	require.NoError(t, db.QueryRow(`SELECT reference_profile_id, reference_reason FROM profile_reference WHERE profile_id='incoming'`).Scan(&parent, &reason))
-	require.Equal(t, "phone-master", parent)
-	require.Equal(t, "phone-rule", reason)
-	var status string
-	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference WHERE profile_id='email-master'`).Scan(&status))
-	require.Equal(t, "REFERENCE_PROFILE", status)
-}
-
-func TestUnificationSkipsConflictingUserIDCandidate(t *testing.T) {
+// TestRuleMatchingIsDelegatedToIdentityResolution pins where rule-based matching lives.
+//
+// This replaces two tests that asserted the worker merged on the first rule whose value
+// matched, reasoned with that rule's name. Rule evaluation now belongs to the identity
+// resolution pipeline, which scores every rule against each candidate rather than stopping
+// at the first, and can route a pair to review instead of merging it. The worker only
+// delegates. Driving the pipeline from here would mean importing it, and it imports the
+// worker, so its behaviour is covered in test/integration instead.
+//
+// The user-ID invariant above is unaffected and still merges in the worker.
+func TestRuleMatchingIsDelegatedToIdentityResolution(t *testing.T) {
 	db := candidateWorkerDB(t)
 	workerRule(t, db, "email-rule", "identity_attributes.email", 1, true)
-	workerProfile(t, db, "old-conflict", "other-user", `{"email":"shared"}`, 2*time.Hour)
-	workerProfile(t, db, "eligible-temp", "", `{"email":"shared"}`, time.Hour)
-	incoming := workerProfile(t, db, "incoming", "incoming-user", `{"email":"shared"}`, 0)
+	workerProfile(t, db, "email-master", "", `{"email":"shared"}`, time.Hour)
+	incoming := workerProfile(t, db, "incoming", "", `{"email":"shared"}`, 0)
+
+	previous := fuzzyResolveFunc
+	t.Cleanup(func() { fuzzyResolveFunc = previous })
+
+	var delegated []string
+	RegisterFuzzyResolveFunc(func(_ context.Context, p profileModel.Profile) {
+		delegated = append(delegated, p.ProfileId)
+	})
+
 	unifyProfiles(context.Background(), incoming)
-	var status, parent, reason string
-	require.NoError(t, db.QueryRow(`SELECT profile_status, reference_profile_id, reference_reason
-		FROM profile_reference WHERE profile_id='eligible-temp'`).Scan(&status, &parent, &reason))
-	require.Equal(t, "MERGED_TO", status)
-	require.Equal(t, "incoming", parent)
-	require.Equal(t, "email-rule", reason)
+
+	require.Equal(t, []string{"incoming"}, delegated,
+		"a profile with no user-ID match must be handed to identity resolution")
+
+	var parent interface{}
+	require.NoError(t, db.QueryRow(
+		`SELECT reference_profile_id FROM profile_reference WHERE profile_id='incoming'`).Scan(&parent))
+	require.Nil(t, parent,
+		"the worker must not merge on a rule itself — that decision belongs to the scorer")
 }
 
 func TestUnificationChildStaysWithParent(t *testing.T) {
@@ -160,7 +163,7 @@ func TestUnificationChildStaysWithParent(t *testing.T) {
 	_, err := db.Exec(`UPDATE profile_reference SET profile_status='MERGED_TO', reference_profile_id='parent'
 		WHERE profile_id='incoming'`)
 	require.NoError(t, err)
-	child, err := profileStore.GetProfileWithOptions(context.Background(), "incoming",
+	child, err := profileStore.GetProfileWithOptions(context.Background(), "incoming", "tenant",
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
 	unifyProfiles(context.Background(), *child)
@@ -191,7 +194,7 @@ func TestCandidateDiscoveryDoesNotRequireApplicationDataTable(t *testing.T) {
 	incoming := workerProfile(t, db, "incoming", "", `{"email":"b"}`, 0)
 	_, err := db.Exec(`DROP TABLE application_data`)
 	require.NoError(t, err)
-	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileId,
+	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileId, incoming.OrgHandle,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
 	id, err := profileStore.FindOldestReferenceProfileIDByAttributeValues(context.Background(), incoming.OrgHandle,

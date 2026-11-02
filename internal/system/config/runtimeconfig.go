@@ -52,3 +52,10 @@ func GetCDSRuntime() *CDSRuntime {
 	}
 	return runtimeConfig
 }
+
+// OrganizationManagementEnabled reports whether organization management is enabled. It is false
+// before the runtime configuration is initialized.
+func OrganizationManagementEnabled() bool {
+
+	return runtimeConfig != nil && runtimeConfig.Config.OrganizationManagement.Enabled
+}

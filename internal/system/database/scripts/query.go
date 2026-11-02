@@ -32,6 +32,7 @@ import "github.com/wso2/identity-customer-data-service/internal/system/database/
 //	CDS-CON  consent_categories, consent_category_attributes, profile_consents
 //	CDS-CKI  profile_cookies
 //	CDS-CFG  cds_config
+//	CDS-IDR  blocking_keys, review_tasks, rejection_pairs
 //	CDS-SYS  statements bound to no table
 //
 // An id is permanent: give a new statement the next unused number in its

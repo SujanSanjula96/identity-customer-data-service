@@ -53,10 +53,22 @@ func CompleteStatement(name, statement string) string {
 		return statement + "attribute_name = $1 WHERE org_handle = $2 AND attribute_id = $3"
 	case "UpsertIdentityClaimsForProfileSchema":
 		return fmt.Sprintf(statement, QueryPlaceholders(13))
-	case "DeleteStaleIdentityClaimsForProfileSchema":
+	case "InsertSharePolicyTargets":
+		return fmt.Sprintf(statement, QueryPlaceholders(3))
+	case "DeleteStaleIdentityClaimsForProfileSchema", "GetSharePoliciesByOwners":
 		return fmt.Sprintf(statement, "$2")
-	case "GetAppDataByProfileIds", "GetConsentCategoryAttributesByCategoryIds":
+	case "GetAppDataByProfileIds", "GetConsentCategoryAttributesByCategoryIds", "GetOrganizationsByIds",
+		"GetProfileSchemaAttributesByIds", "GetUnificationRulesByIds":
 		return fmt.Sprintf(statement, "$1")
+	case "IRGetProfilesByIDs":
+		return fmt.Sprintf(statement, "$1")
+	case "IRFindCandidateIDsByKeys":
+		// An IN list plus the positions of the exclude and limit arguments.
+		return fmt.Sprintf(statement, "$1", 2, 3)
+	case "IRInsertBlockingKeys":
+		return fmt.Sprintf(statement, "($1, $2, $3, $4)")
+	case "GetProfileIDsWithFiltersBase":
+		return statement + " WHERE p.org_handle = $1"
 	default:
 		return statement
 	}

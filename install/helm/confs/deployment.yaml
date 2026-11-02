@@ -21,6 +21,9 @@ server_url: {{ .Values.cloud.deployment.cds.config.serverUrl | quote }}
 
 application_identifier_type: {{ .Values.cloud.deployment.cds.config.applicationIdentifierType | quote }}
 
+organization_management:
+  enabled: {{ .Values.cloud.deployment.cds.config.organizationManagement.enabled }}
+
 auth_server:
   host: {{ .Values.cloud.deployment.cds.config.identityServer.host }}
   port : {{ .Values.cloud.deployment.cds.config.identityServer.port }}
@@ -57,6 +60,10 @@ auth_server:
       - "internal_cds_unification_rule_update"
     unification_rules:delete:
       - "internal_cds_unification_rule_delete"
+    unification_rules:share_view:
+      - "internal_cds_unification_rule_share_view"
+    unification_rules:share_update:
+      - "internal_cds_unification_rule_share_update"
 
     profile_schema:view:
       - "internal_cds_profile_schema_view"
@@ -66,11 +73,52 @@ auth_server:
       - "internal_cds_profile_schema_update"
     profile_schema:delete:
       - "internal_cds_profile_schema_delete"
+    profile_schema:share_view:
+      - "internal_cds_profile_schema_share_view"
+    profile_schema:share_update:
+      - "internal_cds_profile_schema_share_update"
 
     admin_config:view:
       - "internal_cds_admin_config_view"
     admin_config:update:
       - "internal_cds_admin_config_update"
+    organization:view:
+      - "internal_cds_organization_view"
+    organization:update:
+      - "internal_cds_organization_update"
+
+    identity_resolution:view:
+      - "internal_cds_identity_resolution_view"
+    identity_resolution:update:
+      - "internal_cds_identity_resolution_update"
+
+    org:profile:create:
+      - "internal_org_cds_profile_create"
+    org:profile:update:
+      - "internal_org_cds_profile_update"
+    org:profile:view:
+      - "internal_org_cds_profile_view"
+    org:profile:delete:
+      - "internal_org_cds_profile_delete"
+    org:profile:link:
+      - "internal_org_cds_profile_link"
+
+    org:unification_rules:view:
+      - "internal_org_cds_unification_rule_view"
+
+    org:profile_schema:view:
+      - "internal_org_cds_profile_schema_view"
+
+    org:admin_config:view:
+      - "internal_org_cds_admin_config_view"
+
+    org:consent_category:view:
+      - "internal_org_cds_consent_category_view"
+
+    org:identity_resolution:view:
+      - "internal_org_cds_identity_resolution_view"
+    org:identity_resolution:update:
+      - "internal_org_cds_identity_resolution_update"
 
 shutdown:
   grace_period_seconds: {{ .Values.cloud.deployment.cds.config.shutdown.gracePeriodSeconds }}
@@ -106,3 +154,7 @@ message_queue:
     password: "${ACTIVE_MQ_PASSWORD}"
     profile_queue_name: {{ .Values.cloud.deployment.cds.config.message_queue.broker.profile_queue_name }}
     schema_sync_queue_name: {{ .Values.cloud.deployment.cds.config.message_queue.broker.schema_sync_queue_name }}
+
+identity_resolution:
+  allow_evidence_strength_override: {{ .Values.cloud.deployment.cds.config.identityResolution.allowEvidenceStrengthOverride }}
+  fuzzy_matching_enabled: {{ .Values.cloud.deployment.cds.config.identityResolution.fuzzyMatchingEnabled }}

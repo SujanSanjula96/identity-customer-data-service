@@ -33,6 +33,8 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 	"github.com/wso2/identity-customer-data-service/test/integration/utils"
 	"github.com/wso2/identity-customer-data-service/test/setup"
+
+	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
 )
 
 // suiteDB is the datasource the suite is running against, for the tests that
@@ -114,6 +116,8 @@ func TestMain(m *testing.M) {
 		fmt.Println("Failed to start profile worker:", err)
 		os.Exit(1)
 	}
+	workers.RegisterFuzzyResolveFunc(irWorker.ResolveProfileAsync)
+	workers.RegisterReindexAfterMergeFunc(irWorker.ReindexAfterMerge)
 
 	// Initialize Schema Sync worker
 	if err := workers.StartSchemaSyncWorker(); err != nil {

@@ -1,6 +1,6 @@
 module github.com/wso2/identity-customer-data-service
 
-go 1.26.5
+go 1.26.10
 
 require (
 	github.com/go-stomp/stomp/v3 v3.1.5

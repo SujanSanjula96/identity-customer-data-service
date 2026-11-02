@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/handler"
+	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
@@ -52,6 +53,15 @@ func NewProfileSchemaService(mux *http.ServeMux) *ProfileSchemaService {
 	s.mux.HandleFunc("GET "+base+"/profile-schema/{scope}/{attrID}", s.handler.GetProfileSchemaAttributeById)
 	s.mux.HandleFunc("PUT "+base+"/profile-schema/{scope}/{attrID}", s.handler.PatchProfileSchemaAttributeById)
 	s.mux.HandleFunc("DELETE "+base+"/profile-schema/{scope}/{attrID}", s.handler.DeleteProfileSchemaAttributeById)
+
+	if config.OrganizationManagementEnabled() {
+		const policies = base + "/profile-schema/{scope}/{attrID}/sharing-policies"
+		s.mux.HandleFunc("POST "+policies, s.handler.CreateSharingPolicy)
+		s.mux.HandleFunc("GET "+policies, s.handler.ListSharingPolicies)
+		s.mux.HandleFunc("GET "+policies+"/{policyId}", s.handler.GetSharingPolicy)
+		s.mux.HandleFunc("PUT "+policies+"/{policyId}", s.handler.UpdateSharingPolicy)
+		s.mux.HandleFunc("DELETE "+policies+"/{policyId}", s.handler.DeleteSharingPolicy)
+	}
 
 	return s
 }

@@ -21,15 +21,21 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/store"
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
 	consentService "github.com/wso2/identity-customer-data-service/internal/consent/service"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/organization/suborg"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
+	sharingService "github.com/wso2/identity-customer-data-service/internal/sharing/service"
 	sysconfig "github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // AdminConfigServiceInterface defines the service interface.
@@ -46,12 +52,22 @@ type AdminConfigServiceInterface interface {
 // AdminConfigService is the default implementation.
 type AdminConfigService struct{}
 
+// IsCDSEnabled reports whether CDS is enabled for the organization. A sub organization is enabled
+// when its primary organization is enabled and the organization access includes it.
 func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgHandle string) bool {
 	config, err := store.GetAdminConfig(ctx, orgHandle)
-	if err != nil || config == nil {
+	if err == nil && config != nil && config.CDSEnabled {
+		return true
+	}
+	primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle)
+	if !known || primaryHandle == orgHandle {
 		return false
 	}
-	return config.CDSEnabled
+	primaryConfig, err := store.GetAdminConfig(ctx, primaryHandle)
+	if err != nil || primaryConfig == nil || !primaryConfig.CDSEnabled {
+		return false
+	}
+	return sharingService.IsSubOrgEnabled(ctx, orgHandle)
 }
 
 func (a AdminConfigService) IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool {
@@ -110,16 +126,131 @@ func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgHandle string
 		CORSAllowedOrigins:    []string{},
 	}
 	config, err := store.GetAdminConfig(ctx, orgHandle)
-	if err != nil || config == nil {
+	if err != nil {
 		return defaultConfig, err
 	}
+	if config == nil {
+		config = &defaultConfig
+	}
+	// A sub organization uses the enablement of its primary organization.
+	if !config.CDSEnabled {
+		config.CDSEnabled = a.IsCDSEnabled(ctx, orgHandle)
+	}
+	// A sub organization uses the identity resolution settings of its primary organization.
+	if primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle); known && primaryHandle != orgHandle {
+		primaryConfig, err := store.GetAdminConfig(ctx, primaryHandle)
+		if err != nil {
+			return defaultConfig, err
+		}
+		if primaryConfig != nil {
+			config.AutoMergeEnabled = primaryConfig.AutoMergeEnabled
+			config.AutoMergeThreshold = primaryConfig.AutoMergeThreshold
+			config.ManualReviewThreshold = primaryConfig.ManualReviewThreshold
+			config.DeterministicMatchDecisive = primaryConfig.DeterministicMatchDecisive
+		}
+	}
 	return *config, nil
+}
+
+// validateThresholds checks the two score thresholds against each other rather than only in
+// isolation, because each is individually reasonable at values that break the engine when
+// combined.
+//
+// Both bounds protect an invariant the scorer relies on:
+//
+//   - A match that an objection downgrades is capped at auto_merge − ScorePenaltyOffset, and
+//     that capped score has to stay at or above the review threshold. Otherwise capping
+//     suppresses the match entirely instead of escalating it to a person — no merge, no
+//     review task, and nothing in the logs to say a candidate was ever found.
+//   - The review threshold is also the bar a rule must clear to count as agreeing. Set at or
+//     below the contradiction bar, scores the engine treats as near-noise start counting as
+//     agreements and can become the primary signal for a merge.
+//
+// Zero means the organisation has never set that threshold, so the shipped default is what
+// it is actually running and is what gets validated.
+// thresholdPrecision is the number of decimal places a score is expressed in, and so the
+// precision these comparisons are meaningful to.
+const thresholdPrecision = 10000
+
+func roundToThresholdPrecision(value float64) float64 {
+	return math.Round(value*thresholdPrecision) / thresholdPrecision
+}
+
+func validateThresholds(autoMerge, manualReview float64) error {
+	// A value outside the range a score is expressed in is not applied: the store reads it
+	// back as unset and the organisation keeps running on the shipped default. Accepting it
+	// would report a setting that has no effect.
+	if autoMerge < 0 || autoMerge > 1 {
+		return errors.NewClientError(errors.ErrorMessage{
+			Code:    errors.UPDATE_CONFIG_BAD_REQUEST.Code,
+			Message: errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+			Description: fmt.Sprintf(
+				"auto_merge_threshold (%g) must be between 0 and 1, the range a match score is "+
+					"expressed in. To stop automatic merging, set auto_merge_enabled to false.",
+				autoMerge),
+		}, http.StatusBadRequest)
+	}
+	if manualReview < 0 || manualReview > 1 {
+		return errors.NewClientError(errors.ErrorMessage{
+			Code:    errors.UPDATE_CONFIG_BAD_REQUEST.Code,
+			Message: errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+			Description: fmt.Sprintf(
+				"manual_review_threshold (%g) must be between 0 and 1, the range a match score is "+
+					"expressed in.", manualReview),
+		}, http.StatusBadRequest)
+	}
+
+	if autoMerge == 0 {
+		autoMerge = constants.DefaultAutoMergeThreshold
+	}
+	if manualReview == 0 {
+		manualReview = constants.DefaultManualReviewThreshold
+	}
+
+	if manualReview <= constants.ScoreContradictionThreshold {
+		return errors.NewClientError(errors.ErrorMessage{
+			Code:    errors.UPDATE_CONFIG_BAD_REQUEST.Code,
+			Message: errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+			Description: fmt.Sprintf(
+				"manual_review_threshold must be greater than %g. It is also the score at which a rule "+
+					"counts as agreeing, so a lower value lets near-unrelated values count as evidence.",
+				constants.ScoreContradictionThreshold),
+		}, http.StatusBadRequest)
+	}
+
+	// Rounded to the precision the thresholds are expressed in. Subtracting the offset in
+	// binary floating point lands just under the decimal value — 0.82 - 0.01 is
+	// 0.80999999999999994 — so an exactly representable pair like 0.82/0.81 would be refused
+	// for being a ten-thousandth of a percent too high, which no caller can act on.
+	if highest := roundToThresholdPrecision(autoMerge - constants.ScorePenaltyOffset); manualReview > highest {
+		return errors.NewClientError(errors.ErrorMessage{
+			Code:    errors.UPDATE_CONFIG_BAD_REQUEST.Code,
+			Message: errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+			Description: fmt.Sprintf(
+				"manual_review_threshold (%g) must be at most %g, which is auto_merge_threshold (%g) "+
+					"less %g. A match held back from an automatic merge is scored just under "+
+					"auto_merge_threshold, and it has to stay high enough to still raise a review task.",
+				manualReview, highest, autoMerge, constants.ScorePenaltyOffset),
+		}, http.StatusBadRequest)
+	}
+
+	return nil
 }
 
 // UpdateAdminConfig validates and stores the organisation's configuration. It normalizes
 // updatedConfig in place, so the caller can report back exactly what was stored.
 func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	updatedConfig *model.AdminConfig, orgHandle string) error {
+	// A sub organization cannot change the configuration.
+	if err := suborg.RejectWrite(ctx, orgHandle); err != nil {
+		return err
+	}
+
+	logger := log.GetLogger()
+
+	if err := validateThresholds(updatedConfig.AutoMergeThreshold, updatedConfig.ManualReviewThreshold); err != nil {
+		return err
+	}
 	validatedOrigins, err := validateCORSOrigins(updatedConfig.CORSAllowedOrigins)
 	if err != nil {
 		return err
@@ -137,6 +268,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		// CDS is being enabled for the first time. Trigger initial schema sync.
 		err := schemaService.SyncProfileSchema(ctx, orgHandle)
 		if err != nil {
+			logger.Error(fmt.Sprintf("UpdateAdminConfig: schema sync failed for org=%s", orgHandle), log.Error(err))
 			return err
 		}
 		// Seed the mandatory "Identity Data" consent category after schema is ready.
@@ -144,6 +276,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 			return err
 		}
 		updatedConfig.InitialSchemaSyncDone = true
+		logger.Debug(fmt.Sprintf("UpdateAdminConfig: CDS enabled for org=%s", orgHandle))
 	}
 
 	// In app_id mode, register each system application so its clientId->app_id mapping exists for the GET path.
@@ -171,6 +304,24 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	// Drop the cached origins so this process serves the new list at once. Other replicas
 	// pick it up when their own entry expires.
 	corsOriginsCache.Delete(orgHandle)
+
+	if !sysconfig.OrganizationManagementEnabled() {
+		return nil
+	}
+
+	// Disabling CDS resets the organization tree sync.
+	if isCDSEnabledInitialState && !updatedConfig.CDSEnabled {
+		if err := orgService.ResetTreeSync(ctx, orgHandle); err != nil {
+			return err
+		}
+	}
+
+	// Enabling CDS stores the primary organization.
+	if !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
+		if _, err := orgService.EnsurePrimary(ctx, orgHandle); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

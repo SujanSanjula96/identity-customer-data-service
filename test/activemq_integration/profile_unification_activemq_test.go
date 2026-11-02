@@ -109,9 +109,9 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	// ── Assertions ───────────────────────────────────────────────────────────
-	merged1, err := profileSvc.GetProfile(context.Background(), p1.ProfileId)
+	merged1, err := profileSvc.GetProfile(context.Background(), p1.ProfileId, orgHandle)
 	require.NoError(t, err)
-	merged2, err := profileSvc.GetProfile(context.Background(), p2.ProfileId)
+	merged2, err := profileSvc.GetProfile(context.Background(), p2.ProfileId, orgHandle)
 	require.NoError(t, err)
 
 	// Both profiles should point to the same master profile.
@@ -121,7 +121,7 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 		"both profiles should be unified into the same master profile")
 
 	// The master profile should carry the combined interests.
-	master, err := profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileId)
+	master, err := profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileId, orgHandle)
 	require.NoError(t, err)
 	interests, ok := master.Traits["interests"].([]interface{})
 	require.True(t, ok, "interests should be a slice")
@@ -130,10 +130,10 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 
 	// ── Cleanup ───────────────────────────────────────────────────────────────
 	t.Cleanup(func() {
-		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRule.RuleId)
+		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRule.RuleId, orgHandle)
 		profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), orgHandle, 20, nil)
 		for _, p := range profiles {
-			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId)
+			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId, orgHandle)
 		}
 		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), orgHandle, constants.IdentityAttributes)
 		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), orgHandle, constants.Traits)

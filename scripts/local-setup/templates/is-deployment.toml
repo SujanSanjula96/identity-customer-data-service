@@ -26,6 +26,10 @@ subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE
 name = "cds.authentication.listener"
 subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
 
+[[event_handler]]
+name = "cds.organization.event.handler"
+subscriptions = ["POST_ADD_ORGANIZATION", "POST_UPDATE_ORGANIZATION", "POST_PATCH_ORGANIZATION", "POST_DELETE_ORGANIZATION"]
+
 # --- Console feature scopes ------------------------------------------------ #
 [[api_resources]]
 name = "Customer Data Service Feature"
@@ -48,6 +52,28 @@ description = "View Customer Data Service from the Console"
 name = "console:customerData_edit"
 displayName = "Customer Data Service Edit Feature"
 description = "Edit Customer Data Service from the Console"
+
+[[api_resources]]
+name = "Customer Data Service Organization Feature"
+identifier = "console:org:customerData"
+requiresAuthorization = true
+description = "Resource representation of the CDS feature in an organization"
+type = "CONSOLE_ORG_FEATURE"
+
+[[api_resources.scopes]]
+name = "console:org:customerData"
+displayName = "Customer Data Service Feature"
+description = "Manage Customer Data Service in the organization from the Console"
+
+[[api_resources.scopes]]
+name = "console:org:customerData_view"
+displayName = "Customer Data Service View Feature"
+description = "View Customer Data Service in the organization from the Console"
+
+[[api_resources.scopes]]
+name = "console:org:customerData_edit"
+displayName = "Customer Data Service Edit Feature"
+description = "Edit Customer Data Service in the organization from the Console"
 
 # --- CDS API resources ----------------------------------------------------- #
 # Seeded here rather than over REST: IS reserves the "internal_" scope prefix
@@ -107,6 +133,16 @@ name = "internal_cds_profile_schema_delete"
 displayName = "Profile schema attribute delete"
 description = "Delete profile schema attribute(s)"
 
+[[api_resources.scopes]]
+name = "internal_cds_profile_schema_share_view"
+displayName = "Profile schema attribute share view"
+description = "View the sharing policies of profile schema attribute(s)"
+
+[[api_resources.scopes]]
+name = "internal_cds_profile_schema_share_update"
+displayName = "Profile schema attribute share update"
+description = "Update the sharing policies of profile schema attribute(s)"
+
 [[api_resources]]
 name = "Customer Data Service profile unification rule management API"
 identifier = "/cds/api/v1/unification-rules"
@@ -134,6 +170,16 @@ name = "internal_cds_unification_rule_delete"
 displayName = "Profile unification rule delete"
 description = "Delete unification rule"
 
+[[api_resources.scopes]]
+name = "internal_cds_unification_rule_share_view"
+displayName = "Profile unification rule share view"
+description = "View the sharing policies of unification rule(s)"
+
+[[api_resources.scopes]]
+name = "internal_cds_unification_rule_share_update"
+displayName = "Profile unification rule share update"
+description = "Update the sharing policies of unification rule(s)"
+
 [[api_resources]]
 name = "Customer Data Service config management API"
 identifier = "/cds/api/v1/config"
@@ -150,6 +196,23 @@ description = "View customer data service configurations"
 name = "internal_cds_admin_config_update"
 displayName = "Customer data service configuration update"
 description = "Update customer data service configurations"
+
+[[api_resources]]
+name = "Customer Data Service organization management API"
+identifier = "/cds/api/v1/organizations"
+requiresAuthorization = true
+description = "API representation of the CDS organization management API"
+type = "TENANT"
+
+[[api_resources.scopes]]
+name = "internal_cds_organization_view"
+displayName = "CDS Organization view"
+description = "View CDS organization data"
+
+[[api_resources.scopes]]
+name = "internal_cds_organization_update"
+displayName = "CDS Organization update"
+description = "Update CDS organization data"
 
 [[api_resources]]
 name = "Customer Data Service consent category management API"
@@ -177,6 +240,106 @@ description = "Update consent category"
 name = "internal_cds_consent_category_delete"
 displayName = "Consent category delete"
 description = "Delete consent category"
+
+[[api_resources]]
+name = "Customer Data Service identity resolution API"
+identifier = "/cds/api/v1/identity-resolution"
+requiresAuthorization = true
+description = "API representation of the identity resolution review API"
+type = "TENANT"
+
+[[api_resources.scopes]]
+name = "internal_cds_identity_resolution_view"
+displayName = "Identity resolution review view"
+description = "View identity resolution review tasks"
+
+[[api_resources.scopes]]
+name = "internal_cds_identity_resolution_update"
+displayName = "Identity resolution review resolve"
+description = "Approve or reject identity resolution review tasks, merging profiles"
+
+# --- CDS API resources for sub organizations -------------------------------- #
+# Only the profile and identity resolution resources have write scopes.
+[[api_resources]]
+name = "Customer Data Service profile management API (organization)"
+identifier = "/o/cds/api/v1/profiles"
+requiresAuthorization = true
+description = "API representation of the profile management API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_view"
+displayName = "Profile view"
+description = "View profile in the organization"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_create"
+displayName = "Profile create"
+description = "Add profile in the organization"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_update"
+displayName = "Profile update"
+description = "Update profile in the organization"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_delete"
+displayName = "Profile delete"
+description = "Delete profile in the organization"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_link"
+displayName = "Profile link"
+description = "Link profile in the organization"
+[[api_resources]]
+name = "Customer Data Service profile schema attribute management API (organization)"
+identifier = "/o/cds/api/v1/profile-schema"
+requiresAuthorization = true
+description = "API representation of the profile schema attribute management API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_profile_schema_view"
+displayName = "Profile schema attribute view"
+description = "View profile schema attribute in the organization"
+[[api_resources]]
+name = "Customer Data Service profile unification rule management API (organization)"
+identifier = "/o/cds/api/v1/unification-rules"
+requiresAuthorization = true
+description = "API representation of the profile unification rule management API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_unification_rule_view"
+displayName = "Profile unification rule view"
+description = "View unification rule in the organization"
+[[api_resources]]
+name = "Customer Data Service config management API (organization)"
+identifier = "/o/cds/api/v1/config"
+requiresAuthorization = true
+description = "API representation of the configuration management API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_admin_config_view"
+displayName = "Customer data service configuration view"
+description = "View customer data service configurations in the organization"
+[[api_resources]]
+name = "Customer Data Service consent category management API (organization)"
+identifier = "/o/cds/api/v1/consent-categories"
+requiresAuthorization = true
+description = "API representation of the consent category management API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_consent_category_view"
+displayName = "Consent category view"
+description = "View consent category in the organization"
+[[api_resources]]
+name = "Customer Data Service identity resolution API (organization)"
+identifier = "/o/cds/api/v1/identity-resolution"
+requiresAuthorization = true
+description = "API representation of the identity resolution review API in the organization"
+type = "ORGANIZATION"
+[[api_resources.scopes]]
+name = "internal_org_cds_identity_resolution_view"
+displayName = "Identity resolution review view"
+description = "View identity resolution review tasks in the organization"
+[[api_resources.scopes]]
+name = "internal_org_cds_identity_resolution_update"
+displayName = "Identity resolution review resolve"
+description = "Approve or reject identity resolution review tasks in the organization, merging profiles"
 
 # --- Console navigation grouping ------------------------------------------- #
 [[api_resource_collections]]
@@ -206,7 +369,19 @@ name = "internal_cds_unification_rule_view"
 name = "internal_cds_admin_config_view"
 
 [[api_resource_collections.scopes.read]]
+name = "internal_cds_organization_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_cds_profile_schema_share_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_cds_unification_rule_share_view"
+
+[[api_resource_collections.scopes.read]]
 name = "internal_cds_consent_category_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_cds_identity_resolution_view"
 
 [[api_resource_collections.scopes.create]]
 name = "internal_cds_profile_create"
@@ -233,7 +408,19 @@ name = "internal_cds_unification_rule_update"
 name = "internal_cds_admin_config_update"
 
 [[api_resource_collections.scopes.update]]
+name = "internal_cds_organization_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_cds_profile_schema_share_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_cds_unification_rule_share_update"
+
+[[api_resource_collections.scopes.update]]
 name = "internal_cds_consent_category_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_cds_identity_resolution_update"
 
 [[api_resource_collections.scopes.delete]]
 name = "internal_cds_profile_delete"
@@ -246,6 +433,50 @@ name = "internal_cds_unification_rule_delete"
 
 [[api_resource_collections.scopes.delete]]
 name = "internal_cds_consent_category_delete"
+
+[[api_resource_collections]]
+name = "org_customerData"
+displayName = "Customer Data Service"
+type = "organization"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData_view"
+
+[[api_resource_collections.scopes.feature]]
+name = "console:org:customerData_edit"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_profile_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_profile_schema_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_unification_rule_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_admin_config_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_consent_category_view"
+
+[[api_resource_collections.scopes.read]]
+name = "internal_org_cds_identity_resolution_view"
+
+[[api_resource_collections.scopes.create]]
+name = "internal_org_cds_profile_create"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_profile_update"
+
+[[api_resource_collections.scopes.update]]
+name = "internal_org_cds_identity_resolution_update"
+
+[[api_resource_collections.scopes.delete]]
+name = "internal_org_cds_profile_delete"
 
 # --- Token introspection for CDS ------------------------------------------- #
 # CDS introspects every bearer token it receives against the super tenant, with
@@ -271,7 +502,14 @@ exposed_headers = ["Location"]
 # CDS URLs off the IS origin, where nothing serves /cds/api/v1.
 [console.extensions]
 cds_host = "${CDS_BASE}"
-cds_application_identifier_type = "client_id"
+cds_application_identifier_type = "app_id"
+cdsUnifiedProfileView = true
+
+[console.ui.routes.organizationEnabledRoutes]
+customerDataService = "v0.0.0"
+customerDataProfiles = "v0.0.0"
+customerDataProfileAttributes = "v0.0.0"
+customerDataUnificationRules = "v0.0.0"
 
 [console.customer_data_service]
 enabled = true

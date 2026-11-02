@@ -31,8 +31,10 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
 	"github.com/google/uuid"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
+	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -523,6 +525,17 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if source, inherits := identitysource.IsInherited(ctx, orgId); inherits {
+		clientError := errors2.NewClientError(errors2.ErrorMessage{
+			Code:    errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
+			Message: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
+			Description: fmt.Sprintf("The organization '%s' inherits the identity attributes from '%s'. "+
+				"Sync the identity attributes of '%s'.", orgId, source, source),
+		}, http.StatusBadRequest)
+		utils.HandleError(w, clientError)
+		return
+	}
+
 	logger.Info(fmt.Sprintf("Received schema sync request: %s for organization: %s ", schemaSync.Event, schemaSync.OrgId))
 
 	if schemaSync.Event == constants.AddScimAttributeEvent || schemaSync.Event == constants.UpdateScimAttributeEvent ||
@@ -559,4 +572,101 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 // isCDSEnabled checks if CDS is enabled for the given organization
 func isCDSEnabled(ctx context.Context, orgHandle string) bool {
 	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgHandle)
+}
+
+// CreateSharingPolicy shares an attribute of the organization.
+func (h *ProfileSchemaHandler) CreateSharingPolicy(w http.ResponseWriter, r *http.Request) {
+
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
+	if !ok {
+		return
+	}
+	req, ok := shareHandler.DecodePolicyRequest(w, r)
+	if !ok {
+		return
+	}
+	schemaProvider := provider.NewProfileSchemaProvider()
+	schemaService := schemaProvider.GetProfileSchemaService()
+	resp, err := schemaService.CreateSharingPolicy(r.Context(), *org,
+		r.PathValue("scope"), r.PathValue("attrID"), req)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusCreated, resp, shareHandler.PolicyResource)
+}
+
+// ListSharingPolicies returns the sharing policies of an attribute of the organization.
+func (h *ProfileSchemaHandler) ListSharingPolicies(w http.ResponseWriter, r *http.Request) {
+
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_view")
+	if !ok {
+		return
+	}
+	schemaProvider := provider.NewProfileSchemaProvider()
+	schemaService := schemaProvider.GetProfileSchemaService()
+	resp, err := schemaService.ListSharingPolicies(r.Context(), *org,
+		r.PathValue("scope"), r.PathValue("attrID"))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, shareHandler.PolicyResource)
+}
+
+// GetSharingPolicy returns a sharing policy of an attribute of the organization.
+func (h *ProfileSchemaHandler) GetSharingPolicy(w http.ResponseWriter, r *http.Request) {
+
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_view")
+	if !ok {
+		return
+	}
+	schemaProvider := provider.NewProfileSchemaProvider()
+	schemaService := schemaProvider.GetProfileSchemaService()
+	resp, err := schemaService.GetSharingPolicy(r.Context(), *org,
+		r.PathValue("scope"), r.PathValue("attrID"), r.PathValue("policyId"))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, shareHandler.PolicyResource)
+}
+
+// UpdateSharingPolicy replaces a sharing policy of an attribute of the organization.
+func (h *ProfileSchemaHandler) UpdateSharingPolicy(w http.ResponseWriter, r *http.Request) {
+
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
+	if !ok {
+		return
+	}
+	req, ok := shareHandler.DecodePolicyRequest(w, r)
+	if !ok {
+		return
+	}
+	schemaProvider := provider.NewProfileSchemaProvider()
+	schemaService := schemaProvider.GetProfileSchemaService()
+	resp, err := schemaService.UpdateSharingPolicy(r.Context(), *org,
+		r.PathValue("scope"), r.PathValue("attrID"), r.PathValue("policyId"), req)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, resp, shareHandler.PolicyResource)
+}
+
+// DeleteSharingPolicy removes a sharing policy of an attribute of the organization.
+func (h *ProfileSchemaHandler) DeleteSharingPolicy(w http.ResponseWriter, r *http.Request) {
+
+	org, ok := shareHandler.InitiatorOf(w, r, "profile_schema:share_update")
+	if !ok {
+		return
+	}
+	schemaProvider := provider.NewProfileSchemaProvider()
+	schemaService := schemaProvider.GetProfileSchemaService()
+	if err := schemaService.DeleteSharingPolicy(r.Context(), *org,
+		r.PathValue("scope"), r.PathValue("attrID"), r.PathValue("policyId")); err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

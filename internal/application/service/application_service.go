@@ -24,6 +24,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
 	"github.com/wso2/identity-customer-data-service/internal/application/store"
+	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -76,8 +77,41 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 
 // ResolveAppIdentifierByClientID resolves an OAuth clientId to the app ID via the local store. A missing mapping
 // returns an empty string with a nil error; a store failure is returned so callers can distinguish the two.
+// If a sub organization has no mapping for the client ID, the ancestor organizations are checked,
+// nearest first.
 func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context,
 	orgHandle, clientID string) (string, error) {
 
-	return store.GetAppIdentifierByClientID(ctx, orgHandle, clientID)
+	handles, err := orgChain(ctx, orgHandle)
+	if err != nil {
+		return "", err
+	}
+	for _, handle := range handles {
+		appID, err := store.GetAppIdentifierByClientID(ctx, handle, clientID)
+		if err != nil || appID != "" {
+			return appID, err
+		}
+	}
+	return "", nil
+}
+
+// orgChain returns the handles of the organization and its ancestors, nearest first.
+func orgChain(ctx context.Context, orgHandle string) ([]string, error) {
+
+	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+	if org == nil || org.IsPrimary() {
+		return []string{orgHandle}, nil
+	}
+	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgId)
+	if err != nil {
+		return nil, err
+	}
+	handles := make([]string, 0, len(chain))
+	for i := len(chain) - 1; i >= 0; i-- {
+		handles = append(handles, chain[i].OrgHandle)
+	}
+	return handles, nil
 }

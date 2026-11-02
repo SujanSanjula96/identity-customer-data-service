@@ -1,5 +1,5 @@
 # Allow overriding base images
-ARG GO_BASE=golang:1.26.5
+ARG GO_BASE=golang:1.26.10
 ARG RUNTIME_BASE=alpine:latest
 
 # -------------------------
@@ -30,6 +30,8 @@ RUN test -f Makefile || (echo "ERROR: Makefile not found!" && exit 1) && \
 # Stage 2: Runtime
 # -------------------------
 FROM ${RUNTIME_BASE}
+
+RUN apk upgrade --no-cache
 
 # -------------------------
 # Create user/group with UID/GID 10001

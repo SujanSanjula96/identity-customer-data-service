@@ -29,6 +29,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -317,6 +318,47 @@ func GetProfileSchemaAttributesForOrg(ctx context.Context, orgId string) ([]mode
 		schema = append(schema, attr)
 	}
 	return schema, nil
+}
+
+// GetProfileSchemaAttributesByIds returns the attributes with the IDs. OwnerOrgHandle of each
+// attribute is set.
+func GetProfileSchemaAttributesByIds(ctx context.Context,
+	attributeIds []string) ([]model.ProfileSchemaAttribute, error) {
+
+	if len(attributeIds) == 0 {
+		return nil, nil
+	}
+	serverError := func(description string, err error) error {
+		return errors.NewServerError(errors.ErrorMessage{
+			Code:        errors.GET_PROFILE_SCHEMA.Code,
+			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Description: description,
+		}, err)
+	}
+	dbClient, err := provider.NewDBProvider().GetDBClient()
+	if err != nil {
+		return nil, serverError("Failed to get a database client to read attributes by ID.", err)
+	}
+	defer dbClient.Close()
+
+	placeholders := make([]string, len(attributeIds))
+	args := make([]interface{}, len(attributeIds))
+	for i, id := range attributeIds {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	results, err := dbClient.ExecuteQueryContext(ctx,
+		scripts.GetProfileSchemaAttributesByIds.Format(strings.Join(placeholders, ", ")), args...)
+	if err != nil {
+		return nil, serverError("Failed to read attributes by ID.", err)
+	}
+	attrs := make([]model.ProfileSchemaAttribute, 0, len(results))
+	for _, row := range results {
+		attr := mapRowToProfileAttribute(row)
+		attr.OwnerOrgHandle = rows.String(row, "org_handle")
+		attrs = append(attrs, attr)
+	}
+	return attrs, nil
 }
 
 // PatchProfileSchemaAttributeById updates a specific profile schema attribute for a given organization.

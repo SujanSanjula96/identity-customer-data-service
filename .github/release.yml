@@ -1,0 +1,52 @@
+# Configuration for GitHub's automatically generated release notes.
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+#
+# The release builder already asks GitHub to generate the change list for a
+# release. Left unconfigured, that is one flat list of every merge, which is
+# the least useful order to read it in: a reader looking for whether a fix
+# they are waiting on shipped has to scan all of it.
+#
+# These categories group it by the kind of change, using the type labels the
+# repository already has.
+#
+# The catch-all category matters more here than the named ones. Pull requests
+# in this repository are not consistently labelled, and without it an
+# unlabelled one would be dropped from the change list rather than merely
+# ungrouped.
+
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot
+      - copilot
+
+  categories:
+    - title: ⚠️ Breaking Changes
+      labels:
+        - 'breaking change'
+
+    - title: 🚀 New Features
+      labels:
+        - 'Type/New Feature'
+
+    - title: ✨ Improvements
+      labels:
+        - 'Type/Improvement'
+        - 'Type/UX'
+        - enhancement
+
+    - title: 🐛 Bug Fixes
+      labels:
+        - 'Type/Bug'
+        - bug
+
+    - title: 📖 Documentation
+      labels:
+        - 'Type/Docs'
+        - documentation
+
+    - title: 🧰 Other Changes
+      labels:
+        - '*'

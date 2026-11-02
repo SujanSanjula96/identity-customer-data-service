@@ -39,7 +39,7 @@ func Test_StoreStopsOnACancelledContext(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	_, err := profileStore.GetProfile(ctx, "any-profile-id")
+	_, err := profileStore.GetProfile(ctx, "any-profile-id", "any-org")
 	require.Error(t, err)
 	requireCauseIs(t, err, context.Canceled)
 	require.Less(t, time.Since(start), 5*time.Second)

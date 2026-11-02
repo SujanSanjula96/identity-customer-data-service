@@ -66,6 +66,9 @@ cloud:
 
         applicationIdentifierType: "client_id" # Application identifier mode: "client_id" (default) or "app_id"
 
+        organizationManagement:
+          enabled: false
+
         identityServer:
           host: localhost
           port: ""
@@ -84,6 +87,16 @@ cloud:
             addr: "localhost"
             profile_queue_name: "/queue/cds-profile-unification"
             schema_sync_queue_name: "/queue/cds-schema-sync"
+
+        identityResolution:
+          # Let a unification rule carry its own match_strength and mismatch_strength rather
+          # than taking the values derived from its attribute_type. Off until operators have
+          # a way to preview what a change would do to existing profiles.
+          allowEvidenceStrengthOverride: false
+          # Tolerant matching, server-wide. Off by default so an upgrade keeps unifying
+          # profiles exactly as it did. While it is off new fuzzy rules are refused and any
+          # already stored are evaluated as exact.
+          fuzzyMatchingEnabled: false
 
       tls:
         mtls_enabled: false

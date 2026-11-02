@@ -26,8 +26,14 @@ import (
 	"strings"
 
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/organization/suborg"
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/identitysource"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	psstr "github.com/wso2/identity-customer-data-service/internal/profile_schema/store"
+	shareModel "github.com/wso2/identity-customer-data-service/internal/sharing/model"
+	sharingService "github.com/wso2/identity-customer-data-service/internal/sharing/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -52,6 +58,16 @@ type ProfileSchemaServiceInterface interface {
 		orgId, attributeId string, updates map[string]interface{}, scope string) error
 	DeleteProfileSchemaAttributeById(ctx context.Context, orgId, attributeId string) error
 	SyncProfileSchema(ctx context.Context, orgId string) error
+	CreateSharingPolicy(ctx context.Context, initiator orgModel.Organization, scope, attributeId string,
+		req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error)
+	ListSharingPolicies(ctx context.Context, initiator orgModel.Organization, scope,
+		attributeId string) (*shareModel.PolicyList, error)
+	GetSharingPolicy(ctx context.Context, initiator orgModel.Organization, scope, attributeId,
+		policyId string) (*shareModel.PolicyResponse, error)
+	UpdateSharingPolicy(ctx context.Context, initiator orgModel.Organization, scope, attributeId,
+		policyId string, req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error)
+	DeleteSharingPolicy(ctx context.Context, initiator orgModel.Organization, scope, attributeId,
+		policyId string) error
 }
 
 // ProfileSchemaService is the default implementation of the ProfileSchemaServiceInterface.
@@ -67,6 +83,9 @@ func GetProfileSchemaService() ProfileSchemaServiceInterface {
 func (s *ProfileSchemaService) AddProfileSchemaAttributesForScope(ctx context.Context,
 	schemaAttributes []model.ProfileSchemaAttribute, scope, orgId string) ([]model.ProfileSchemaAttribute, error) {
 
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
+		return nil, err
+	}
 	validAttrs := make([]model.ProfileSchemaAttribute, 0, len(schemaAttributes))
 	for _, attr := range schemaAttributes {
 		if err, isValid := s.validateSchemaAttribute(ctx, attr); isValid {
@@ -81,6 +100,10 @@ func (s *ProfileSchemaService) AddProfileSchemaAttributesForScope(ctx context.Co
 					Description: errorMsg,
 				}, http.StatusBadRequest)
 				return nil, clientError
+			}
+
+			if err := checkSharedNameConflict(ctx, orgId, attr.AttributeName, attr.ApplicationIdentifier); err != nil {
+				return nil, err
 			}
 
 			existing, err := psstr.GetProfileSchemaAttributeByName(ctx, attr.OrgId, attr.AttributeName)
@@ -124,7 +147,10 @@ func (s *ProfileSchemaService) AddProfileSchemaAttributesForScope(ctx context.Co
 		}
 	}
 
-	return validAttrs, psstr.AddProfileSchemaAttributesForScope(ctx, validAttrs, scope, orgId)
+	if err := psstr.AddProfileSchemaAttributesForScope(ctx, validAttrs, scope, orgId); err != nil {
+		return nil, err
+	}
+	return validAttrs, nil
 }
 
 func (s *ProfileSchemaService) validateSchemaAttribute(ctx context.Context,
@@ -328,7 +354,67 @@ func defaultValidateApplicationIdentifier(ctx context.Context, appIdentifier, or
 
 func (s *ProfileSchemaService) GetProfileSchemaAttributeById(ctx context.Context,
 	orgId, attributeId string) (model.ProfileSchemaAttribute, error) {
-	return psstr.GetProfileSchemaAttributeById(ctx, orgId, attributeId)
+
+	attr, err := psstr.GetProfileSchemaAttributeById(ctx, orgId, attributeId)
+	if err == nil {
+		return attr, nil
+	}
+	if _, isClientError := err.(*errors2.ClientError); !isClientError {
+		return attr, err
+	}
+	shared, sharedErr := getVisibleSharedAttribute(ctx, orgId, attributeId)
+	if sharedErr != nil {
+		return attr, sharedErr
+	}
+	if shared != nil {
+		return *shared, nil
+	}
+	inherited, inheritedErr := getInheritedAttribute(ctx, orgId, attributeId)
+	if inheritedErr != nil {
+		return attr, inheritedErr
+	}
+	if inherited != nil {
+		return *inherited, nil
+	}
+	return attr, err
+}
+
+// getOwnedAttribute returns the attribute when the organization owns it. Shared and inherited
+// attributes are read-only.
+func getOwnedAttribute(ctx context.Context, orgId, attributeId string) (model.ProfileSchemaAttribute, error) {
+
+	attr, err := psstr.GetProfileSchemaAttributeById(ctx, orgId, attributeId)
+	if err == nil {
+		return attr, nil
+	}
+	if _, isClientError := err.(*errors2.ClientError); isClientError {
+		if shared, sharedErr := getVisibleSharedAttribute(ctx, orgId, attributeId); sharedErr == nil && shared != nil {
+			return attr, sharingService.ReadOnlyError()
+		}
+		if inherited, inheritedErr := getInheritedAttribute(ctx, orgId, attributeId); inheritedErr == nil &&
+			inherited != nil {
+			return attr, inheritedReadOnlyError()
+		}
+	}
+	return attr, err
+}
+
+// getOwnedShareableAttribute returns the attribute when the organization owns it and can share it.
+func getOwnedShareableAttribute(ctx context.Context, orgId, scope,
+	attributeId string) (model.ProfileSchemaAttribute, error) {
+
+	attr, err := getOwnedAttribute(ctx, orgId, attributeId)
+	if err != nil {
+		return attr, err
+	}
+	if !strings.HasPrefix(attr.AttributeName, scope+".") {
+		return attr, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.ATTRIBUTE_NOT_FOUND.Code,
+			Message:     errors2.ATTRIBUTE_NOT_FOUND.Message,
+			Description: fmt.Sprintf("Attribute '%s' is not in the scope '%s'.", attributeId, scope),
+		}, http.StatusNotFound)
+	}
+	return attr, isShareableAttribute(ctx, orgId, attr)
 }
 
 func (s *ProfileSchemaService) GetProfileSchemaAttributeByName(ctx context.Context,
@@ -341,6 +427,10 @@ func (s *ProfileSchemaService) GetProfileSchemaAttributesByScope(ctx context.Con
 	orgId, scope string) (interface{}, error) {
 
 	schemaAttributes, err := psstr.GetProfileSchemaAttributesByScope(ctx, orgId, scope)
+	if err != nil {
+		return nil, err
+	}
+	schemaAttributes, err = withVisibleAttributes(ctx, orgId, schemaAttributes, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -365,6 +455,9 @@ func (s *ProfileSchemaService) GetProfileSchemaAttributesByScope(ctx context.Con
 func (s *ProfileSchemaService) UpdateProfileSchemaAttributeById(ctx context.Context,
 	orgId, attributeId string, updates map[string]interface{}, scope string) error {
 
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
+		return err
+	}
 	if len(updates) == 0 {
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.INVALID_ATTRIBUTE.Code,
@@ -372,9 +465,14 @@ func (s *ProfileSchemaService) UpdateProfileSchemaAttributeById(ctx context.Cont
 			Description: "No updates provided for the profile schema attribute",
 		}, http.StatusBadRequest)
 	}
-	attribute, err := s.GetProfileSchemaAttributeById(ctx, orgId, attributeId)
+	attribute, err := getOwnedAttribute(ctx, orgId, attributeId)
 	if err != nil {
 		return err
+	}
+	if newName, ok := updates["attribute_name"].(string); ok && newName != attribute.AttributeName {
+		if err := checkSharedNameConflict(ctx, orgId, newName, attribute.ApplicationIdentifier); err != nil {
+			return err
+		}
 	}
 	if attribute.AttributeId == "" {
 		return errors2.NewClientError(errors2.ErrorMessage{
@@ -484,15 +582,24 @@ func (s *ProfileSchemaService) UpdateProfileSchemaAttributeById(ctx context.Cont
 			Description: "Invalid updates provided for the profile schema attribute",
 		}, http.StatusBadRequest)
 	}
-	return psstr.PatchProfileSchemaAttributeById(ctx, orgId, attributeId, updates)
+	if err := psstr.PatchProfileSchemaAttributeById(ctx, orgId, attributeId, updates); err != nil {
+		return err
+	}
+	return nil
 }
 
 // DeleteProfileSchemaAttributeById deletes a profile schema attribute by its Id.
 func (s *ProfileSchemaService) DeleteProfileSchemaAttributeById(ctx context.Context, orgId, attributeId string) error {
 
-	attribute, err := s.GetProfileSchemaAttributeById(ctx, orgId, attributeId)
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
+		return err
+	}
+	attribute, err := getOwnedAttribute(ctx, orgId, attributeId)
 	logger := log.GetLogger()
 	if err != nil {
+		if clientErr, ok := err.(*errors2.ClientError); ok && clientErr.StatusCode == http.StatusForbidden {
+			return err
+		}
 		// If the attribute does not exist, treat delete as a no-op (idempotent).
 		if _, ok := err.(*errors2.ClientError); ok {
 			logger.Debug(fmt.Sprintf("Attribute with Id '%s' does not exist in organization '%s', skipping delete", attributeId, orgId))
@@ -535,11 +642,21 @@ func (s *ProfileSchemaService) DeleteProfileSchemaAttributeById(ctx context.Cont
 		}
 	}
 
-	return psstr.DeleteProfileSchemaAttributeById(ctx, orgId, attributeId)
+	if err := psstr.DeleteProfileSchemaAttributeById(ctx, orgId, attributeId); err != nil {
+		return err
+	}
+	// Deleting the attribute deletes its sharing policies.
+	return sharingService.DeletePoliciesOfResource(ctx, model.SharingResourceType, attributeId)
 }
 
 func (s *ProfileSchemaService) DeleteProfileSchemaAttributesByScope(ctx context.Context, orgId, scope string) error {
-	return psstr.DeleteProfileSchemaAttributes(ctx, orgId, scope)
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
+		return err
+	}
+	if err := psstr.DeleteProfileSchemaAttributes(ctx, orgId, scope); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetProfileSchema retrieves the complete profile schema for the given organization Id.
@@ -567,8 +684,8 @@ func (s *ProfileSchemaService) GetProfileSchema(ctx context.Context, orgId strin
 	// Add meta to the profileSchema
 	profileSchema["meta"] = meta
 
-	// Step 2: Fetch schema attributes from DB
-	schemaAttributes, err := psstr.GetProfileSchemaAttributesForOrg(ctx, orgId)
+	// Step 2: Fetch the effective schema attributes.
+	schemaAttributes, err := GetEffectiveProfileSchemaAttributes(ctx, orgId)
 	if err != nil {
 		errMsg := fmt.Sprintf("Error retrieving profile schema attributes for organization: %s", orgId)
 		logger.Debug(errMsg, log.Error(err))
@@ -617,7 +734,13 @@ func (s *ProfileSchemaService) GetProfileSchema(ctx context.Context, orgId strin
 }
 
 func (s *ProfileSchemaService) DeleteProfileSchema(ctx context.Context, orgId string) error {
-	return psstr.DeleteProfileSchema(ctx, orgId)
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
+		return err
+	}
+	if err := psstr.DeleteProfileSchema(ctx, orgId); err != nil {
+		return err
+	}
+	return nil
 }
 
 func keysOf(m map[string]bool) []string {
@@ -631,7 +754,7 @@ func keysOf(m map[string]bool) []string {
 func GetProfileSchemaAttributesWithFilter(ctx context.Context,
 	orgId string, filters []string) ([]model.ProfileSchemaAttribute, error) {
 
-	allAttrs, err := psstr.GetProfileSchemaAttributesForOrg(ctx, orgId) // assuming this exists
+	allAttrs, err := GetEffectiveProfileSchemaAttributes(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -696,6 +819,14 @@ func matches(attr model.ProfileSchemaAttribute, field, op, val string) bool {
 
 func (s *ProfileSchemaService) SyncProfileSchema(ctx context.Context, orgHandle string) error {
 
+	if source, inherits := identitysource.IsInherited(ctx, orgHandle); inherits {
+		return errors2.NewClientError(errors2.ErrorMessage{
+			Code:    errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
+			Message: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
+			Description: fmt.Sprintf("The organization '%s' inherits the identity attributes from '%s'. "+
+				"Sync the identity attributes of '%s'.", orgHandle, source, source),
+		}, http.StatusBadRequest)
+	}
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
@@ -712,6 +843,10 @@ func (s *ProfileSchemaService) SyncProfileSchema(ctx context.Context, orgHandle 
 	}
 
 	if len(claims) > 0 {
+		claims, err = keepIdentityAttributeIds(ctx, orgHandle, claims)
+		if err != nil {
+			return err
+		}
 		err := psstr.UpsertIdentityAttributes(ctx, orgHandle, claims)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to persist profile schema for organization %s:", orgHandle)
@@ -770,6 +905,18 @@ func (s *ProfileSchemaService) GetProfileSchemaAttributesByScopeAndFilter(ctx co
 	if err != nil {
 		return nil, err
 	}
+	visible, err := withVisibleAttributes(ctx, orgId, schemaAttributes, scope)
+	if err != nil {
+		return nil, err
+	}
+	schemaAttributes = schemaAttributes[:0]
+	for _, attr := range visible {
+		// The store filters the owned attributes. The shared and inherited attributes are filtered here.
+		fromOtherOrg := attr.Origin == shareModel.OriginShared || attr.Origin == model.OriginInherited
+		if !fromOtherOrg || matchesAllFilters(attr, validatedFilters) {
+			schemaAttributes = append(schemaAttributes, attr)
+		}
+	}
 
 	if scope == constants.ApplicationData {
 		grouped := make(map[string][]model.ProfileSchemaAttribute)
@@ -784,4 +931,375 @@ func (s *ProfileSchemaService) GetProfileSchemaAttributesByScopeAndFilter(ctx co
 		return grouped, nil
 	}
 	return schemaAttributes, nil
+}
+
+// matchesAllFilters applies validated "field operator value" filters to a shared attribute.
+func matchesAllFilters(attr model.ProfileSchemaAttribute, filters []string) bool {
+
+	for _, f := range filters {
+		parts := strings.SplitN(f, " ", 3)
+		if len(parts) != 3 {
+			return false
+		}
+		var actual string
+		switch parts[0] {
+		case "attribute_name":
+			actual = attr.AttributeName
+		case "application_identifier":
+			actual = attr.ApplicationIdentifier
+		default:
+			return false
+		}
+		switch parts[1] {
+		case "eq":
+			if actual != parts[2] {
+				return false
+			}
+		case "co":
+			if !strings.Contains(actual, parts[2]) {
+				return false
+			}
+		case "sw":
+			if !strings.HasPrefix(actual, parts[2]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// CreateSharingPolicy shares an attribute that the initiator owns.
+func (s *ProfileSchemaService) CreateSharingPolicy(ctx context.Context,
+	initiator orgModel.Organization, scope, attributeId string,
+	req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error) {
+
+	attr, err := getOwnedShareableAttribute(ctx, initiator.OrgHandle, scope, attributeId)
+	if err != nil {
+		return nil, err
+	}
+	return sharingService.CreatePolicy(ctx, model.SharingResourceType, attr.AttributeId, initiator, req)
+}
+
+// ListSharingPolicies returns the sharing policies of an attribute that the initiator owns.
+func (s *ProfileSchemaService) ListSharingPolicies(ctx context.Context,
+	initiator orgModel.Organization, scope, attributeId string) (*shareModel.PolicyList, error) {
+
+	attr, err := getOwnedShareableAttribute(ctx, initiator.OrgHandle, scope, attributeId)
+	if err != nil {
+		return nil, err
+	}
+	return sharingService.ListPolicies(ctx, model.SharingResourceType, attr.AttributeId, initiator)
+}
+
+// GetSharingPolicy returns a sharing policy of an attribute that the initiator owns.
+func (s *ProfileSchemaService) GetSharingPolicy(ctx context.Context,
+	initiator orgModel.Organization, scope, attributeId,
+	policyId string) (*shareModel.PolicyResponse, error) {
+
+	attr, err := getOwnedShareableAttribute(ctx, initiator.OrgHandle, scope, attributeId)
+	if err != nil {
+		return nil, err
+	}
+	return sharingService.GetPolicy(ctx, model.SharingResourceType, attr.AttributeId, policyId, initiator)
+}
+
+// UpdateSharingPolicy replaces a sharing policy of an attribute that the initiator owns.
+func (s *ProfileSchemaService) UpdateSharingPolicy(ctx context.Context,
+	initiator orgModel.Organization, scope, attributeId, policyId string,
+	req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error) {
+
+	attr, err := getOwnedShareableAttribute(ctx, initiator.OrgHandle, scope, attributeId)
+	if err != nil {
+		return nil, err
+	}
+	return sharingService.UpdatePolicy(ctx, model.SharingResourceType, attr.AttributeId, policyId, initiator, req)
+}
+
+// DeleteSharingPolicy removes a sharing policy of an attribute that the initiator owns.
+func (s *ProfileSchemaService) DeleteSharingPolicy(ctx context.Context,
+	initiator orgModel.Organization, scope, attributeId, policyId string) error {
+
+	attr, err := getOwnedShareableAttribute(ctx, initiator.OrgHandle, scope, attributeId)
+	if err != nil {
+		return err
+	}
+	return sharingService.DeletePolicy(ctx, model.SharingResourceType, attr.AttributeId, policyId, initiator)
+}
+
+// The effective schema of an organization contains the attributes that it owns, the identity
+// attributes that it inherits, and the shared attributes that are active in it.
+
+// GetEffectiveProfileSchemaAttributes returns the effective schema of the organization.
+func GetEffectiveProfileSchemaAttributes(ctx context.Context,
+	orgHandle string) ([]model.ProfileSchemaAttribute, error) {
+
+	owned, err := psstr.GetProfileSchemaAttributesForOrg(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+	return withVisibleAttributes(ctx, orgHandle, owned, "")
+}
+
+// withVisibleAttributes adds the inherited and the active shared attributes to the owned
+// attributes. A non-empty scope limits the result to that scope.
+func withVisibleAttributes(ctx context.Context, orgHandle string, owned []model.ProfileSchemaAttribute,
+	scope string) ([]model.ProfileSchemaAttribute, error) {
+
+	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+	if org == nil {
+		return owned, nil
+	}
+	source, inherits := identitysource.IsInherited(ctx, orgHandle)
+	result := make([]model.ProfileSchemaAttribute, 0, len(owned))
+	for _, attr := range owned {
+		attr.Origin = shareModel.OriginOwned
+		result = append(result, attr)
+	}
+	if inherits && (scope == "" || scope == constants.IdentityAttributes) {
+		inherited, err := inheritedAttributes(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, inherited...)
+	}
+	shared, err := activeSharedAttributes(ctx, *org)
+	if err != nil {
+		return nil, err
+	}
+	for _, attr := range shared {
+		if scope != "" && attr.Scope != scope {
+			continue
+		}
+		attr.Origin = shareModel.OriginShared
+		result = append(result, attr)
+	}
+	return result, nil
+}
+
+// getVisibleSharedAttribute returns the shared attribute when it is active in the organization, or
+// nil.
+func getVisibleSharedAttribute(ctx context.Context, orgHandle,
+	attributeId string) (*model.ProfileSchemaAttribute, error) {
+
+	shared, err := activeSharedAttributesOfHandle(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+	for _, attr := range shared {
+		if attr.AttributeId == attributeId {
+			attr.Origin = shareModel.OriginShared
+			return &attr, nil
+		}
+	}
+	return nil, nil
+}
+
+// checkSharedNameConflict rejects a local attribute name that an active shared attribute uses.
+// Application data attribute names are scoped to their application.
+func checkSharedNameConflict(ctx context.Context, orgHandle, attributeName, applicationIdentifier string) error {
+
+	shared, err := activeSharedAttributesOfHandle(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+	for _, attr := range shared {
+		if attr.AttributeName == attributeName && attr.ApplicationIdentifier == applicationIdentifier {
+			return sharingService.ConflictError(fmt.Sprintf("The attribute '%s' is shared with this organization "+
+				"by '%s'.", attributeName, attr.OwnerOrgHandle))
+		}
+	}
+	return nil
+}
+
+// inheritedAttributes returns the identity attributes of the source organization.
+func inheritedAttributes(ctx context.Context, sourceHandle string) ([]model.ProfileSchemaAttribute, error) {
+
+	attrs, err := psstr.GetProfileSchemaAttributesByScope(ctx, sourceHandle, constants.IdentityAttributes)
+	if err != nil {
+		return nil, err
+	}
+	for i := range attrs {
+		attrs[i].Origin = model.OriginInherited
+		attrs[i].OwnerOrgHandle = sourceHandle
+	}
+	return attrs, nil
+}
+
+// getInheritedAttribute returns the inherited identity attribute with the ID, or nil.
+func getInheritedAttribute(ctx context.Context, orgHandle,
+	attributeId string) (*model.ProfileSchemaAttribute, error) {
+
+	source, inherits := identitysource.IsInherited(ctx, orgHandle)
+	if !inherits {
+		return nil, nil
+	}
+	attr, err := psstr.GetProfileSchemaAttributeById(ctx, source, attributeId)
+	if err != nil {
+		if _, isClientError := err.(*errors2.ClientError); isClientError {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if attr.Scope != constants.IdentityAttributes {
+		return nil, nil
+	}
+	attr.Origin = model.OriginInherited
+	attr.OwnerOrgHandle = source
+	return &attr, nil
+}
+
+// inheritedReadOnlyError is the error for a write to an inherited identity attribute.
+func inheritedReadOnlyError() error {
+
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
+		Message:     errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
+		Description: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Description,
+	}, http.StatusForbidden)
+}
+
+// keepIdentityAttributeIds keeps the stored ID of each synced identity attribute, so that the
+// unification rules that use it stay valid.
+func keepIdentityAttributeIds(ctx context.Context, orgHandle string, incoming []model.ProfileSchemaAttribute) (
+	[]model.ProfileSchemaAttribute, error) {
+
+	existing, err := psstr.GetProfileSchemaAttributesByScope(ctx, orgHandle, constants.IdentityAttributes)
+	if err != nil {
+		return nil, err
+	}
+	idByName := map[string]string{}
+	for _, attr := range existing {
+		idByName[attr.AttributeName] = attr.AttributeId
+	}
+	finalIdByName := map[string]string{}
+	for i := range incoming {
+		incoming[i].OrgId = orgHandle
+		if id, ok := idByName[incoming[i].AttributeName]; ok {
+			incoming[i].AttributeId = id
+		}
+		finalIdByName[incoming[i].AttributeName] = incoming[i].AttributeId
+	}
+	for i := range incoming {
+		for j := range incoming[i].SubAttributes {
+			if id, ok := finalIdByName[incoming[i].SubAttributes[j].AttributeName]; ok {
+				incoming[i].SubAttributes[j].AttributeId = id
+			}
+		}
+	}
+	return incoming, nil
+}
+
+// isShareableAttribute checks that the organization can share the attribute. Only a primary
+// organization can share an application data attribute.
+func isShareableAttribute(ctx context.Context, orgHandle string, attr model.ProfileSchemaAttribute) error {
+
+	reject := func(description string) error {
+		return errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.SHARE_BAD_REQUEST.Code,
+			Message:     errors2.SHARE_BAD_REQUEST.Message,
+			Description: description,
+		}, http.StatusBadRequest)
+	}
+	scope := strings.SplitN(attr.AttributeName, ".", 2)[0]
+	switch {
+	case scope == constants.IdentityAttributes:
+		return reject("Identity attributes are not shared. The identity provider controls them for each organization.")
+	case scope == constants.ApplicationData && attr.ApplicationIdentifier == "":
+		return reject("The application data attribute has no application identifier.")
+	case scope == constants.ApplicationData && !isPrimaryOrg(ctx, orgHandle):
+		return reject("Only the primary organization can share application data attributes.")
+	case attr.ValueType == constants.ComplexDataType:
+		return reject("Sharing of complex attributes is not supported.")
+	case strings.Count(attr.AttributeName, ".") > 1:
+		return reject("Sharing of a sub-attribute is not supported.")
+	}
+	return nil
+}
+
+// isPrimaryOrg reports whether the organization is a primary organization or is not in an
+// organization tree.
+func isPrimaryOrg(ctx context.Context, orgHandle string) bool {
+
+	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	return err == nil && (org == nil || org.IsPrimary())
+}
+
+// GetProfileSchemaAttributesByIds returns the attributes with the IDs, in any organization.
+// OwnerOrgHandle of each attribute is set.
+func GetProfileSchemaAttributesByIds(ctx context.Context,
+	attributeIds []string) ([]model.ProfileSchemaAttribute, error) {
+	return psstr.GetProfileSchemaAttributesByIds(ctx, attributeIds)
+}
+
+// activeSharedAttributesOfHandle returns the shared attributes that are active in the organization
+// of the handle.
+func activeSharedAttributesOfHandle(ctx context.Context, orgHandle string) ([]model.ProfileSchemaAttribute, error) {
+
+	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	if err != nil || org == nil {
+		return nil, err
+	}
+	return activeSharedAttributes(ctx, *org)
+}
+
+// activeSharedAttributes returns the shared attributes that are active in the organization, the
+// nearest owner first. OwnerOrgHandle of each attribute is set.
+func activeSharedAttributes(ctx context.Context, org orgModel.Organization) ([]model.ProfileSchemaAttribute, error) {
+
+	shared, err := sharingService.GetSharedResources(ctx, model.SharingResourceType, org)
+	if err != nil || len(shared) == 0 {
+		return nil, err
+	}
+	ids := make([]string, 0, len(shared))
+	for _, r := range shared {
+		ids = append(ids, r.ResourceId)
+	}
+	attrs, err := psstr.GetProfileSchemaAttributesByIds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	owned, err := psstr.GetProfileSchemaAttributesForOrg(ctx, org.OrgHandle)
+	if err != nil {
+		return nil, err
+	}
+	return selectActiveSharedAttributes(shared, attrs, owned), nil
+}
+
+// selectActiveSharedAttributes returns the shared attributes that are active, in the order of the
+// shared resources. A shared attribute is not active when an owned attribute or the shared
+// attribute of a nearer owner has the same key.
+func selectActiveSharedAttributes(shared []shareModel.SharedResource, attrs,
+	owned []model.ProfileSchemaAttribute) []model.ProfileSchemaAttribute {
+
+	byId := make(map[string]model.ProfileSchemaAttribute, len(attrs))
+	for _, attr := range attrs {
+		byId[attr.AttributeId] = attr
+	}
+	usedKeys := make(map[string]bool, len(owned)+len(shared))
+	for _, attr := range owned {
+		usedKeys[attributeKey(attr)] = true
+	}
+	var result []model.ProfileSchemaAttribute
+	for _, r := range shared {
+		attr, ok := byId[r.ResourceId]
+		if !ok || attr.OwnerOrgHandle != r.OwnerOrgHandle || usedKeys[attributeKey(attr)] {
+			continue
+		}
+		usedKeys[attributeKey(attr)] = true
+		result = append(result, attr)
+	}
+	return result
+}
+
+// attributeKey returns the key of an attribute for name conflicts. Application data attribute
+// names are scoped to their application.
+func attributeKey(attr model.ProfileSchemaAttribute) string {
+
+	if !strings.HasPrefix(attr.AttributeName, constants.ApplicationData+".") || attr.ApplicationIdentifier == "" {
+		return attr.AttributeName
+	}
+	return attr.ApplicationIdentifier + "\x00" + attr.AttributeName
 }

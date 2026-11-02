@@ -126,7 +126,7 @@ func Test_ConsentFilter(t *testing.T) {
 	// ── Filter cases ──────────────────────────────────────────────────────────
 
 	t.Run("No_consentCategoryId_returns_mandatory_identity_fields_only", func(t *testing.T) {
-		profile, err := profileSvc.GetProfile(context.Background(), profileId)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
 		require.NoError(t, err)
 
 		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, nil)
@@ -143,7 +143,7 @@ func Test_ConsentFilter(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		profile, err := profileSvc.GetProfile(context.Background(), profileId)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
 		require.NoError(t, err)
 
 		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, []string{marketingCategoryId})
@@ -159,7 +159,7 @@ func Test_ConsentFilter(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		profile, err := profileSvc.GetProfile(context.Background(), profileId)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
 		require.NoError(t, err)
 
 		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, []string{marketingCategoryId})
@@ -183,7 +183,7 @@ func Test_ConsentFilter(t *testing.T) {
 		analyticsCategoryId := createdAnalytics.CategoryIdentifier
 
 		// marketing = consented, analytics = no consent record → revoked
-		profile, err := profileSvc.GetProfile(context.Background(), profileId)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
 		require.NoError(t, err)
 
 		filtered, err := profileService.FilterProfileByConsent(context.Background(),
@@ -210,6 +210,6 @@ func Test_ConsentFilter(t *testing.T) {
 	})
 
 	t.Cleanup(func() {
-		_ = profileSvc.DeleteProfile(context.Background(), profileId)
+		_ = profileSvc.DeleteProfile(context.Background(), profileId, org)
 	})
 }

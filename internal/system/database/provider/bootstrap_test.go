@@ -65,7 +65,7 @@ func tableCount(t *testing.T, db *sql.DB) int {
 
 func Test_initializeSQLiteSchema(t *testing.T) {
 
-	const expectedTables = 13
+	const expectedTables = 19 // 13 core, 3 identity resolution, and 3 organization tables
 
 	db, path := openTestSQLite(t)
 
@@ -93,7 +93,7 @@ func Test_initializeSQLiteSchema(t *testing.T) {
 // multi-statement script.
 func Test_applySchemaStatements(t *testing.T) {
 
-	const expectedTables = 13
+	const expectedTables = 19 // 13 core, 3 identity resolution, and 3 organization tables
 
 	db, _ := openTestSQLite(t)
 

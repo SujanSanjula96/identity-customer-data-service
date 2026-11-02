@@ -59,9 +59,13 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 	}
 
 	resp := model.AdminConfigAPI{
-		CDSEnabled:         config.CDSEnabled,
-		SystemApplications: config.SystemApplications,
-		CORSAllowedOrigins: config.CORSAllowedOrigins,
+		CDSEnabled:                 config.CDSEnabled,
+		SystemApplications:         config.SystemApplications,
+		AutoMergeEnabled:           config.AutoMergeEnabled,
+		AutoMergeThreshold:         config.AutoMergeThreshold,
+		ManualReviewThreshold:      config.ManualReviewThreshold,
+		DeterministicMatchDecisive: config.DeterministicMatchDecisive,
+		CORSAllowedOrigins:         config.CORSAllowedOrigins,
 	}
 	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
 }
@@ -99,11 +103,15 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	}
 
 	configToUpdate := model.AdminConfig{
-		OrgHandle:             orgHandle,
-		InitialSchemaSyncDone: existingConfig.InitialSchemaSyncDone,
-		CDSEnabled:            existingConfig.CDSEnabled,
-		SystemApplications:    existingConfig.SystemApplications,
-		CORSAllowedOrigins:    existingConfig.CORSAllowedOrigins,
+		OrgHandle:                  orgHandle,
+		InitialSchemaSyncDone:      existingConfig.InitialSchemaSyncDone,
+		CDSEnabled:                 existingConfig.CDSEnabled,
+		SystemApplications:         existingConfig.SystemApplications,
+		AutoMergeEnabled:           existingConfig.AutoMergeEnabled,
+		AutoMergeThreshold:         existingConfig.AutoMergeThreshold,
+		ManualReviewThreshold:      existingConfig.ManualReviewThreshold,
+		DeterministicMatchDecisive: existingConfig.DeterministicMatchDecisive,
+		CORSAllowedOrigins:         existingConfig.CORSAllowedOrigins,
 	}
 
 	// Update only if provided in request
@@ -112,6 +120,18 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	}
 	if config.SystemApplications != nil {
 		configToUpdate.SystemApplications = config.SystemApplications
+	}
+	if config.AutoMergeEnabled != nil {
+		configToUpdate.AutoMergeEnabled = *config.AutoMergeEnabled
+	}
+	if config.AutoMergeThreshold != nil {
+		configToUpdate.AutoMergeThreshold = *config.AutoMergeThreshold
+	}
+	if config.ManualReviewThreshold != nil {
+		configToUpdate.ManualReviewThreshold = *config.ManualReviewThreshold
+	}
+	if config.DeterministicMatchDecisive != nil {
+		configToUpdate.DeterministicMatchDecisive = *config.DeterministicMatchDecisive
 	}
 	if config.CORSAllowedOrigins != nil {
 		configToUpdate.CORSAllowedOrigins = config.CORSAllowedOrigins
@@ -124,9 +144,13 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	}
 
 	resp := model.AdminConfigAPI{
-		CDSEnabled:         configToUpdate.CDSEnabled,
-		SystemApplications: configToUpdate.SystemApplications,
-		CORSAllowedOrigins: configToUpdate.CORSAllowedOrigins,
+		CDSEnabled:                 configToUpdate.CDSEnabled,
+		SystemApplications:         configToUpdate.SystemApplications,
+		AutoMergeEnabled:           configToUpdate.AutoMergeEnabled,
+		AutoMergeThreshold:         configToUpdate.AutoMergeThreshold,
+		ManualReviewThreshold:      configToUpdate.ManualReviewThreshold,
+		DeterministicMatchDecisive: configToUpdate.DeterministicMatchDecisive,
+		CORSAllowedOrigins:         configToUpdate.CORSAllowedOrigins,
 	}
 	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
 }

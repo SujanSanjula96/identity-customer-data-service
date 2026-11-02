@@ -969,15 +969,19 @@ stop_is() {
 # 9. Provisioning the Identity Server over its management APIs
 # --------------------------------------------------------------------------- #
 CDS_SCOPES="internal_cds_profile_view internal_cds_profile_create internal_cds_profile_update internal_cds_profile_delete
-internal_cds_profile_schema_view internal_cds_profile_schema_create internal_cds_profile_schema_update internal_cds_profile_schema_delete
-internal_cds_unification_rule_view internal_cds_unification_rule_create internal_cds_unification_rule_update internal_cds_unification_rule_delete
+internal_cds_profile_schema_view internal_cds_profile_schema_create internal_cds_profile_schema_update internal_cds_profile_schema_delete internal_cds_profile_schema_share
+internal_cds_unification_rule_view internal_cds_unification_rule_create internal_cds_unification_rule_update internal_cds_unification_rule_delete internal_cds_unification_rule_share
 internal_cds_admin_config_view internal_cds_admin_config_update
+internal_cds_organization_view internal_cds_organization_update
+internal_cds_identity_resolution_view internal_cds_identity_resolution_update
 internal_cds_consent_category_view internal_cds_consent_category_create internal_cds_consent_category_update internal_cds_consent_category_delete"
 
 CDS_API_IDENTIFIERS="/cds/api/v1/profiles
 /cds/api/v1/profile-schema
 /cds/api/v1/unification-rules
 /cds/api/v1/config
+/cds/api/v1/organizations
+/cds/api/v1/identity-resolution
 /cds/api/v1/consent-categories"
 
 api_resource_id() {
@@ -1043,7 +1047,7 @@ assert_api_resources() {
   [ -z "$missing" ] || die "IS did not register the CDS API resource(s):$missing
 The [[api_resources]] entries in $IS_HOME/repository/conf/deployment.toml were not picked up.
 Re-run with --clean to start the pack from a fresh database."
-  ok "all 5 CDS API resources registered"
+  ok "all 6 CDS API resources registered"
 }
 
 provision_cds_profile_claim() {
@@ -1116,7 +1120,10 @@ provision_is() {
     || die "management API resource /api/server/v1/claim-dialects not found"
   authorize_api "$sys_id" "/scim2/Users" internal_user_mgt_list internal_user_mgt_view \
     || die "management API resource /scim2/Users not found"
-  ok "'$SYS_APP_NAME' authorized for applications, claim-dialects and scim2/Users"
+  # CDS reads the organization tree.
+  authorize_api "$sys_id" "/api/server/v1/organizations" internal_organization_view \
+    || die "management API resource /api/server/v1/organizations not found"
+  ok "'$SYS_APP_NAME' authorized for applications, claim-dialects, scim2/Users, and organizations"
 
   SYS_CLIENT_ID="$(oidc_config "$sys_id" | jq -r '.clientId // empty')"
   SYS_CLIENT_SECRET="$(oidc_config "$sys_id" | jq -r '.clientSecret // empty')"
@@ -1141,7 +1148,7 @@ provision_is() {
     [ -n "$scopes" ] || die "no scopes found on API resource $ident"
     authorize_api "$cli_id" "$ident" $scopes || die "failed to authorize $ident"
   done
-  ok "'$CLIENT_APP_NAME' authorized for all 5 CDS API resources, audience '$AUDIENCE'"
+  ok "'$CLIENT_APP_NAME' authorized for all 6 CDS API resources, audience '$AUDIENCE'"
 
   CLIENT_ID="$(oidc_config "$cli_id" | jq -r '.clientId // empty')"
   CLIENT_SECRET="$(oidc_config "$cli_id" | jq -r '.clientSecret // empty')"

@@ -118,13 +118,13 @@ func Test_UnificationRule(t *testing.T) {
 		err := unificationRuleService.PatchUnificationRule(context.Background(), rule.RuleId, SuperTenantOrg, rule)
 		require.NoError(t, err, "Failed to patch unification rule")
 
-		updated, err := unificationRuleService.GetUnificationRule(context.Background(), rule.RuleId)
+		updated, err := unificationRuleService.GetUnificationRule(context.Background(), rule.RuleId, SuperTenantOrg)
 		require.NoError(t, err, "Failed to fetch updated rule")
 		require.False(t, updated.IsActive, "Expected is_active to be false")
 	})
 
 	t.Run("Delete_unification_rule", func(t *testing.T) {
-		err := unificationRuleService.DeleteUnificationRule(context.Background(), rule.RuleId)
+		err := unificationRuleService.DeleteUnificationRule(context.Background(), rule.RuleId, SuperTenantOrg)
 		require.NoError(t, err, "Failed to delete unification rule")
 	})
 
@@ -133,7 +133,7 @@ func Test_UnificationRule(t *testing.T) {
 	t.Cleanup(func() {
 		rules, _ := unificationRuleService.GetUnificationRules(context.Background(), SuperTenantOrg)
 		for _, r := range rules {
-			_ = unificationRuleService.DeleteUnificationRule(context.Background(), r.RuleId)
+			_ = unificationRuleService.DeleteUnificationRule(context.Background(), r.RuleId, SuperTenantOrg)
 		}
 		_ = profileSchemaService.DeleteProfileSchema(context.Background(), SuperTenantOrg)
 		_ = profileSchemaService.DeleteProfileSchemaAttributesByScope(context.Background(), SuperTenantOrg, constants.IdentityAttributes)

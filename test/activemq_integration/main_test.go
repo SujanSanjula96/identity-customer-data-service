@@ -37,6 +37,8 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	_ "github.com/wso2/identity-customer-data-service/internal/system/queue/activemq" // registers the ActiveMQ queue provider
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
+
+	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
 	integrationUtils "github.com/wso2/identity-customer-data-service/test/integration/utils"
 	"github.com/wso2/identity-customer-data-service/test/setup"
 )
@@ -89,6 +91,11 @@ func TestMain(m *testing.M) {
 		fmt.Println("Failed to start profile worker:", err)
 		os.Exit(1)
 	}
+	// Without these the worker has no rule-based matching at all: unifyProfiles finds no
+	// resolver registered and returns, so nothing merges and every assertion about a
+	// unified master fails for a reason that looks nothing like the cause.
+	workers.RegisterFuzzyResolveFunc(irWorker.ResolveProfileAsync)
+	workers.RegisterReindexAfterMergeFunc(irWorker.ReindexAfterMerge)
 	if err := workers.StartSchemaSyncWorker(); err != nil {
 		fmt.Println("Failed to start schema sync worker:", err)
 		os.Exit(1)

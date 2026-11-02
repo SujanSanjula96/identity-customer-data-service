@@ -1,0 +1,166 @@
+# -------------------------------------------------------------------------------------
+#
+# Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+#
+# WSO2 LLC. licenses this file to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# --------------------------------------------------------------------------------------
+
+# Gives every pull request a type label, which is what a release's change list
+# is grouped by.
+#
+# Nobody is expected to label a pull request. The type belongs on the issue,
+# and this copies it from the issue the pull request closes. Where that leaves
+# no type — no issue linked, or an issue carrying none — the pull request is
+# labelled Type/Bug, since that is what most changes are, and a warning says
+# so. Changing it is a one-click correction on a pull request that already
+# reads correctly in the change list; being asked for a label before merging
+# is not.
+#
+# Nothing here blocks a merge, and nothing here can report a red check: the
+# job is continue-on-error, so even a GitHub API hiccup leaves the pull
+# request green with a warning rather than a failure to re-run. An unlabelled
+# pull request is not dropped from a release either — .github/release.yml has
+# a catch-all category — so the worst an untouched pull request suffers is
+# landing under Other Changes.
+#
+# It runs on pull_request_target so that a pull request from a fork gets a
+# token that can label it. Nothing here checks out or runs the pull request's
+# code; it reads the API and writes labels, which is what makes that safe.
+
+name: 🏷️ PR Labels
+
+on:
+  pull_request_target:
+    # Only the events that can change what the type should be: a body edited
+    # into or out of "Fixes #123", and labels moving. Pushing commits cannot,
+    # so synchronize is left out rather than re-running this on every push.
+    types: [opened, reopened, edited, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # The labels a release groups its change list by, plus the one that says a
+  # change does not belong in that list at all. Kept in step with the
+  # categories in .github/release.yml.
+  TYPE_LABELS: |
+    Type/New Feature
+    Type/Improvement
+    Type/UX
+    Type/Bug
+    Type/Docs
+    Type/Task
+  ESCAPE_LABEL: skip-changelog
+  # What a pull request is taken to be when neither it nor the issue it closes
+  # says otherwise.
+  DEFAULT_LABEL: Type/Bug
+
+jobs:
+  type:
+    name: Give the pull request a type
+    runs-on: ubuntu-latest
+    # Labelling is a convenience. If it breaks, that is this workflow's
+    # problem and not the pull request's.
+    continue-on-error: true
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: 🏷️ Take the type from the linked issue, or fall back to the default
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const types = process.env.TYPE_LABELS.split('\n')
+              .map(l => l.trim()).filter(Boolean);
+            const escape = process.env.ESCAPE_LABEL;
+            const fallback = process.env.DEFAULT_LABEL;
+
+            const pr = context.payload.pull_request;
+            const onPR = new Set(pr.labels.map(l => l.name));
+
+            // closingIssuesReferences covers both the "Fixes #123" keywords in
+            // the body and an issue linked by hand from the sidebar, which is
+            // the whole set of ways a pull request says what it closes. It
+            // resolves only issues in this repository: a pull request tracked
+            // somewhere else has nothing to copy, and takes the default.
+            const result = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    closingIssuesReferences(first: 10) {
+                      nodes { number labels(first: 20) { nodes { name } } }
+                    }
+                  }
+                }
+              }`,
+              { owner: context.repo.owner, repo: context.repo.repo, number: pr.number }
+            );
+
+            const issues = result.repository.pullRequest.closingIssuesReferences.nodes;
+
+            // "breaking change" travels with the type but is not one: a pull
+            // request carrying only that still needs a type under it.
+            const copyable = types.concat(['breaking change']);
+            const copied = [...new Set(
+              issues.flatMap(i => i.labels.nodes.map(l => l.name))
+                .filter(name => copyable.includes(name) && !onPR.has(name))
+            )];
+
+            if (copied.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: copied,
+              });
+              core.info(`Copied from #${issues.map(i => i.number).join(', #')}: ${copied.join(', ')}`);
+            }
+
+            const held = [...onPR, ...copied].filter(label => types.includes(label));
+            if (held.length > 0) {
+              core.info(`This pull request is a ${held.join(', ')}.`);
+              return;
+            }
+
+            if (onPR.has(escape)) {
+              core.info(`Labelled ${escape}, so it is left out of the change list and needs no type.`);
+              return;
+            }
+
+            // Somebody taking a label off is in the middle of choosing one.
+            // Putting the default straight back would leave them holding two.
+            if (context.payload.action === 'unlabeled') {
+              core.warning(
+                'This pull request has no type, so a release would list it under Other Changes. ' +
+                `Add one of: ${types.join(', ')}.`
+              );
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: [fallback],
+            });
+            core.warning(
+              `Neither this pull request nor any issue it closes carries a type, so it has been ` +
+              `labelled ${fallback}. Change it if the release should list this somewhere else: ` +
+              `${types.filter(t => t !== fallback).join(', ')}.`
+            );

@@ -27,6 +27,16 @@ addr:
 
 server_url: "https://localhost:8900" # Public-facing base URL used for constructing Location headers
 
+# The identity provider of this deployment: wso2is (default). One CDS deployment works with one
+# identity provider.
+idp:
+  type: "wso2is"
+
+# Organization management: the organization tree, sub organization paths, and sharing with child
+# organizations. Create the organization tables before you enable it.
+organization_management:
+  enabled: false
+
 auth_server:
   host: "localhost"
   port : 9443
@@ -63,6 +73,10 @@ auth_server:
       - "internal_cds_unification_rule_update"
     unification_rules:delete:
       - "internal_cds_unification_rule_delete"
+    unification_rules:share_view:
+      - "internal_cds_unification_rule_share_view"
+    unification_rules:share_update:
+      - "internal_cds_unification_rule_share_update"
 
     profile_schema:view:
       - "internal_cds_profile_schema_view"
@@ -72,11 +86,19 @@ auth_server:
       - "internal_cds_profile_schema_update"
     profile_schema:delete:
       - "internal_cds_profile_schema_delete"
+    profile_schema:share_view:
+      - "internal_cds_profile_schema_share_view"
+    profile_schema:share_update:
+      - "internal_cds_profile_schema_share_update"
 
     admin_config:view:
       - "internal_cds_admin_config_view"
     admin_config:update:
       - "internal_cds_admin_config_update"
+    organization:view:
+      - "internal_cds_organization_view"
+    organization:update:
+      - "internal_cds_organization_update"
 
     consent_category:view:
       - "internal_cds_consent_category_view"
@@ -86,7 +108,38 @@ auth_server:
       - "internal_cds_consent_category_update"
     consent_category:delete:
       - "internal_cds_consent_category_delete"
+    identity_resolution:view:
+      - "internal_cds_identity_resolution_view"
+    identity_resolution:update:
+      - "internal_cds_identity_resolution_update"
 
+    org:profile:create:
+      - "internal_org_cds_profile_create"
+    org:profile:update:
+      - "internal_org_cds_profile_update"
+    org:profile:view:
+      - "internal_org_cds_profile_view"
+    org:profile:delete:
+      - "internal_org_cds_profile_delete"
+    org:profile:link:
+      - "internal_org_cds_profile_link"
+
+    org:unification_rules:view:
+      - "internal_org_cds_unification_rule_view"
+
+    org:profile_schema:view:
+      - "internal_org_cds_profile_schema_view"
+
+    org:admin_config:view:
+      - "internal_org_cds_admin_config_view"
+
+    org:consent_category:view:
+      - "internal_org_cds_consent_category_view"
+
+    org:identity_resolution:view:
+      - "internal_org_cds_identity_resolution_view"
+    org:identity_resolution:update:
+      - "internal_org_cds_identity_resolution_update"
 
 sync:
   schema:
@@ -152,3 +205,14 @@ tls:
   server_key: "server.key" #filename
   client_cert: "client.crt"   #filename
   trust_store: "trust_store.pem"      #filename
+
+identity_resolution:
+  # Allow a unification rule to carry its own match_strength and mismatch_strength rather
+  # than taking the values derived from its attribute_type. Off until operators have a way
+  # to preview what a change would do to existing profiles.
+  allow_evidence_strength_override: false
+
+  # Tolerant matching, server-wide. Off by default, including where this key is absent, so
+  # an upgrade keeps unifying profiles exactly as it did. Turn it on deliberately: while it
+  # is off new fuzzy rules are refused and any already stored are evaluated as exact.
+  fuzzy_matching_enabled: false

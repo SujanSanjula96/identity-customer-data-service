@@ -68,6 +68,19 @@ CREATE TABLE unification_rules
     property_id  VARCHAR(255) REFERENCES profile_schema(attribute_id) ON DELETE CASCADE,
     priority      INT          NOT NULL,
     is_active     BOOLEAN      NOT NULL,
+    attribute_type     VARCHAR(255) NOT NULL DEFAULT 'PRIMITIVE_EXACT',
+    unification_method VARCHAR(255) NOT NULL DEFAULT 'deterministic',
+    -- How much an agreement on this attribute supports a merge, and how much a
+    -- disagreement opposes one. Independent because the two directions rarely carry equal
+    -- weight: matching emails strongly imply the same person while differing emails imply
+    -- little, and a date of birth is the reverse.
+    --
+    -- Left NULL, each is derived from attribute_type at load time. A value here is an
+    -- explicit operator override. They must not carry a column default: a default would
+    -- stamp a concrete strength onto every pre-existing row when the column is added,
+    -- which reads as a deliberate choice and overrides what the attribute type implies.
+    match_strength     VARCHAR(20),
+    mismatch_strength  VARCHAR(20),
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
@@ -141,6 +154,83 @@ CREATE TABLE cds_config (
     PRIMARY KEY (org_handle, config)
 );
 
+CREATE TABLE IF NOT EXISTS organizations (
+    org_id         VARCHAR(255) PRIMARY KEY,
+    org_handle     VARCHAR(255) NOT NULL UNIQUE,
+    org_name       VARCHAR(255),
+    parent_org_id  VARCHAR(255),
+    primary_org_id    VARCHAR(255) NOT NULL,
+    status         VARCHAR(32)  NOT NULL,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS resource_sharing_policy (
+    policy_id         VARCHAR(255) PRIMARY KEY,
+    resource_type     VARCHAR(64)  NOT NULL,
+    resource_id       VARCHAR(255) NOT NULL,
+    owning_org_id     VARCHAR(255) NOT NULL,
+    initiating_org_id VARCHAR(255) NOT NULL,
+    UNIQUE (resource_type, resource_id, initiating_org_id)
+);
+
+CREATE TABLE IF NOT EXISTS resource_sharing_policy_target (
+    policy_id     VARCHAR(255) NOT NULL REFERENCES resource_sharing_policy (policy_id) ON DELETE CASCADE,
+    target_scope  VARCHAR(32)  NOT NULL,
+    target_org_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (policy_id, target_scope, target_org_id)
+);
+
+CREATE TABLE IF NOT EXISTS blocking_keys (
+    profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    org_handle      VARCHAR(255) NOT NULL,
+    attribute_name  VARCHAR(255) NOT NULL,
+    key_value       VARCHAR(512) NOT NULL,
+    PRIMARY KEY (org_handle, attribute_name, key_value, profile_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_profile ON blocking_keys(org_handle, profile_id);
+
+CREATE TABLE IF NOT EXISTS review_tasks (
+    id                      VARCHAR(255) PRIMARY KEY,
+    org_handle              VARCHAR(255) NOT NULL,
+    incoming_profile_id       VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    candidate_profile_id    VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    match_score             DECIMAL(5,4) NOT NULL,
+    status                  VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    match_reason            TEXT,
+    score_breakdown         JSONB DEFAULT '{}'::jsonb,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at             TIMESTAMPTZ,
+    resolved_by             VARCHAR(255),
+    resolution_notes        TEXT,
+    CONSTRAINT uq_review_task_profiles UNIQUE (incoming_profile_id, candidate_profile_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_tasks_org_status ON review_tasks(org_handle, status);
+CREATE INDEX IF NOT EXISTS idx_review_tasks_created ON review_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_review_tasks_incoming ON review_tasks(incoming_profile_id, status);
+
+CREATE TABLE IF NOT EXISTS rejection_pairs (
+    id              VARCHAR(255) PRIMARY KEY,
+    org_handle      VARCHAR(255) NOT NULL,
+    -- Stored with the lower id first, so one row means one pair whichever direction the
+    -- review task happened to run in and the unique constraint below isenforceable.
+    profile_id_1    VARCHAR(255) NOT NULL,
+    profile_id_2    VARCHAR(255) NOT NULL,
+    -- The evidence the decision was made against. A rejection asserts that two profiles are
+    -- different people, which does not stop being true because an attribute changed — so it
+    -- is only reconsidered when later evidence is materially stronger than this.
+    match_score     DECIMAL(5,4),
+    score_breakdown JSONB DEFAULT '{}'::jsonb,
+    rejected_by     VARCHAR(255),
+    rejected_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_rejection_pair UNIQUE (profile_id_1, profile_id_2)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rejection_pairs_p1 ON rejection_pairs(org_handle, profile_id_1);
+CREATE INDEX IF NOT EXISTS idx_rejection_pairs_p2 ON rejection_pairs(org_handle, profile_id_2);
+
 -- ================================
 -- PROFILES (Hot path: tenant + cursor pagination + ordering)
 -- ================================
@@ -156,7 +246,6 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id_trgm
     ON profiles USING GIN (user_id gin_trgm_ops);
 
-
 -- ================================
 -- PROFILE_REFERENCE (Join + status filtering)
 -- ================================
@@ -170,7 +259,6 @@ CREATE INDEX IF NOT EXISTS idx_profile_reference_org_status_profile
 -- For lookups by reference_profile_id
 CREATE INDEX IF NOT EXISTS idx_profile_reference_reference_profile
     ON profile_reference (reference_profile_id);
-
 
 -- ================================
 -- APPLICATION_DATA (Joins + filtering)
@@ -187,7 +275,6 @@ CREATE INDEX IF NOT EXISTS idx_application_data_app_id
 CREATE INDEX IF NOT EXISTS idx_application_data_app_specific_gin
     ON application_data USING GIN ((application_data -> 'app_specific_data'));
 
-
 -- ================================
 -- JSONB FILTERING (Profiles)
 -- ================================
@@ -198,7 +285,6 @@ CREATE INDEX IF NOT EXISTS idx_profiles_traits_gin
 CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin
     ON profiles USING GIN (identity_attributes);
 
-
 -- ================================
 -- PROFILE_SCHEMA (Rare filtering, minimal indexes)
 -- ================================
@@ -208,7 +294,6 @@ CREATE INDEX IF NOT EXISTS idx_profile_schema_org_scope
 CREATE INDEX IF NOT EXISTS idx_profile_schema_org_attr_name
     ON profile_schema (org_handle, attribute_name);
 
-
 -- ================================
 -- UNIFICATION_RULES
 -- ================================
@@ -217,3 +302,15 @@ CREATE INDEX IF NOT EXISTS idx_unification_rules_org_active_priority
 
 CREATE INDEX IF NOT EXISTS idx_unification_rules_property_id
     ON unification_rules (property_id);
+
+-- ================================
+-- ORGANIZATIONS
+-- ================================
+CREATE INDEX IF NOT EXISTS idx_organizations_primary
+    ON organizations (primary_org_id);
+
+-- ================================
+-- RESOURCE_SHARING_POLICY
+-- ================================
+CREATE INDEX IF NOT EXISTS idx_resource_sharing_policy_owning_org_type
+    ON resource_sharing_policy (owning_org_id, resource_type);

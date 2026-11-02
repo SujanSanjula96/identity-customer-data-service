@@ -23,6 +23,12 @@ type AdminConfig struct {
 	CDSEnabled            bool     `json:"cds_enabled" bson:"cds_enabled"`
 	InitialSchemaSyncDone bool     `json:"initial_schema_sync_done" bson:"initial_schema_sync_done"`
 	SystemApplications    []string `json:"system_applications" bson:"system_applications"`
+	AutoMergeEnabled      bool     `json:"auto_merge_enabled" bson:"auto_merge_enabled"`
+	AutoMergeThreshold    float64  `json:"auto_merge_threshold" bson:"auto_merge_threshold"`
+	ManualReviewThreshold float64  `json:"manual_review_threshold" bson:"manual_review_threshold"`
+	// DeterministicMatchDecisive: a pair agreeing on any deterministic rule merges without
+	// the other rules being consulted. Off, the other rules may object and send it to review.
+	DeterministicMatchDecisive bool `json:"deterministic_match_decisive" bson:"deterministic_match_decisive"`
 	// CORSAllowedOrigins are the browser origins allowed to call this organisation's
 	// endpoints. An empty list means the organisation has configured none, and the
 	// deployment-wide auth.cors_allowed_origins list applies instead.
@@ -30,13 +36,21 @@ type AdminConfig struct {
 }
 
 type AdminConfigAPI struct {
-	CDSEnabled         bool     `json:"cds_enabled" bson:"cds_enabled"`
-	SystemApplications []string `json:"system_applications,omitempty" bson:"system_applications,omitempty"`
-	CORSAllowedOrigins []string `json:"cors_allowed_origins,omitempty" bson:"cors_allowed_origins,omitempty"`
+	CDSEnabled                 bool     `json:"cds_enabled" bson:"cds_enabled"`
+	SystemApplications         []string `json:"system_applications,omitempty" bson:"system_applications,omitempty"`
+	AutoMergeEnabled           bool     `json:"auto_merge_enabled" bson:"auto_merge_enabled"`
+	AutoMergeThreshold         float64  `json:"auto_merge_threshold" bson:"auto_merge_threshold"`
+	ManualReviewThreshold      float64  `json:"manual_review_threshold" bson:"manual_review_threshold"`
+	DeterministicMatchDecisive bool     `json:"deterministic_match_decisive" bson:"deterministic_match_decisive"`
+	CORSAllowedOrigins         []string `json:"cors_allowed_origins,omitempty" bson:"cors_allowed_origins,omitempty"`
 }
 
 type AdminConfigUpdateAPI struct {
-	CDSEnabled         *bool    `json:"cds_enabled" bson:"cds_enabled"`
-	SystemApplications []string `json:"system_applications,omitempty"`
-	CORSAllowedOrigins []string `json:"cors_allowed_origins,omitempty"`
+	CDSEnabled                 *bool    `json:"cds_enabled" bson:"cds_enabled"`
+	SystemApplications         []string `json:"system_applications,omitempty"`
+	AutoMergeEnabled           *bool    `json:"auto_merge_enabled,omitempty"`
+	AutoMergeThreshold         *float64 `json:"auto_merge_threshold,omitempty"`
+	ManualReviewThreshold      *float64 `json:"manual_review_threshold,omitempty"`
+	DeterministicMatchDecisive *bool    `json:"deterministic_match_decisive,omitempty"`
+	CORSAllowedOrigins         []string `json:"cors_allowed_origins,omitempty"`
 }
