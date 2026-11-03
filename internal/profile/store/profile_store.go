@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1071,6 +1072,10 @@ func GetAllProfilesWithFilter(ctx context.Context,
 	cursor *model.ProfileCursor,
 ) ([]model.Profile, bool, error) {
 
+	if err := validateFilterFields(filters); err != nil {
+		return nil, false, err
+	}
+
 	// An organization that CDS does not know gets an empty key, which matches no row.
 	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
 	if err != nil {
@@ -1380,6 +1385,11 @@ func GetAllProfilesWithFilter(ctx context.Context,
 // so pushing it down bounds both the query and the memory it returns.
 func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []string,
 	restrictTo []string) ([]string, error) {
+
+	if err := validateFilterFields(filters); err != nil {
+		return nil, err
+	}
+
 	// An organization that CDS does not know gets an empty key, which matches no row.
 	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
 	if err != nil {
@@ -1586,6 +1596,33 @@ func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []s
 }
 
 // sanitizeForAlias converts a string to a valid SQL alias by replacing special characters
+// filterField matches the filter fields that may enter the SQL text. The filter builders put the
+// attribute key of a field into a string literal (->> '<key>'), so a field must not hold a quote.
+var filterField = regexp.MustCompile(constants.FilterRegex)
+
+// validateFilterFields rejects a filter whose field is not safe to put into the SQL text. The
+// service checks the fields too; this check keeps the store safe for a caller that does not. A
+// filter that is not "<field> <operator> <value>" is left to the builder, which handles it.
+func validateFilterFields(filters []string) error {
+
+	for _, f := range filters {
+		parts := strings.SplitN(f, " ", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		field := parts[0]
+		if field == "user_id" || field == "profile_id" || filterField.MatchString(field) {
+			continue
+		}
+		return errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.FILTER_PROFILE.Code,
+			Message:     errors2.FILTER_PROFILE.Message,
+			Description: "Invalid filter key: " + field,
+		}, http.StatusBadRequest)
+	}
+	return nil
+}
+
 func sanitizeForAlias(input string) string {
 	// Replace any non-alphanumeric character with underscore
 	reg := regexp.MustCompile(`[^a-zA-Z0-9_]`)
