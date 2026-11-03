@@ -581,10 +581,10 @@ var IRCountProfilesByBlockingKey = newQuery("CDS-IDR-07",
 // REJECTED row is reopened too: the worker raises a task for a rejected pair only once the
 // rejection is reconsidered, and the decision itself is kept in rejection_pairs.
 var IRInsertReviewTask = newQuery("CDS-IDR-08",
-	`INSERT INTO review_tasks (id, org_handle, incoming_profile_id, candidate_profile_id, match_score, status, score_breakdown)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`INSERT INTO review_tasks (id, org_handle, incoming_profile_id, candidate_profile_id, match_score, status, score_breakdown, match_reason)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 				 ON CONFLICT (incoming_profile_id, candidate_profile_id)
-				 DO UPDATE SET match_score = $5, score_breakdown = $7, status = $6,
+				 DO UPDATE SET match_score = $5, score_breakdown = $7, match_reason = $8, status = $6,
 				               resolved_at = NULL, resolved_by = NULL, resolution_notes = NULL
 				 WHERE review_tasks.status IN ('PENDING', 'CANCELLED', 'REJECTED')`)
 
@@ -593,10 +593,11 @@ var IRMirrorReviewTaskExists = newQuery("CDS-IDR-09",
 	`SELECT COUNT(*) FROM review_tasks
 				 WHERE incoming_profile_id = $1 AND candidate_profile_id = $2 AND status = $3`)
 
-// IRUpdateMirrorReviewTask flips the direction of a mirror task and refreshes its score.
+// IRUpdateMirrorReviewTask flips the direction of a mirror task and refreshes its evidence.
 var IRUpdateMirrorReviewTask = newQuery("CDS-IDR-10",
 	`UPDATE review_tasks
-				 SET incoming_profile_id = $1, candidate_profile_id = $2, match_score = $3, score_breakdown = $4
+				 SET incoming_profile_id = $1, candidate_profile_id = $2, match_score = $3, score_breakdown = $4,
+				     match_reason = $8
 				 WHERE incoming_profile_id = $5 AND candidate_profile_id = $6 AND status = $7`)
 
 // IRCancelRelatedReviewTasks cancels all PENDING tasks that reference either profile.
@@ -619,13 +620,13 @@ var IRFindRelatedPendingReviewTasks = newQuery("CDS-IDR-12",
 
 var IRGetReviewTaskByID = newQuery("CDS-IDR-13",
 	`SELECT id, org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
-				        score_breakdown, created_at, resolved_at, resolved_by, resolution_notes
+				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE id = $1`)
 
 var IRGetPendingReviewTasks = newQuery("CDS-IDR-14",
 	`SELECT id, org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
-				        score_breakdown, created_at, resolved_at, resolved_by, resolution_notes
+				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE org_handle = $1 AND status = $2
 				 ORDER BY created_at DESC
@@ -636,7 +637,7 @@ var IRCountPendingReviewTasks = newQuery("CDS-IDR-15",
 
 var IRGetPendingReviewTasksByProfile = newQuery("CDS-IDR-16",
 	`SELECT id, org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
-				        score_breakdown, created_at, resolved_at, resolved_by, resolution_notes
+				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE org_handle = $1 AND status = $2
 				   AND (incoming_profile_id = $3)

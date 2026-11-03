@@ -146,7 +146,8 @@ func InsertReviewTask(ctx context.Context, task model.ReviewTask) error {
 				_, updateErr := dbClient.ExecuteQueryContext(ctx, updateQuery,
 					task.IncomingProfileID, task.CandidateProfileID,
 					task.MatchScore, string(breakdownJSON),
-					task.CandidateProfileID, task.IncomingProfileID, constants.ReviewStatusPending)
+					task.CandidateProfileID, task.IncomingProfileID, constants.ReviewStatusPending,
+					explanationJSON(task.Explanation))
 				if updateErr != nil {
 					logger.Warn(fmt.Sprintf("Store: failed to flip mirror task '%s' ↔ '%s'",
 						task.IncomingProfileID, task.CandidateProfileID), log.Error(updateErr))
@@ -165,7 +166,7 @@ func InsertReviewTask(ctx context.Context, task model.ReviewTask) error {
 	query := scripts.IRInsertReviewTask
 	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		task.ID, task.OrgHandle, task.IncomingProfileID, task.CandidateProfileID,
-		task.MatchScore, task.Status, string(breakdownJSON))
+		task.MatchScore, task.Status, string(breakdownJSON), explanationJSON(task.Explanation))
 	if err != nil {
 		logger.Error("Store: failed to insert review task", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -387,6 +388,39 @@ func UpdateReviewTaskStatus(ctx context.Context, taskID string, status string, r
 }
 
 // scanReviewTask converts a DB row to a ReviewTask.
+// scanScore reads a match_score column. PostgreSQL returns DECIMAL as text, and SQLite
+// returns whatever its numeric affinity stored: a score of exactly 1 comes back as an
+// integer, which read as 0 until it was handled here.
+func scanScore(value interface{}) float64 {
+	switch score := value.(type) {
+	case float64:
+		return score
+	case int64:
+		return float64(score)
+	case []byte:
+		if parsed, err := strconv.ParseFloat(string(score), 64); err == nil {
+			return parsed
+		}
+	case string:
+		if parsed, err := strconv.ParseFloat(score, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+// explanationJSON is the explanation as stored in match_reason, or NULL when there is none.
+func explanationJSON(explanation *model.MatchExplanation) interface{} {
+	if explanation == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(explanation)
+	if err != nil {
+		return nil
+	}
+	return string(encoded)
+}
+
 func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 	task := model.ReviewTask{}
 
@@ -402,20 +436,7 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 	if v, ok := row["candidate_profile_id"]; ok && v != nil {
 		task.CandidateProfileID = fmt.Sprintf("%v", v)
 	}
-	if v, ok := row["match_score"]; ok && v != nil {
-		switch f := v.(type) {
-		case float64:
-			task.MatchScore = f
-		case []byte:
-			if parsed, err := strconv.ParseFloat(string(f), 64); err == nil {
-				task.MatchScore = parsed
-			}
-		case string:
-			if parsed, err := strconv.ParseFloat(f, 64); err == nil {
-				task.MatchScore = parsed
-			}
-		}
-	}
+	task.MatchScore = scanScore(row["match_score"])
 	if v, ok := row["status"]; ok && v != nil {
 		task.Status = fmt.Sprintf("%v", v)
 	}
@@ -431,6 +452,21 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 	case string:
 		if err := json.Unmarshal([]byte(raw), &breakdown); err == nil {
 			task.ScoreBreakdown = breakdown
+		}
+	}
+	// match_reason holds the explanation as JSON. It is NULL on a task raised before
+	// explanations were recorded, and the task is returned without one.
+	var explanationRaw []byte
+	switch raw := row["match_reason"].(type) {
+	case []byte:
+		explanationRaw = raw
+	case string:
+		explanationRaw = []byte(raw)
+	}
+	if len(explanationRaw) > 0 {
+		var explanation model.MatchExplanation
+		if err := json.Unmarshal(explanationRaw, &explanation); err == nil {
+			task.Explanation = &explanation
 		}
 	}
 	if v, ok := row["created_at"]; ok && v != nil {
@@ -560,18 +596,7 @@ func GetRejectionsForProfile(ctx context.Context, orgHandle, profileID string) (
 
 		rejection := model.Rejection{OtherProfileID: other}
 
-		switch score := row["match_score"].(type) {
-		case float64:
-			rejection.MatchScore = score
-		case []byte:
-			if parsed, parseErr := strconv.ParseFloat(string(score), 64); parseErr == nil {
-				rejection.MatchScore = parsed
-			}
-		case string:
-			if parsed, parseErr := strconv.ParseFloat(score, 64); parseErr == nil {
-				rejection.MatchScore = parsed
-			}
-		}
+		rejection.MatchScore = scanScore(row["match_score"])
 
 		switch raw := row["score_breakdown"].(type) {
 		case []byte:

@@ -20,10 +20,12 @@ package integration
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	irService "github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
@@ -34,8 +36,9 @@ import (
 )
 
 // insertRule stores a unification rule straight to the table, for the same reason as
-// insertFuzzyNameRule: the store would need a profile schema seeded for property_id.
-func insertRule(t *testing.T, org, name, property string, priority int, attributeType, method string) {
+// insertFuzzyNameRule: the store would need a profile schema seeded for property_id. It
+// returns the rule's ID.
+func insertRule(t *testing.T, org, name, property string, priority int, attributeType, method string) string {
 	t.Helper()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -45,11 +48,13 @@ func insertRule(t *testing.T, org, name, property string, priority int, attribut
 	defer dbClient.Close()
 
 	now := time.Now().UTC()
+	ruleID := uuid.New().String()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		uuid.New().String(), org, name, property, priority, true, attributeType, method, now, now)
+		ruleID, org, name, property, priority, true, attributeType, method, now, now)
 	if err != nil {
 		t.Fatalf("store rule %q: %v", name, err)
 	}
+	return ruleID
 }
 
 // Test_RejectedPair_ReconsideredIsReviewedNotMerged checks that a pair an administrator
@@ -67,7 +72,7 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 
 	ctx := context.Background()
 	org := newOrg("reject-reconsider")
-	insertRule(t, org, "email", "traits.email", 1, constants.AttributeTypeEmail, constants.UnificationMethodDeterministic)
+	emailRule := insertRule(t, org, "email", "traits.email", 1, constants.AttributeTypeEmail, constants.UnificationMethodDeterministic)
 	insertRule(t, org, "name", "traits.name", 2, constants.AttributeTypeName, constants.UnificationMethodFuzzy)
 
 	// Same name, different emails: the name agrees, the email disagrees, so the pair is
@@ -90,6 +95,15 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	// later reads as new evidence, and the pair returns on any write.
 	if len(pending[0].ScoreBreakdown) == 0 {
 		t.Fatal("the review task was read back without its score breakdown")
+	}
+	// The task records how alike the pair is, not the capped score that held it back: the
+	// names match exactly, so 1.0. The reasons say what held it.
+	if pending[0].MatchScore != 1.0 {
+		t.Errorf("the task recorded %.4f, want the similarity 1.0", pending[0].MatchScore)
+	}
+	if got := explanationCodes(pending[0]); !reflect.DeepEqual(got,
+		[]string{irModel.ReasonConflictingEvidence, irModel.ReasonWeakSoleEvidence}) {
+		t.Errorf("the task was explained as %v, want conflicting evidence and a weak sole match", got)
 	}
 
 	svc := irService.GetIdentityResolutionService()
@@ -129,6 +143,37 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 		t.Fatalf("list tasks: %v", err)
 	}
 	if len(reopened) != 1 {
-		t.Errorf("expected the reconsidered pair back in the review queue, got %d pending tasks", len(reopened))
+		t.Fatalf("expected the reconsidered pair back in the review queue, got %d pending tasks", len(reopened))
 	}
+
+	// The returning task says why it is back: the email rule agrees now, and the pair was
+	// rejected at full similarity.
+	var reconsideredReason *irModel.ReviewReason
+	if reopened[0].Explanation != nil {
+		for i, reason := range reopened[0].Explanation.Reasons {
+			if reason.Code == irModel.ReasonRejectionReconsidered {
+				reconsideredReason = &reopened[0].Explanation.Reasons[i]
+			}
+		}
+	}
+	if reconsideredReason == nil {
+		t.Fatalf("the reconsidered task does not say it was reconsidered: %v", explanationCodes(reopened[0]))
+	}
+	if !reflect.DeepEqual(reconsideredReason.RuleIDs, []string{emailRule}) {
+		t.Errorf("the reconsidered reason names rules %v, want the email rule %s", reconsideredReason.RuleIDs, emailRule)
+	}
+	if reconsideredReason.PreviousSimilarity == nil || *reconsideredReason.PreviousSimilarity != 1.0 {
+		t.Errorf("the reconsidered reason does not carry the similarity the pair was rejected at")
+	}
+}
+
+func explanationCodes(task irModel.ReviewTask) []string {
+	if task.Explanation == nil {
+		return nil
+	}
+	codes := make([]string, 0, len(task.Explanation.Reasons))
+	for _, reason := range task.Explanation.Reasons {
+		codes = append(codes, reason.Code)
+	}
+	return codes
 }

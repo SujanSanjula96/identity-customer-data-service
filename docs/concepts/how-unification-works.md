@@ -188,6 +188,34 @@ Both thresholds are validated against each other, not only against 0 and 1: an o
 
 Whether the objections in steps 4–6 apply to a deterministic match at all is also per organisation: `deterministic_match_decisive` (default on) makes an exact match conclusive on its own, as it was before typed matching; turning it off lets the other rules send it to review instead. See [Unification Rules](unification-rules.md#letting-other-rules-object-deterministic_match_decisive).
 
+### Why a pair is in review
+
+A score that a cap held back is not a measure of anything: it is `auto_merge_threshold - 0.01` whatever held it, and it moves when the threshold does. Two numbers are therefore kept apart:
+
+| | What it is | Where it is used |
+|---|---|---|
+| **Score** | The primary signal after every cap | Routing only: merge, review or no action |
+| **Similarity** | The primary signal before any cap | Recorded on the review task and the rejection; ranks fuzzy search |
+
+A review task does not return either number. It returns an **explanation**, recorded when the task is raised, from which a client builds its own sentence:
+
+- `rules`: every active rule, with its ID, name, property, attribute type, method, priority and strengths, the `score` it gave (absent when either profile had no value) and its `verdict` (`AGREE`, `INCONCLUSIVE`, `DISAGREE` or `UNKNOWN`). The rule that spoke for the match is marked `primary`.
+- `reasons`: every reason the pair was held, each a `code` with the IDs of the rules it concerns.
+
+| Code | Holds when |
+|---|---|
+| `BELOW_AUTO_MERGE_THRESHOLD` | The primary rule scored below `auto_merge_threshold`, given as `threshold` as it was at the time |
+| `DISCRIMINATING_MISMATCH` | A rule with `mismatch_strength: HIGH` disagrees (step 4) |
+| `CONFLICTING_EVIDENCE` | Most of the other applicable rules disagree (step 5) |
+| `WEAK_SOLE_EVIDENCE` | Only one rule agrees, and it cannot identify a person alone (step 6) |
+| `COMMON_VALUE` | Only one rule agrees, on a value at least `shared_by_at_least` profiles share (step 6) |
+| `AUTO_MERGE_DISABLED` | The pair scored for a merge, but the organisation has `auto_merge_enabled` off |
+| `REJECTION_RECONSIDERED` | An administrator rejected the pair before; names the rules that agree now and gives `previous_similarity` |
+| `AUTO_MERGE_FAILED` | The pair scored for a merge, but the merge could not be made |
+| `MERGED_WITH_ANOTHER_PROFILE` | The pair scored for a merge, but the profile merged with another candidate in the same evaluation |
+
+A reason is reported whenever its condition holds, not only when it was the one that lowered the score. *Marcus Delacroix* against *Marcus Delacroix* with different emails has a similarity of 1.0 and two reasons, `CONFLICTING_EVIDENCE` on the email rule and `WEAK_SOLE_EVIDENCE` on the name rule; either alone would have held it.
+
 ### Worked examples
 
 Rules: **P1** `nic` (UNIQUE_ID, deterministic) · **P2** `name` (NAME, fuzzy) · **P3** `city` (LOCATION, fuzzy). Thresholds 0.95 / 0.75 — an organisation that has lowered the automatic threshold from its 1.0 default, so tolerant matches can merge unattended.
@@ -236,7 +264,7 @@ The same name evidence produced no action when the NICs contradicted, and an aut
 
 ## Searching profiles by similarity
 
-Unification runs on a queue after a write. The same engine is also reachable synchronously, as a search: `GET /profiles?fuzzyFilter=traits.name eq Jonathan Smith` returns profiles *similar* to the values given rather than equal to them, each with the score it was given and the per-rule breakdown behind it.
+Unification runs on a queue after a write. The same engine is also reachable synchronously, as a search: `GET /profiles?fuzzyFilter=traits.name eq Jonathan Smith` returns profiles *similar* to the values given rather than equal to them, each with its similarity and the per-rule breakdown behind it. Similarity is not lowered by a rule that disagrees: that decides whether profiles merge unattended, not how alike they are.
 
 Two modes, chosen by what the request carries:
 

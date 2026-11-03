@@ -2047,7 +2047,7 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 
 	type scoredMatch struct {
 		candidateID    string
-		finalScore     float64
+		similarity     float64
 		scoreBreakdown map[string]float64
 	}
 
@@ -2057,18 +2057,21 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 		if !exists {
 			continue
 		}
-		finalScore, breakdown := engine.ScoreCandidate(flatAttrs, candidate, rules, scoringCtx)
-		if finalScore >= threshold {
+		// A search asks how alike profiles are, so it ranks by similarity. The capped score
+		// answers a different question — whether to merge unattended — and would rank a pair
+		// held back by a disagreeing rule above a closer one that was not.
+		evaluation := engine.EvaluateCandidate(flatAttrs, candidate, rules, scoringCtx)
+		if evaluation.Similarity >= threshold {
 			scoredMatches = append(scoredMatches, scoredMatch{
 				candidateID:    candidateID,
-				finalScore:     finalScore,
-				scoreBreakdown: breakdown,
+				similarity:     evaluation.Similarity,
+				scoreBreakdown: evaluation.Breakdown,
 			})
 		}
 	}
 
 	sort.Slice(scoredMatches, func(i, j int) bool {
-		return scoredMatches[i].finalScore > scoredMatches[j].finalScore
+		return scoredMatches[i].similarity > scoredMatches[j].similarity
 	})
 	if limit > 0 && len(scoredMatches) > limit {
 		scoredMatches = scoredMatches[:limit]
@@ -2106,7 +2109,7 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 
 		results = append(results, profileModel.FuzzyMatchResult{
 			Profile:        profileResp,
-			MatchScore:     sm.finalScore,
+			MatchScore:     sm.similarity,
 			ScoreBreakdown: sm.scoreBreakdown,
 		})
 	}

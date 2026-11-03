@@ -188,11 +188,6 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 		},
 	}
 
-	type scoredCandidate struct {
-		id        string
-		score     float64
-		breakdown map[string]float64
-	}
 	var scored []scoredCandidate
 
 	for _, candidateID := range candidateIDs {
@@ -201,13 +196,15 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 			continue
 		}
 
-		finalScore, breakdown := engine.ScoreCandidate(flatAttrs, candidate, rules, scoringCtx)
+		evaluation := engine.EvaluateCandidate(flatAttrs, candidate, rules, scoringCtx)
 
-		if finalScore >= thresholds.ManualReview {
+		if evaluation.Score >= thresholds.ManualReview {
 			scored = append(scored, scoredCandidate{
-				id:        candidateID,
-				score:     finalScore,
-				breakdown: breakdown,
+				id:          candidateID,
+				score:       evaluation.Score,
+				similarity:  evaluation.Similarity,
+				breakdown:   evaluation.Breakdown,
+				explanation: evaluation.Explanation,
 			})
 		}
 	}
@@ -232,10 +229,17 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 		for _, sc := range scored {
 			rejection, wasRejected := rejections[sc.id]
 			if wasRejected {
-				if !rejection.ShouldReconsider(sc.score, sc.breakdown, thresholds.ManualReview) {
+				if !rejection.ShouldReconsider(sc.similarity, sc.breakdown, thresholds.ManualReview) {
 					continue
 				}
 				reconsidered[sc.id] = true
+				previous := rejection.MatchScore
+				sc.explanation = sc.explanation.WithReason(model.ReviewReason{
+					Code: model.ReasonRejectionReconsidered,
+					RuleIDs: sc.explanation.RuleIDsFor(
+						rejection.NewlyAgreeing(sc.breakdown, thresholds.ManualReview)),
+					PreviousSimilarity: &previous,
+				})
 			}
 			filtered = append(filtered, sc)
 		}
@@ -274,7 +278,7 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 			matchedProfile, loadErr := profileStore.GetProfile(ctx, sc.id, orgHandle)
 			if loadErr != nil || matchedProfile == nil {
 				logger.Error(fmt.Sprintf("AsyncWorker: failed to load matched profile '%s' for auto-merge", sc.id))
-				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.id, sc.score, sc.breakdown, thresholds.ManualReview, rejections)
+				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.withReason(model.ReasonAutoMergeFailed), thresholds.ManualReview, rejections)
 				continue
 			}
 
@@ -296,12 +300,12 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 				// cascade-cancel related tasks.
 				logger.Error(fmt.Sprintf("AsyncWorker: auto-merge failed for '%s' → '%s' — falling back to review task",
 					matchedProfile.ProfileId, freshProfile.ProfileId), log.Error(mergeErr))
-				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.id, sc.score, sc.breakdown, thresholds.ManualReview, rejections)
+				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.withReason(model.ReasonAutoMergeFailed), thresholds.ManualReview, rejections)
 				continue
 			}
 			if survivingMaster == nil {
 				// Pair turned out to be unmergeable — surface it for review instead.
-				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.id, sc.score, sc.breakdown, thresholds.ManualReview, rejections)
+				insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.withReason(model.ReasonAutoMergeFailed), thresholds.ManualReview, rejections)
 				continue
 			}
 			merged = true
@@ -310,7 +314,7 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 			break
 		}
 
-		insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc.id, sc.score, sc.breakdown, thresholds.ManualReview, rejections)
+		insertReviewTask(ctx, orgHandle, freshProfile.ProfileId, sc, thresholds.ManualReview, rejections)
 	}
 
 	if merged {
@@ -346,8 +350,11 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 		// Incoming = mergedMaster.ProfileId, the new master is the live entity that holds the matched attributes.
 		for _, sc := range remaining {
 			decision := model.Decide(sc.score, thresholds)
+			if decision == constants.DecisionAutoMerge && !reconsidered[sc.id] {
+				sc = sc.withReason(model.ReasonMergedWithAnother)
+			}
 			if decision == constants.DecisionAutoMerge || decision == constants.DecisionManualReview {
-				insertReviewTask(ctx, orgHandle, mergedMaster.ProfileId, sc.id, sc.score, sc.breakdown, thresholds.ManualReview, rejections)
+				insertReviewTask(ctx, orgHandle, mergedMaster.ProfileId, sc, thresholds.ManualReview, rejections)
 			}
 		}
 	}
@@ -358,30 +365,49 @@ func ResolveProfileAsync(ctx context.Context, profile profileModel.Profile) {
 // The caller passes the rejections it already loaded rather than having this re-read them:
 // one evaluation can raise several tasks, and re-fetching the same set per task was a query
 // each time for data already in memory.
-func insertReviewTask(ctx context.Context, orgHandle, incomingProfileID, candidateProfileID string,
-	score float64, breakdown map[string]float64, agreementThreshold float64,
-	rejections map[string]model.Rejection) {
+func insertReviewTask(ctx context.Context, orgHandle, incomingProfileID string, sc scoredCandidate,
+	agreementThreshold float64, rejections map[string]model.Rejection) {
 
 	logger := log.GetLogger()
 
-	if rejection, wasRejected := rejections[candidateProfileID]; wasRejected &&
-		!rejection.ShouldReconsider(score, breakdown, agreementThreshold) {
+	if rejection, wasRejected := rejections[sc.id]; wasRejected &&
+		!rejection.ShouldReconsider(sc.similarity, sc.breakdown, agreementThreshold) {
 		return
 	}
 
+	explanation := sc.explanation
 	task := model.ReviewTask{
 		OrgHandle:          orgHandle,
 		IncomingProfileID:  incomingProfileID,
-		CandidateProfileID: candidateProfileID,
-		MatchScore:         score,
+		CandidateProfileID: sc.id,
+		MatchScore:         sc.similarity,
 		Status:             constants.ReviewStatusPending,
-		ScoreBreakdown:     breakdown,
+		ScoreBreakdown:     sc.breakdown,
+		Explanation:        &explanation,
 	}
 
 	if err := irStore.InsertReviewTask(ctx, task); err != nil {
 		logger.Error(fmt.Sprintf("AsyncWorker: failed to create review task for '%s' → '%s'",
-			incomingProfileID, candidateProfileID), log.Error(err))
+			incomingProfileID, sc.id), log.Error(err))
 	}
+}
+
+// scoredCandidate is a candidate that cleared the review threshold, with what it was
+// scored on.
+type scoredCandidate struct {
+	id string
+	// score decides between merging and review; similarity is the same match before any
+	// cap, which is what a task and a rejection record.
+	score       float64
+	similarity  float64
+	breakdown   map[string]float64
+	explanation model.MatchExplanation
+}
+
+// withReason returns the candidate with one more reason it is being held for review.
+func (sc scoredCandidate) withReason(code string) scoredCandidate {
+	sc.explanation = sc.explanation.WithReason(model.ReviewReason{Code: code})
+	return sc
 }
 
 func ReindexAfterMerge(ctx context.Context, masterProfileID, triggerProfileId, orgHandle string,

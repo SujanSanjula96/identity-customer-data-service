@@ -65,13 +65,17 @@ func evaluateRules(
 		deterministic := rule.UnificationMethod != constants.UnificationMethodFuzzy
 
 		eval := model.RuleEvaluation{
-			PropertyName:     rule.PropertyName,
-			AttributeType:    rule.AttributeType,
-			Deterministic:    deterministic,
-			MatchStrength:    rule.MatchStrength,
-			MismatchStrength: rule.MismatchStrength,
-			Rank:             rank,
-			Verdict:          model.VerdictUnknown,
+			RuleID:            rule.RuleId,
+			RuleName:          rule.RuleName,
+			PropertyName:      rule.PropertyName,
+			AttributeType:     rule.AttributeType,
+			UnificationMethod: rule.UnificationMethod,
+			Priority:          rule.Priority,
+			Deterministic:     deterministic,
+			MatchStrength:     rule.MatchStrength,
+			MismatchStrength:  rule.MismatchStrength,
+			Rank:              rank,
+			Verdict:           model.VerdictUnknown,
 		}
 
 		vals1 := getStringValues(inputAttrs, rule.PropertyName)
@@ -140,15 +144,48 @@ func ScoreCandidate(
 	rules []urModel.UnificationRule,
 	ctx ScoringContext,
 ) (float64, map[string]float64) {
+	evaluation := EvaluateCandidate(inputAttrs, candidate, rules, ctx)
+	return evaluation.Score, evaluation.Breakdown
+}
+
+// CandidateEvaluation is the full outcome of scoring one candidate.
+type CandidateEvaluation struct {
+	// Score decides what happens to the pair: against the thresholds, it merges the pair,
+	// raises a review task or does nothing. A cap holds it just below the auto-merge
+	// threshold, so for a held-back pair it reflects the policy, not how alike the two are.
+	Score float64
+	// Similarity is how alike the pair is before any cap: the score of the rule that spoke
+	// for the match, or the best score seen when no rule agreed. It is what a review task
+	// records and what a fuzzy search ranks by.
+	Similarity float64
+	// Breakdown is each applicable rule's raw score, keyed by property name.
+	Breakdown map[string]float64
+	// Explanation is every rule's outcome and, when the pair is held for review, why.
+	Explanation model.MatchExplanation
+}
+
+// EvaluateCandidate scores a candidate as ScoreCandidate describes, and also reports the
+// similarity before any cap and the reasons the pair is held for review.
+//
+// A reason is recorded whenever its condition holds, not only when it is the one that
+// lowered the score. A name that is merely similar, on the only rule that agrees, is held
+// for both, and naming both is what shows a reviewer everything that stood in the way.
+func EvaluateCandidate(
+	inputAttrs map[string]interface{},
+	candidate *model.ProfileData,
+	rules []urModel.UnificationRule,
+	ctx ScoringContext,
+) CandidateEvaluation {
 	thresholds := ctx.Thresholds
 	logger := log.GetLogger()
 
-	breakdown := make(map[string]float64)
+	result := CandidateEvaluation{Breakdown: make(map[string]float64)}
 
 	if len(rules) == 0 {
 		logger.Warn("Scorer: no rules — returning score 0.0",
 			log.String("candidateID", candidate.ProfileID))
-		return 0.0, breakdown
+		result.Explanation = model.Explain(nil, nil, nil)
+		return result
 	}
 
 	evaluations := evaluateRules(inputAttrs, candidate, rules, thresholds)
@@ -165,7 +202,7 @@ func ScoreCandidate(
 		}
 
 		applicableCount++
-		breakdown[eval.PropertyName] = eval.Score
+		result.Breakdown[eval.PropertyName] = eval.Score
 		if eval.Score > bestApplicableScore {
 			bestApplicableScore = eval.Score
 		}
@@ -179,44 +216,67 @@ func ScoreCandidate(
 		}
 	}
 
+	explain := func(reasons []model.ReviewReason) {
+		result.Explanation = model.Explain(evaluations, primary, reasons)
+	}
+
 	if applicableCount == 0 {
-		return 0.0, breakdown
+		explain(nil)
+		return result
 	}
 
 	// Nothing reached the agreement bar. Report the best evidence seen so callers that
 	// search with a lower threshold still get a usable ordering; it is below the
 	// manual-review threshold by construction, so it cannot trigger a merge or a task.
 	if primary == nil {
-		return clampScore(bestApplicableScore), breakdown
+		result.Score = clampScore(bestApplicableScore)
+		result.Similarity = result.Score
+		explain(nil)
+		return result
 	}
-
-	finalScore := primary.Score
 
 	// A unique identifier that matches exactly is conclusive on its own.
-	if primary.AttributeType == constants.AttributeTypeUniqueID && primary.Score >= 1.0 {
-		return 1.0, breakdown
-	}
+	conclusive := primary.AttributeType == constants.AttributeTypeUniqueID && primary.Score >= 1.0
 
 	// Before typed matching, any deterministic rule matching merged the pair, whatever
 	// position it held and whatever the other rules said. An organisation that keeps
 	// deterministic_match_decisive on keeps exactly that — so the check is over every
 	// agreeing rule, not just the primary: a fuzzy rule ranked above an exact match must
-	// not demote it to something the other rules can object to.
-	if thresholds.DeterministicMatchDecisive {
+	// not demote it to something the other rules can object to. The exact match is then
+	// the rule that spoke for the pair.
+	if !conclusive && thresholds.DeterministicMatchDecisive {
 		for i := range evaluations {
 			eval := &evaluations[i]
 			if eval.Deterministic && eval.Verdict == model.VerdictAgree {
 				logger.Debug("Scorer: deterministic rule agrees and is decisive for this org",
 					log.String("candidateID", candidate.ProfileID),
 					log.String("property", eval.PropertyName))
-				return 1.0, breakdown
+				primary = eval
+				conclusive = true
+				break
 			}
 		}
 	}
 
+	if conclusive {
+		result.Score = 1.0
+		result.Similarity = 1.0
+		explain(withAutoMergeDisabled(thresholds, result.Score, nil))
+		return result
+	}
+
+	finalScore := primary.Score
 	cap := thresholds.AutoMerge - constants.ScorePenaltyOffset
+	var reasons []model.ReviewReason
+
+	if primary.Score < thresholds.AutoMerge {
+		autoMerge := thresholds.AutoMerge
+		reasons = append(reasons, model.ReviewReason{
+			Code: model.ReasonBelowAutoMerge, RuleIDs: []string{primary.RuleID}, Threshold: &autoMerge})
+	}
 
 	// Veto: a discriminating attribute that disagrees outweighs whatever agreed.
+	var discriminating []string
 	for i := range evaluations {
 		eval := &evaluations[i]
 		if eval == primary || eval.Verdict != model.VerdictDisagree {
@@ -226,24 +286,32 @@ func ScoreCandidate(
 			logger.Debug("Scorer: discriminating attribute disagrees — capping below auto-merge",
 				log.String("candidateID", candidate.ProfileID),
 				log.String("property", eval.PropertyName))
-			if finalScore > cap {
-				finalScore = cap
-			}
-			break
+			discriminating = append(discriminating, eval.RuleID)
 		}
+	}
+	if len(discriminating) > 0 {
+		if finalScore > cap {
+			finalScore = cap
+		}
+		reasons = append(reasons, model.ReviewReason{
+			Code: model.ReasonDiscriminatingMismatch, RuleIDs: discriminating})
 	}
 
 	// Conflicting evidence: most of the other applicable rules actively disagree.
 	secondaryCount := applicableCount - 1
-	contradictingCount := 0
+	var contradicting []string
 	for i := range evaluations {
 		eval := &evaluations[i]
 		if eval != primary && eval.Verdict == model.VerdictDisagree {
-			contradictingCount++
+			contradicting = append(contradicting, eval.RuleID)
 		}
 	}
-	if secondaryCount > 0 && contradictingCount*2 > secondaryCount && finalScore > cap {
-		finalScore = cap
+	if secondaryCount > 0 && len(contradicting)*2 > secondaryCount {
+		if finalScore > cap {
+			finalScore = cap
+		}
+		reasons = append(reasons, model.ReviewReason{
+			Code: model.ReasonConflictingEvidence, RuleIDs: contradicting})
 	}
 
 	// A lone agreement may carry an auto-merge only when the attribute identifies a person
@@ -256,15 +324,40 @@ func ScoreCandidate(
 	// so that statement was never made. Without this, an organisation whose only rule is a
 	// tolerant name match merges "Ivan Petrov" into "Ivana Petrov" unattended, which is
 	// precisely what match_strength LOW exists to prevent.
-	if agreeingCount < constants.MinAgreeingRulesForAutoMerge && finalScore > cap {
+	//
+	// Rarity is a query, so it is asked only when the answer can still change the outcome.
+	if agreeingCount < constants.MinAgreeingRulesForAutoMerge {
 		identifying := primary.MatchStrength == constants.EvidenceStrengthHigh ||
 			(primary.Rank == 0 && primary.MatchStrength != constants.EvidenceStrengthLow)
-		if !identifying || ctx.isCommonValue(primary) {
+		if !identifying {
+			if finalScore > cap {
+				finalScore = cap
+			}
+			reasons = append(reasons, model.ReviewReason{
+				Code: model.ReasonWeakSoleEvidence, RuleIDs: []string{primary.RuleID}})
+		} else if finalScore > cap && ctx.isCommonValue(primary) {
 			finalScore = cap
+			reasons = append(reasons, model.ReviewReason{
+				Code: model.ReasonCommonValue, RuleIDs: []string{primary.RuleID},
+				SharedByAtLeast: constants.RarityCommonMinProfiles})
 		}
 	}
 
-	return clampScore(finalScore), breakdown
+	result.Score = clampScore(finalScore)
+	result.Similarity = clampScore(primary.Score)
+	explain(withAutoMergeDisabled(thresholds, result.Score, reasons))
+	return result
+}
+
+// withAutoMergeDisabled adds the reason a pair that scored for a merge is held anyway: the
+// organization does not merge automatically.
+func withAutoMergeDisabled(thresholds model.Thresholds, score float64,
+	reasons []model.ReviewReason) []model.ReviewReason {
+
+	if !thresholds.AutoMergeEnabled && score >= thresholds.AutoMerge {
+		reasons = append(reasons, model.ReviewReason{Code: model.ReasonAutoMergeDisabled})
+	}
+	return reasons
 }
 
 func clampScore(score float64) float64 {

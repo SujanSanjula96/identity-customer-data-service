@@ -999,7 +999,9 @@ components:
           description: |
             How alike the profile and the supplied values were judged to be, between 0 and 1.
             It is the score of the highest-priority rule that agreed, not a combination of
-            every rule, so a rule in the breakdown can score higher than this.
+            every rule, so a rule in the breakdown can score higher than this. It is not
+            lowered when another rule disagrees: that decides whether profiles merge
+            unattended, not how alike they are.
           example: 0.9429
         score_breakdown:
           type: object

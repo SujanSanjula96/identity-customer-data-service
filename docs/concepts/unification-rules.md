@@ -144,7 +144,7 @@ The backfill is the only one that is both immediate and complete, which is why a
 
 ## Rejections
 
-Rejecting a review task records that an administrator decided two profiles are **different people**, along with the match score and per-rule breakdown they decided against.
+Rejecting a review task records that an administrator decided two profiles are **different people**, along with the similarity and per-rule breakdown they decided against.
 
 That evidence is what makes the decision durable. A rejection is a statement about identity, not about the data at the time — two different people do not become the same person because one of them changed a phone number — so an attribute changing is not by itself a reason to ask again. Clearing rejections on data change turns the review queue into a treadmill: the same pair returns whenever anything unrelated moves, and the administrator dismisses it repeatedly.
 
@@ -152,10 +152,10 @@ A rejected pair is put back in front of an administrator only when the new evalu
 
 | Reopens the pair | Leaves the rejection standing |
 |---|---|
-| The score exceeds the rejected score by `RejectionReconsiderMargin` (0.05) | The score is the same, lower, or drifts up slightly |
+| The similarity exceeds the rejected similarity by `RejectionReconsiderMargin` (0.05) | The similarity is the same, lower, or drifts up slightly |
 | A rule agrees now that did not agree then — including an attribute that was not comparable before | A new attribute appears but does not agree |
 
-The second row of the left column matters because of how scoring works: the waterfall takes its score from the first rule that agrees, so a *lower-priority* rule newly agreeing adds real corroboration without moving the number at all.
+The second row of the left column matters because of how scoring works: the waterfall takes its score from the first rule that agrees, so a *lower-priority* rule newly agreeing adds real corroboration without moving the number at all. It is also the only way back for a pair rejected at a similarity of 1.0, which cannot rise further.
 
 Rejections follow their profiles. A merge repoints a rejection from the merged-away profile onto the surviving master, and deleting a profile removes its rejections.
 
