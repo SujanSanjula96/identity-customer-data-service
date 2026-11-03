@@ -164,8 +164,8 @@ func forceSharedCreatedAt(t *testing.T, org string, count int) []string {
 
 	rows, err := dbClient.ExecuteQueryContext(context.Background(), dbmodel.DBQuery{
 		ID:    "TEST-PAG-01",
-		Query: `SELECT profile_id FROM profiles WHERE org_handle = $1 ORDER BY created_at ASC`,
-	}, org)
+		Query: `SELECT profile_id FROM profiles WHERE {{org}} = $1 ORDER BY created_at ASC`,
+	}, readOrgKey(t, org))
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(rows), count)
 

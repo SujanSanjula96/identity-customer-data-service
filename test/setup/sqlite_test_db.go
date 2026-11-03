@@ -83,5 +83,8 @@ func SetupTestSQLite() (*SQLiteTestDB, error) {
 		return nil, fmt.Errorf("failed to apply the test database schema: %w", err)
 	}
 
+	// The inbuilt database keys its data by org ID, so the stores resolve every handle.
+	InstallTestOrgResolver()
+
 	return &SQLiteTestDB{DB: db, Path: path, cleanup: cleanup}, nil
 }

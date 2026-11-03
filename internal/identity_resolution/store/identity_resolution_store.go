@@ -32,6 +32,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 // GetProfilesForOrgAfter returns up to limit profiles whose id sorts after afterProfileID.
@@ -39,6 +40,13 @@ import (
 // rather than offset-based.
 func GetProfilesForOrgAfter(ctx context.Context, orgHandle string, afterProfileID string, limit int) ([]model.ProfileData, error) {
 	logger := log.GetLogger()
+
+	// The profiles table keys by org key; the identity resolution tables keep the handle. An
+	// organization that CDS does not know gets an empty key, which matches no row.
+	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -51,7 +59,7 @@ func GetProfilesForOrgAfter(ctx context.Context, orgHandle string, afterProfileI
 	defer dbClient.Close()
 
 	query := scripts.IRGetProfilesForOrgAfter
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, afterProfileID, limit)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, afterProfileID, limit)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,

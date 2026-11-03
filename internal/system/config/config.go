@@ -160,8 +160,19 @@ type Config struct {
 	ApplicationIdentifierType string `yaml:"application_identifier_type"`
 	// OrganizationManagement enables the organization tree, sub organization paths, and sharing.
 	OrganizationManagement OrganizationManagementConfig `yaml:"organization_management"`
+	// OrgIdMigration selects the phase of the org handle to org ID migration.
+	OrgIdMigration OrgIdMigrationConfig `yaml:"org_id_migration"`
 
 	IdentityResolution IdentityResolutionConfig `yaml:"identity_resolution"`
+}
+
+// OrgIdMigrationConfig selects the phase of the org handle to org ID migration of a PostgreSQL
+// datasource. The inbuilt datasource ignores it: it always uses org_id_only.
+type OrgIdMigrationConfig struct {
+	// Phase is "dual_write", "read_org_id" or "org_id_only", the default when it is empty. Move
+	// one phase forward at a time, and only after the schema step that the phase needs. The server
+	// refuses to start when the schema does not match the phase.
+	Phase string `yaml:"phase"`
 }
 
 // IdPConfig selects the identity provider of the deployment.

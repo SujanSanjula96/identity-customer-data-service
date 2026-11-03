@@ -119,6 +119,12 @@ auth_server:
 shutdown:
   grace_period_seconds: {{ .Values.cloud.deployment.cds.config.shutdown.gracePeriodSeconds }}
 
+organization_management:
+  enabled: {{ .Values.cloud.deployment.cds.config.organizationManagement.enabled }}
+
+org_id_migration:
+  phase: {{ .Values.cloud.deployment.cds.config.orgIdMigration.phase | quote }}
+
 datasource:
   type: {{ .Values.cloud.deployment.cds.config.datasource.type }}
   hostname: {{ .Values.cloud.deployment.cds.config.datasource.hostname }}

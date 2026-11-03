@@ -148,5 +148,22 @@ func AllQueries() map[string]model.DBQuery {
 		"IRRepointRejectionPairs":            IRRepointRejectionPairs,
 		"IRUpdateMirrorReviewTask":           IRUpdateMirrorReviewTask,
 		"IRUpdateReviewTaskStatus":           IRUpdateReviewTaskStatus,
+
+		// PostgreSQL catalog reads of the start-up schema check.
+		"GetOrgColumns":   GetOrgColumns,
+		"GetValidIndexes": GetValidIndexes,
 	}
+}
+
+// postgresOnlyQueries are the statements that only run on PostgreSQL. The inbuilt datasource has no
+// variant of them.
+var postgresOnlyQueries = map[string]bool{
+	"GetOrgColumns":   true,
+	"GetValidIndexes": true,
+}
+
+// IsPostgresOnly reports whether the statement of AllQueries runs on PostgreSQL only.
+func IsPostgresOnly(name string) bool {
+
+	return postgresOnlyQueries[name]
 }
