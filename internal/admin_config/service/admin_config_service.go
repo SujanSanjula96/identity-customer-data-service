@@ -232,6 +232,14 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	// Schema sync status should not be changed via this method.
 	updatedConfig.InitialSchemaSyncDone = isInitialSchemaSyncDoneInitialState
 
+	// Enabling CDS stores the primary organization. It runs before any other change, so that a
+	// failure leaves CDS disabled.
+	if sysconfig.OrganizationManagementEnabled() && !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
+		if _, err := orgService.EnsurePrimary(ctx, orgHandle); err != nil {
+			return err
+		}
+	}
+
 	schemaService := service.GetProfileSchemaService()
 	if !isCDSEnabledInitialState && !isInitialSchemaSyncDoneInitialState && updatedConfig.CDSEnabled {
 		// CDS is being enabled for the first time. Trigger initial schema sync.
@@ -276,13 +284,6 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	// Disabling CDS resets the organization tree sync.
 	if isCDSEnabledInitialState && !updatedConfig.CDSEnabled {
 		if err := orgService.ResetTreeSync(ctx, orgHandle); err != nil {
-			return err
-		}
-	}
-
-	// Enabling CDS stores the primary organization.
-	if !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
-		if _, err := orgService.EnsurePrimary(ctx, orgHandle); err != nil {
 			return err
 		}
 	}
