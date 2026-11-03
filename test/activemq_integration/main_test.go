@@ -85,6 +85,8 @@ func TestMain(m *testing.M) {
 		fmt.Println("Failed to create tables:", err)
 		os.Exit(1)
 	}
+	// The stores resolve each org handle to its org ID. The test resolver needs no identity provider.
+	setup.InstallTestOrgResolver()
 
 	// ── Start workers (ActiveMQ-backed) ───────────────────────────────────────
 	if err := workers.StartProfileWorker(); err != nil {

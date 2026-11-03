@@ -43,6 +43,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 )
 
 func initDatabaseFromConfig(cdsConfig *config.Config) error {
@@ -50,6 +51,22 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 	if err := provider.ValidateDataSource(cdsConfig.DataSource); err != nil {
 		return err
 	}
+
+	orgPhase, err := database.ResolveOrgPhase(cdsConfig.OrgIdMigration.Phase)
+	if err != nil {
+		return err
+	}
+	if database.ResolveType(cdsConfig.DataSource.Type) == database.TypeSQLite {
+		if orgPhase != database.OrgPhaseOrgIdOnly {
+			log.GetLogger().Warn(fmt.Sprintf("org_id_migration.phase %q is ignored: the inbuilt database "+
+				"uses %q.", orgPhase, database.OrgPhaseOrgIdOnly))
+		}
+	} else {
+		database.SetOrgPhase(orgPhase)
+		log.GetLogger().Info(fmt.Sprintf("org_id_migration.phase is %q", orgPhase))
+	}
+
+	orgService.RegisterOrgKeyResolver()
 
 	if err := provider.EnsureDatabase(); err != nil {
 		return err

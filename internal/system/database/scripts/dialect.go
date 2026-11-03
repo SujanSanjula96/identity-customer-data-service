@@ -218,3 +218,13 @@ func DecodeStringArray(raw interface{}) []string {
 
 	return values
 }
+
+// OrgColumn returns the org column of the alias as an org token, for a condition that a store builds
+// at run time. The statement's GetQuery renders it for the active org_id_migration phase.
+func OrgColumn(alias string) string {
+
+	if alias == "" {
+		return "{{org}}"
+	}
+	return alias + ".{{org}}"
+}

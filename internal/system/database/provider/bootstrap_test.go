@@ -125,7 +125,7 @@ func Test_initializedSchemaAcceptsWrites(t *testing.T) {
 	}
 
 	if _, err := db.Exec(
-		`INSERT INTO profiles (profile_id, org_handle) VALUES ('p1', 'org')`); err != nil {
+		`INSERT INTO profiles (profile_id, org_id) VALUES ('p1', 'org')`); err != nil {
 		t.Fatal(err)
 	}
 

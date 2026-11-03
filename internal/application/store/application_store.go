@@ -27,10 +27,16 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 // UpsertApplication persists the application information, refreshing the clientId on re-validation.
 func UpsertApplication(ctx context.Context, app model.Application) error {
+
+	orgKey, err := orgkey.ForWrite(ctx, app.OrgHandle)
+	if err != nil {
+		return err
+	}
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -45,14 +51,14 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 	}
 	defer dbClient.Close()
 
-	// SAML-only apps have no clientId; store NULL so they don't collide on the (org_handle, client_id) unique key.
+	// SAML-only apps have no clientId; store NULL so they don't collide on the (org, client_id) unique key.
 	var clientID interface{}
 	if app.ClientID != "" {
 		clientID = app.ClientID
 	}
 
 	query := scripts.UpsertApplication
-	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, app.OrgHandle, clientID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgKey, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
@@ -70,6 +76,14 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 // GetAppIdentifierByClientID resolves an OAuth clientId to the app ID.
 func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error) {
 
+	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return "", err
+	}
+	if !known {
+		return "", nil
+	}
+
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -84,7 +98,7 @@ func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string)
 	defer dbClient.Close()
 
 	query := scripts.GetAppIdentifierByClientID
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, clientID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgHandle)
 		logger.Debug(errorMsg, log.Error(err))

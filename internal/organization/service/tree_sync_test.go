@@ -121,8 +121,11 @@ func setUp(t *testing.T, fake *fakeIdP) context.Context {
 		provider.SetTestDB(nil, "")
 		testDB.Terminate()
 	})
-	if _, err := testDB.DB.Exec(`INSERT INTO cds_config (org_handle, config, value) VALUES (?, 'cds_enabled', 'true')`,
-		primaryHandle); err != nil {
+	if err := setup.InsertTestOrganization(testDB.DB, primaryId, primaryHandle); err != nil {
+		t.Fatalf("failed to store the primary organization: %v", err)
+	}
+	if _, err := testDB.DB.Exec(`INSERT INTO cds_config (org_id, config, value) VALUES (?, 'cds_enabled', 'true')`,
+		primaryId); err != nil {
 		t.Fatalf("failed to enable CDS: %v", err)
 	}
 	return context.Background()
