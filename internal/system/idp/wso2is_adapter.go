@@ -20,11 +20,9 @@ package idp
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
-	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 )
 
 // WSO2ISAdapter reads the organization tree from the WSO2 IS organization management API.
@@ -39,18 +37,15 @@ func NewWSO2ISAdapter() *WSO2ISAdapter {
 
 func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle string) (Organization, error) {
 
+	// Only a primary organization answers the self call on its own tenant path. A primary
+	// organization can still have a parent, such as the super organization.
 	org, err := a.client.GetSelfOrganization(primaryHandle)
 	if err != nil {
 		return Organization{}, err
 	}
-	if org.Parent != nil && org.Parent.Id != "" {
-		return Organization{}, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATION_SYNC.Code,
-			Message:     errors2.ORGANIZATION_SYNC.Message,
-			Description: fmt.Sprintf("Organization '%s' is not a primary organization.", primaryHandle),
-		}, nil)
-	}
-	return toOrganization(org), nil
+	primary := toOrganization(org)
+	primary.ParentId = ""
+	return primary, nil
 }
 
 func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string) ([]Organization, error) {
