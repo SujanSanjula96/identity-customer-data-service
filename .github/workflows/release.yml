@@ -18,15 +18,46 @@
 #
 # --------------------------------------------------------------------------------------
 
+# version.txt holds the last released version and moves only when a release is created,
+# never on a PR merge. This workflow owns it: it resolves the version to release from
+# the dispatch inputs, commits it to the release branch, builds from it and tags that
+# commit. A scheduled release is a `minor` bump off main; a maintenance release is
+# a `patch` bump off the relevant release branch.
+
 name: 🚀 CDS Release Builder
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g., v0.5.0)'
-        required: true
+      branch:
+        description: 'Branch to build the release from'
+        required: false
         type: string
+        default: 'main'
+      version:
+        description: 'Release version (e.g. v0.4.0). Overrides bump_type and use_existing_version.'
+        required: false
+        type: string
+        default: ''
+      bump_type:
+        description: 'Version bump to apply to version.txt. Ignored when version is given.'
+        required: false
+        type: choice
+        options:
+          - minor
+          - patch
+          - major
+        default: minor
+      use_existing_version:
+        description: 'Release version.txt as-is (no bump). Ignored when version is given.'
+        required: false
+        type: boolean
+        default: false
+      commit_version_bump:
+        description: 'Commit the resolved version to version.txt on the release branch'
+        required: false
+        type: boolean
+        default: true
       prerelease:
         description: 'Mark as pre-release'
         required: false
@@ -36,6 +67,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_BRANCH: ${{ inputs.branch || 'main' }}
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -44,41 +78,123 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_BRANCH }}
           fetch-depth: 0
+          token: ${{ secrets.CDS_RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: 🧩 Validate version input and version.txt
+      # -------------------------------------------------------
+      # Resolve the version to release:
+      #   version              -> used as given, wins over the rest
+      #   use_existing_version -> version.txt as-is, nothing to commit
+      #   bump_type            -> applied to version.txt (default)
+      # -------------------------------------------------------
+      - name: 🧩 Determine release version
+        id: version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
-          INPUT_VERSION="${{ github.event.inputs.version }}"
-          
-          # Validate format of input (e.g., v0.5.0)
-          if ! [[ "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ Invalid version format. Use vX.Y.Z"
+          BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+          USE_EXISTING="${{ github.event.inputs.use_existing_version }}"
+          COMMIT_BUMP="${{ github.event.inputs.commit_version_bump }}"
+
+          VERSION_INPUT=$(printf '%s' "$VERSION_INPUT" | tr -d '[:space:]')
+
+          if [ -n "$VERSION_INPUT" ]; then
+            VERSION="$VERSION_INPUT"
+            # Accept the version with or without the leading 'v'.
+            [[ $VERSION == v* ]] || VERSION="v$VERSION"
+            COMMIT_VERSION="$COMMIT_BUMP"
+            echo "✅ Using version from workflow input: $VERSION"
+          else
+            if [ ! -f version.txt ] || [ -z "$(tr -d '[:space:]' < version.txt)" ]; then
+              echo "❌ version.txt not found or empty"
+              exit 1
+            fi
+
+            CURRENT=$(tr -d '[:space:]' < version.txt)
+            SEMVER="${CURRENT#v}"
+
+            if [[ $SEMVER =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
+            else
+              echo "❌ Could not parse version '$CURRENT' from version.txt"
+              exit 1
+            fi
+
+            if [ "$USE_EXISTING" == "true" ]; then
+              VERSION="$CURRENT"
+              COMMIT_VERSION="false"
+              echo "✅ Releasing version.txt as-is: $VERSION"
+            else
+              case "$BUMP_TYPE" in
+                patch)
+                  VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+                  ;;
+                minor)
+                  VERSION="v${MAJOR}.$((MINOR + 1)).0"
+                  ;;
+                major)
+                  VERSION="v$((MAJOR + 1)).0.0"
+                  ;;
+                *)
+                  echo "❌ Invalid bump_type '$BUMP_TYPE'. Must be patch, minor or major."
+                  exit 1
+                  ;;
+              esac
+              COMMIT_VERSION="$COMMIT_BUMP"
+              echo "✅ Bumped $CURRENT -> $VERSION ($BUMP_TYPE)"
+            fi
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_version=$COMMIT_VERSION" >> $GITHUB_OUTPUT
+
+      - name: ✅ Validate release version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          if ! [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-zA-Z.-]+)?$ ]]; then
+            echo "❌ Version '$VERSION' does not follow vX.Y.Z[-PRERELEASE]"
             exit 1
           fi
 
-          # Read version.txt
-          if [ ! -f version.txt ]; then
-            echo "❌ version.txt not found!"
-            exit 1
-          fi
-          CURRENT_VERSION=$(cat version.txt | tr -d '[:space:]')
-
-          # Expect version.txt to match input version exactly
-          if [ "$CURRENT_VERSION" != "$INPUT_VERSION" ]; then
-            echo "❌ version.txt mismatch."
-            echo "Expected: $INPUT_VERSION"
-            echo "Found:    $CURRENT_VERSION"
+          # The tag is the release identity, so refuse to release one twice.
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "❌ Version '$VERSION' already exists as a git tag"
+            echo "❌ Pass a new 'version' input or a different bump_type"
             exit 1
           fi
 
-          echo "✅ Version check passed."
-          echo "Input version: $INPUT_VERSION"
-          echo "version.txt:   $CURRENT_VERSION"
+          echo "✅ Version '$VERSION' is valid and unreleased"
+
+      # Always written so `make build` names the distribution after the release
+      # version; only committed when the release is meant to move the branch.
+      - name: 🏷️ Set product version
+        run: |
+          echo "${{ steps.version.outputs.version }}" > version.txt
+          echo "✅ version.txt set to ${{ steps.version.outputs.version }}"
+
+      - name: 📤 Commit & push version bump
+        if: ${{ steps.version.outputs.commit_version == 'true' }}
+        run: |
+          git config user.name "wso2-iam-bot"
+          git config user.email "wso2-iam-bot@users.noreply.github.com"
+          git add version.txt
+
+          if git diff --cached --quiet; then
+            echo "✅ version.txt already at ${{ steps.version.outputs.version }}"
+          else
+            git commit -m "Version bump: ${{ steps.version.outputs.version }}"
+            git push origin "HEAD:${RELEASE_BRANCH}"
+            echo "✅ Pushed version bump to ${RELEASE_BRANCH}"
+          fi
 
       - name: ⚙️ Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.4'
+          go-version: '1.26.10'
 
       - name: Build
         run: make build
@@ -90,11 +206,22 @@ jobs:
           path: target/cds-*.zip
           if-no-files-found: error
 
+      # Tag HEAD explicitly so the tag lands on the version bump commit rather
+      # than on the commit the workflow was dispatched against.
+      - name: 🏷️ Create git tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "wso2-iam-bot"
+          git config user.email "wso2-iam-bot@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "✅ Tagged $VERSION"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: "CDS ${{ github.event.inputs.version }}"
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "CDS ${{ steps.version.outputs.version }}"
           prerelease: ${{ github.event.inputs.prerelease }}
           generate_release_notes: true
           files: target/cds-*.zip

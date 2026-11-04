@@ -50,14 +50,61 @@ type AuthServerConfig struct {
 	IsSystemAppGrantEnabled   bool                `yaml:"isSystemAppGrantEnabled"`
 }
 
+// SQLiteConfig holds the settings for the inbuilt datasource. A numeric field
+// of zero, which is also what an omitted field gives, means "use the
+// application default". A negative value is refused at start.
+type SQLiteConfig struct {
+	// Path is the database file location, relative to CDS_HOME unless
+	// absolute.
+	Path string `yaml:"path"`
+	// Options is the DSN query string appended to Path. Setting it replaces
+	// the defaults, so include every option that is needed.
+	Options string `yaml:"options"`
+	// MaxOpenConns bounds the connection pool.
+	MaxOpenConns int `yaml:"max_open_conns"`
+}
+
+// PostgresConfig holds the connection pool settings for PostgreSQL. The values
+// are per instance, because one instance holds one pool. A field of zero,
+// which is also what an omitted field gives, means "use the application
+// default". A negative value is refused at start.
+type PostgresConfig struct {
+	// MaxOpenConns bounds the connections the pool holds, in use and idle
+	// together.
+	MaxOpenConns int `yaml:"max_open_conns"`
+	// MaxIdleConns is how many unused connections stay open. It may not be
+	// above MaxOpenConns, and the server refuses to start when it is.
+	MaxIdleConns int `yaml:"max_idle_conns"`
+	// ConnMaxLifetimeSeconds retires a connection at this age, even a healthy
+	// one, so that a failover or a DNS change takes effect.
+	ConnMaxLifetimeSeconds int `yaml:"conn_max_lifetime_seconds"`
+	// ConnMaxIdleTimeSeconds closes a connection that stays unused for this
+	// long.
+	ConnMaxIdleTimeSeconds int `yaml:"conn_max_idle_time_seconds"`
+	// ConnectTimeoutSeconds bounds one connection attempt, from the TCP dial to
+	// the end of the startup handshake. It also bounds the check that runs when
+	// the pool opens, so a database that cannot be reached fails the server
+	// start within a known time instead of waiting for the operating system.
+	ConnectTimeoutSeconds int `yaml:"connect_timeout_seconds"`
+}
+
+// DataSourceConfig selects and configures the database.
 type DataSourceConfig struct {
-	Type     string `yaml:"type"` // e.g., "postgres", "mysql"
+	Type string `yaml:"type"` // "sqlite" (inbuilt, the default) or "postgres"
+
+	// PostgreSQL settings. Read only when Type is "postgres".
 	Hostname string `yaml:"hostname"`
 	Port     int    `yaml:"port"`
 	Name     string `yaml:"name"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	SSLMode  string `yaml:"sslmode"`
+
+	// PostgreSQL connection pool settings. Read only when Type is "postgres".
+	Postgres PostgresConfig `yaml:"postgres"`
+
+	// SQLite settings. Read only when Type is "sqlite".
+	SQLite SQLiteConfig `yaml:"sqlite"`
 }
 
 // ExternalBrokerConfig holds the connection settings that are common to
@@ -87,18 +134,88 @@ type ExternalBrokerConfig struct {
 type MessageQueueConfig struct {
 	// Type is the queue provider to use: "memory" (default) or the name of
 	// any registered external provider (e.g. "activemq").
-	Type   string              `yaml:"type"`
+	Type   string               `yaml:"type"`
 	Broker ExternalBrokerConfig `yaml:"broker"`
 }
 
+// Application identifier types.
+const (
+	ApplicationIdentifierTypeClientID = "client_id"
+	ApplicationIdentifierTypeAppID    = "app_id"
+)
+
 type Config struct {
 	Addr         AddrConfig         `yaml:"addr"`
+	ServerURL    string             `yaml:"server_url"`
 	Log          LogConfig          `yaml:"log"`
 	Auth         AuthConfig         `yaml:"auth"`
 	AuthServer   AuthServerConfig   `yaml:"auth_server"`
+	IdP          IdPConfig          `yaml:"idp"`
 	DataSource   DataSourceConfig   `yaml:"datasource"`
 	TLS          TLSConfig          `yaml:"tls"`
+	Cleanup      CleanupConfig      `yaml:"cleanup"`
 	MessageQueue MessageQueueConfig `yaml:"message_queue"`
+	Shutdown     ShutdownConfig     `yaml:"shutdown"`
+	// ApplicationIdentifierType selects how applications are identified: "client_id" (default) or "app_id".
+	ApplicationIdentifierType string `yaml:"application_identifier_type"`
+	// OrganizationManagement enables the organization tree, sub organization paths, and sharing.
+	OrganizationManagement OrganizationManagementConfig `yaml:"organization_management"`
+
+	IdentityResolution IdentityResolutionConfig `yaml:"identity_resolution"`
+}
+
+// IdPConfig selects the identity provider of the deployment.
+type IdPConfig struct {
+	// Type is "wso2is", the default when it is empty.
+	Type string `yaml:"type"`
+}
+
+// OrganizationManagementConfig enables organization management. The organization tables must exist
+// before it is enabled.
+type OrganizationManagementConfig struct {
+	// Enabled is false by default.
+	Enabled bool `yaml:"enabled"`
+}
+
+// IdentityResolutionConfig holds server-wide settings for profile matching.
+type IdentityResolutionConfig struct {
+	// AllowEvidenceStrengthOverride lets a unification rule carry its own match_strength
+	// and mismatch_strength instead of taking the values derived from its attribute_type.
+	//
+	// Off by default. The strengths decide whether an attribute can merge two profiles on
+	// its own and whether a difference in it blocks a merge outright, so getting them wrong
+	// silently changes who gets merged. Until there is a way for an operator to see the
+	// effect of a change before committing to it, the derived values are the safer contract
+	// and the fields are rejected rather than quietly ignored.
+	AllowEvidenceStrengthOverride bool `yaml:"allow_evidence_strength_override"`
+
+	// FuzzyMatchingEnabled switches tolerant matching on for the whole server.
+	//
+	// Off by default, including for a deployment.yaml written before the key existed. An
+	// upgrade therefore keeps matching exactly as it did, and an operator turns tolerant
+	// matching on when the organisation is ready for it rather than finding that an
+	// upgrade changed which profiles get unified.
+	//
+	// While off, new fuzzy rules are refused, the options endpoint stops offering the
+	// method, and a rule already stored as fuzzy is evaluated as an exact match. Switching
+	// it back on restores that rule, because only the reading of it changes.
+	//
+	// Turning it off undoes nothing: profiles already unified stay unified, review tasks a
+	// fuzzy rule raised stay in the queue to be answered, and blocking keys written for
+	// fuzzy matching remain until each profile is next re-indexed.
+	FuzzyMatchingEnabled bool `yaml:"fuzzy_matching_enabled"`
+}
+
+// ShutdownConfig bounds the graceful shutdown of the whole process. Zero, which
+// is also what an omitted field gives, means "use the application default". A
+// negative value is refused at start.
+type ShutdownConfig struct {
+	GracePeriodSeconds int `yaml:"grace_period_seconds"`
+}
+
+// UsesAppIDIdentifier reports whether applications are identified by the app ID.
+func (c Config) UsesAppIDIdentifier() bool {
+	return c.ApplicationIdentifierType == ApplicationIdentifierTypeAppID
 }
 
 type TLSConfig struct {
@@ -108,4 +225,14 @@ type TLSConfig struct {
 	CDSPrivateKey           string `yaml:"server_key"`
 	IdentityServerPublicKey string `yaml:"client_cert"`
 	TrustStore              string `yaml:"trust_store"`
+}
+
+type CleanupConfig struct {
+	Cookie CookieCleanupConfig `yaml:"cookie"`
+}
+
+type CookieCleanupConfig struct {
+	Enabled   bool `yaml:"enabled"`
+	Interval  int  `yaml:"interval"` // in seconds
+	BatchSize int  `yaml:"batch_size"`
 }

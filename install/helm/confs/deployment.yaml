@@ -17,6 +17,13 @@ addr:
   host: {{ .Values.cloud.deployment.cds.config.addr.host }}
   port: {{ .Values.cloud.deployment.cds.containerPort }}
 
+server_url: {{ .Values.cloud.deployment.cds.config.serverUrl | quote }}
+
+application_identifier_type: {{ .Values.cloud.deployment.cds.config.applicationIdentifierType | quote }}
+
+organization_management:
+  enabled: {{ .Values.cloud.deployment.cds.config.organizationManagement.enabled }}
+
 auth_server:
   host: {{ .Values.cloud.deployment.cds.config.identityServer.host }}
   port : {{ .Values.cloud.deployment.cds.config.identityServer.port }}
@@ -42,6 +49,8 @@ auth_server:
       - "internal_cds_profile_view"
     profile:delete:
       - "internal_cds_profile_delete"
+    profile:link:
+      - "internal_cds_profile_link"
 
     unification_rules:view:
       - "internal_cds_unification_rule_view"
@@ -51,6 +60,10 @@ auth_server:
       - "internal_cds_unification_rule_update"
     unification_rules:delete:
       - "internal_cds_unification_rule_delete"
+    unification_rules:share_view:
+      - "internal_cds_unification_rule_share_view"
+    unification_rules:share_update:
+      - "internal_cds_unification_rule_share_update"
 
     profile_schema:view:
       - "internal_cds_profile_schema_view"
@@ -60,11 +73,55 @@ auth_server:
       - "internal_cds_profile_schema_update"
     profile_schema:delete:
       - "internal_cds_profile_schema_delete"
+    profile_schema:share_view:
+      - "internal_cds_profile_schema_share_view"
+    profile_schema:share_update:
+      - "internal_cds_profile_schema_share_update"
 
     admin_config:view:
       - "internal_cds_admin_config_view"
     admin_config:update:
       - "internal_cds_admin_config_update"
+    organization:view:
+      - "internal_cds_organization_view"
+    organization:update:
+      - "internal_cds_organization_update"
+
+    identity_resolution:view:
+      - "internal_cds_identity_resolution_view"
+    identity_resolution:update:
+      - "internal_cds_identity_resolution_update"
+
+    org:profile:create:
+      - "internal_org_cds_profile_create"
+    org:profile:update:
+      - "internal_org_cds_profile_update"
+    org:profile:view:
+      - "internal_org_cds_profile_view"
+    org:profile:delete:
+      - "internal_org_cds_profile_delete"
+    org:profile:link:
+      - "internal_org_cds_profile_link"
+
+    org:unification_rules:view:
+      - "internal_org_cds_unification_rule_view"
+
+    org:profile_schema:view:
+      - "internal_org_cds_profile_schema_view"
+
+    org:admin_config:view:
+      - "internal_org_cds_admin_config_view"
+
+    org:consent_category:view:
+      - "internal_org_cds_consent_category_view"
+
+    org:identity_resolution:view:
+      - "internal_org_cds_identity_resolution_view"
+    org:identity_resolution:update:
+      - "internal_org_cds_identity_resolution_update"
+
+shutdown:
+  grace_period_seconds: {{ .Values.cloud.deployment.cds.config.shutdown.gracePeriodSeconds }}
 
 datasource:
   type: {{ .Values.cloud.deployment.cds.config.datasource.type }}
@@ -74,6 +131,12 @@ datasource:
   password: "${DB_PASSWORD}"
   name: {{ .Values.cloud.deployment.cds.config.datasource.name | quote }}
   sslmode: {{ .Values.cloud.deployment.cds.config.datasource.sslmode | quote }}
+  postgres:
+    max_open_conns: {{ .Values.cloud.deployment.cds.config.datasource.postgres.maxOpenConns }}
+    max_idle_conns: {{ .Values.cloud.deployment.cds.config.datasource.postgres.maxIdleConns }}
+    conn_max_lifetime_seconds: {{ .Values.cloud.deployment.cds.config.datasource.postgres.connMaxLifetimeSeconds }}
+    conn_max_idle_time_seconds: {{ .Values.cloud.deployment.cds.config.datasource.postgres.connMaxIdleTimeSeconds }}
+    connect_timeout_seconds: {{ .Values.cloud.deployment.cds.config.datasource.postgres.connectTimeoutSeconds }}
 
 tls:
   mtls_enabled: {{ .Values.cloud.deployment.cds.tls.mtls_enabled }}
@@ -82,3 +145,16 @@ tls:
   server_key: "{{ .Values.cloud.deployment.cds.tls.server_key }}"
   client_cert: "{{ .Values.cloud.deployment.cds.tls.client_cert }}"
   trust_store: "{{ .Values.cloud.deployment.cds.tls.trust_store }}"
+
+message_queue:
+  type: {{ .Values.cloud.deployment.cds.config.message_queue.type }}
+  broker:
+    addr: {{ .Values.cloud.deployment.cds.config.message_queue.broker.addr }}
+    username: "${ACTIVE_MQ_USERNAME}"
+    password: "${ACTIVE_MQ_PASSWORD}"
+    profile_queue_name: {{ .Values.cloud.deployment.cds.config.message_queue.broker.profile_queue_name }}
+    schema_sync_queue_name: {{ .Values.cloud.deployment.cds.config.message_queue.broker.schema_sync_queue_name }}
+
+identity_resolution:
+  allow_evidence_strength_override: {{ .Values.cloud.deployment.cds.config.identityResolution.allowEvidenceStrengthOverride }}
+  fuzzy_matching_enabled: {{ .Values.cloud.deployment.cds.config.identityResolution.fuzzyMatchingEnabled }}

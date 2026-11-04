@@ -1,0 +1,9 @@
+
+datasource:
+  type: postgres
+  hostname: "${PG_HOST}"
+  port: ${PG_PORT}
+  username: "${PG_USER}"
+  password: "${DB_PASSWORD}"
+  name: "${PG_DB}"
+  sslmode: disable

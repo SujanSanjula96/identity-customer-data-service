@@ -28,18 +28,18 @@ import (
 )
 
 // ProfileQueueProvider is the constructor signature for a
-// ProfileUnificationQueue provider. It receives the generic broker config
-// from the deployment configuration.
-type ProfileQueueProvider func(cfg config.ExternalBrokerConfig) (ProfileUnificationQueue, error)
+// ProfileUnificationQueue provider. It receives the broker config and the
+// system TLS config (used to build the CA pool for SSL connections).
+type ProfileQueueProvider func(cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig) (ProfileUnificationQueue, error)
 
 // SchemaSyncQueueProvider is the constructor signature for a SchemaSyncQueue
-// provider. It receives the generic broker config from the deployment
-// configuration.
-type SchemaSyncQueueProvider func(cfg config.ExternalBrokerConfig) (SchemaSyncQueue, error)
+// provider. It receives the broker config and the system TLS config (used to
+// build the CA pool for SSL connections).
+type SchemaSyncQueueProvider func(cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig) (SchemaSyncQueue, error)
 
 var (
-	mu                      sync.RWMutex
-	profileQueueProviders   = map[string]ProfileQueueProvider{}
+	mu                       sync.RWMutex
+	profileQueueProviders    = map[string]ProfileQueueProvider{}
 	schemaSyncQueueProviders = map[string]SchemaSyncQueueProvider{}
 )
 
@@ -74,18 +74,18 @@ func RegisterSchemaSyncQueueProvider(name string, p SchemaSyncQueueProvider) {
 // in-memory provider is returned. For any other type the provider must have
 // been registered (e.g. via an init() function) before this call; an error is
 // returned if no matching provider is found.
-func NewProfileUnificationQueue(cfg config.MessageQueueConfig) (ProfileUnificationQueue, error) {
-	if cfg.Type == TypeMemory || cfg.Type == "" {
+func NewProfileUnificationQueue(cfg config.Config) (ProfileUnificationQueue, error) {
+	if cfg.MessageQueue.Type == TypeMemory || cfg.MessageQueue.Type == "" {
 		return inmemory.NewProfileQueue(constants.DefaultQueueSize), nil
 	}
 	mu.RLock()
-	p, ok := profileQueueProviders[cfg.Type]
+	p, ok := profileQueueProviders[cfg.MessageQueue.Type]
 	mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("queue: unknown profile queue provider %q; "+
-			"register it by importing its package (see docs/extending-queue-providers.md)", cfg.Type)
+			"register it by importing its package (see docs/extending-queue-providers.md)", cfg.MessageQueue.Type)
 	}
-	return p(cfg.Broker)
+	return p(cfg.MessageQueue.Broker, cfg.TLS)
 }
 
 // NewSchemaSyncQueue returns the SchemaSyncQueue for the provider named in
@@ -93,16 +93,16 @@ func NewProfileUnificationQueue(cfg config.MessageQueueConfig) (ProfileUnificati
 // is returned. For any other type the provider must have been registered
 // (e.g. via an init() function) before this call; an error is returned if no
 // matching provider is found.
-func NewSchemaSyncQueue(cfg config.MessageQueueConfig) (SchemaSyncQueue, error) {
-	if cfg.Type == TypeMemory || cfg.Type == "" {
+func NewSchemaSyncQueue(cfg config.Config) (SchemaSyncQueue, error) {
+	if cfg.MessageQueue.Type == TypeMemory || cfg.MessageQueue.Type == "" {
 		return inmemory.NewSchemaSyncQueue(constants.DefaultQueueSize), nil
 	}
 	mu.RLock()
-	p, ok := schemaSyncQueueProviders[cfg.Type]
+	p, ok := schemaSyncQueueProviders[cfg.MessageQueue.Type]
 	mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("queue: unknown schema sync queue provider %q; "+
-			"register it by importing its package (see docs/extending-queue-providers.md)", cfg.Type)
+			"register it by importing its package (see docs/extending-queue-providers.md)", cfg.MessageQueue.Type)
 	}
-	return p(cfg.Broker)
+	return p(cfg.MessageQueue.Broker, cfg.TLS)
 }

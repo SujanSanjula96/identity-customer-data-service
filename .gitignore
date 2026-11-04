@@ -27,6 +27,12 @@ replay_pid*
 target/
 bin/
 
+# Inbuilt database files
+config/repository/database/
+*.db
+*.db-wal
+*.db-shm
+
 # OS generated files
 .DS_Store
 
@@ -37,3 +43,6 @@ bin/
 *.swo
 *~
 *.tgz
+
+# Local development setup work directory
+.local-dev/

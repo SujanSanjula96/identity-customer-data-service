@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/services"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
@@ -57,18 +58,21 @@ func (sm *ServiceManager) RegisterServices() error {
 	_ = services.NewUnificationRulesService(routesMux)
 	_ = services.NewConsentCategoryService(routesMux)
 	_ = services.NewAdminConfigService(routesMux)
+	_ = services.NewIdentityResolutionService(routesMux)
+	if config.OrganizationManagementEnabled() {
+		_ = services.NewOrganizationService(routesMux)
+	}
 
-	// Single tenant dispatcher for all services; services own the versioned path (e.g., /api/v1/...)
-	utils.MountTenantDispatcher(sm.mux, func(w http.ResponseWriter, r *http.Request) {
-		// Normalize trailing slash prior to routing
+	tenantHandler := func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSuffix(r.URL.Path, "/")
 		if path == "" {
 			r.URL.Path = "/"
 		} else {
 			r.URL.Path = path
 		}
-		// Delegate to the tenant routes mux; it will 404 for unknown paths
 		routesMux.ServeHTTP(w, r)
-	})
+	}
+
+	utils.MountTenantDispatcher(sm.mux, tenantHandler)
 	return nil
 }

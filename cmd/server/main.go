@@ -33,28 +33,35 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/managers"
 	_ "github.com/wso2/identity-customer-data-service/internal/system/queue/activemq" // registers the ActiveMQ queue provider
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
+
+	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
 )
 
-func initDatabaseFromConfig(config *config.Config) {
+func initDatabaseFromConfig(cdsConfig *config.Config) error {
 
-	logger := log.GetLogger()
-	host := config.DataSource.Hostname
-	port := config.DataSource.Port
-	user := config.DataSource.Username
-	password := config.DataSource.Password
-	dbname := config.DataSource.Name
-
-	if host == "" || user == "" || password == "" || dbname == "" {
-		logger.Error("One or more Database configuration values are missing.")
+	if err := provider.ValidateDataSource(cdsConfig.DataSource); err != nil {
+		return err
 	}
 
-	logger.Info(fmt.Sprintf("Database initialized successfully for configurations - db name:%s, db host:%s, "+
-		"db port:%d", dbname, host, port))
+	if err := provider.EnsureDatabase(); err != nil {
+		return err
+	}
+
+	ds := cdsConfig.DataSource
+	if database.ResolveType(ds.Type) != database.TypeSQLite {
+		log.GetLogger().Info(fmt.Sprintf("Database initialized successfully for configurations - db name:%s, "+
+			"db host:%s, db port:%d", ds.Name, ds.Hostname, ds.Port))
+	}
+
+	return nil
 }
 
 func main() {
@@ -88,19 +95,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize database
-	initDatabaseFromConfig(cdsConfig)
+	// Create the adapter of the identity provider.
+	adapter, err := idp.NewAdapter(cdsConfig.IdP.Type)
+	if err != nil {
+		log.GetLogger().Error("Invalid identity provider configuration.", log.Error(err))
+		os.Exit(1)
+	}
+	idp.SetAdapter(adapter)
+
+	// Resolve the shutdown deadline at start, so a refused value stops the
+	// server before anything runs.
+	shutdownGrace, err := config.ResolveShutdownGracePeriod(cdsConfig.Shutdown)
+	if err != nil {
+		log.GetLogger().Error("Invalid shutdown configuration.", log.Error(err))
+		os.Exit(1)
+	}
+	log.GetLogger().Info(fmt.Sprintf("Shutdown grace period is %s", shutdownGrace))
+
+	// Initialize database. This creates and initializes the inbuilt database when
+	// one is configured, and must happen before the workers start since they
+	// query the database.
+	if err := initDatabaseFromConfig(cdsConfig); err != nil {
+		log.GetLogger().Error("Failed to initialize the database.", log.Error(err))
+		os.Exit(1)
+	}
 
 	// Initialize Profile worker
 	if err := workers.StartProfileWorker(); err != nil {
 		fmt.Println("Failed to start profile worker.", err)
 		os.Exit(1)
 	}
+	workers.RegisterFuzzyResolveFunc(irWorker.ResolveProfileAsync)
+	workers.RegisterReindexAfterMergeFunc(irWorker.ReindexAfterMerge)
 
 	// Initialize Schema Sync worker
 	if err := workers.StartSchemaSyncWorker(); err != nil {
 		fmt.Println("Failed to start schema sync worker.", err)
 		os.Exit(1)
+	}
+
+	// Initialize Cookie Cleanup worker
+	if cdsConfig.Cleanup.Cookie.Enabled {
+		workers.StartCookieCleanupWorker(cdsConfig.Cleanup.Cookie)
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cdsConfig.Addr.Host, cdsConfig.Addr.Port)
@@ -168,20 +204,20 @@ func main() {
 
 	// Block until a signal is received
 	<-quit
-	logger.Info("Shutdown signal received, draining connections...")
+	logger.Info("Shutdown signal received, stopping the server gracefully...")
 
-	// Give in-flight requests up to 15 seconds to complete
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("HTTP server shutdown error.", log.Error(err))
+	workerList := []namedWorker{
+		{name: "profile", stop: workers.StopProfileWorker},
+		{name: "schema sync", stop: workers.StopSchemaSyncWorker},
+		{name: "cookie cleanup", stop: workers.StopCookieCleanupWorker},
 	}
-	if err := workers.StopProfileWorker(); err != nil {
-		logger.Error("Failed to stop profile worker.", log.Error(err))
-	}
-	if err := workers.StopSchemaSyncWorker(); err != nil {
-		logger.Error("Failed to stop schema sync worker.", log.Error(err))
+
+	if err := shutdown(ctx, logger, server.Shutdown, workerList, provider.CloseDB); err != nil {
+		logger.Error("Shutdown completed with unfinished work.", log.Error(err))
+		return
 	}
 
 	logger.Info("Shutdown complete")

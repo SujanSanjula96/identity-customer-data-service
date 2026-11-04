@@ -23,7 +23,9 @@
 package inmemory
 
 import (
+	"context"
 	"fmt"
+	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"sync"
 
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
@@ -70,8 +72,13 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 // closed. Always returns nil.
 func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
 	go func() {
+		defer utils.RecoverPanic("in-memory profile unification consumer")
 		for profile := range q.ch {
-			handler(profile)
+			// Recover per message so one bad profile cannot stop the queue being drained.
+			func() {
+				defer utils.RecoverPanic("in-memory profile unification handler")
+				handler(profile)
+			}()
 		}
 	}()
 	return nil
@@ -80,7 +87,9 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
 // Close marks the queue as closed and closes the underlying channel, which
 // causes the consumer goroutine started by Start to exit. It is safe to call
 // Close more than once.
-func (q *ProfileQueue) Close() error {
+//
+// It holds no connection, so it ignores the shutdown context.
+func (q *ProfileQueue) Close(context.Context) error {
 	q.mu.Lock()
 	q.closed = true
 	q.mu.Unlock()
@@ -128,6 +137,7 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 // closed. Always returns nil.
 func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) error {
 	go func() {
+		defer utils.RecoverPanic("in-memory schema sync consumer")
 		for sync := range q.ch {
 			handler(sync)
 		}
@@ -138,7 +148,9 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) err
 // Close marks the queue as closed and closes the underlying channel, which
 // causes the consumer goroutine started by Start to exit. It is safe to call
 // Close more than once.
-func (q *SchemaSyncQueue) Close() error {
+//
+// It holds no connection, so it ignores the shutdown context.
+func (q *SchemaSyncQueue) Close(context.Context) error {
 	q.mu.Lock()
 	q.closed = true
 	q.mu.Unlock()

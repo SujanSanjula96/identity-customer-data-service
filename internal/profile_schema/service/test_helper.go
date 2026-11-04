@@ -1,7 +1,9 @@
 package service
 
+import "context"
+
 func OverrideValidateApplicationIdentifierForTest(
-	fn func(string, string) (error, bool),
+	fn func(context.Context, string, string) (error, bool),
 ) (restore func()) {
 
 	prev := validateApplicationIdentifierFn

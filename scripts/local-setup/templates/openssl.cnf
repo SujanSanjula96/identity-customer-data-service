@@ -1,0 +1,22 @@
+# Request for the CDS server certificate. CDS is HTTPS-only and does not start
+# without a key pair; the generated certificate is self-signed and is imported
+# into the Identity Server's client-truststore.p12.
+[req]
+distinguished_name = dn
+req_extensions     = v3_req
+x509_extensions    = v3_req
+prompt             = no
+
+[dn]
+CN = ${CDS_HOST}
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage         = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName   = @san
+
+[san]
+DNS.1 = ${CDS_HOST}
+DNS.2 = localhost
+IP.1  = 127.0.0.1

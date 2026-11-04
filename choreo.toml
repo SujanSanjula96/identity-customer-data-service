@@ -1,8 +1,0 @@
-[project]
-name = "custodian"
-version = "1.0.0"
-
-[service]
-name = "custodian-api"
-type = "container"
-expose = 8080

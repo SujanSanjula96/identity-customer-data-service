@@ -44,6 +44,7 @@ func NewProfileService(mux *http.ServeMux) *ProfileService {
 	ps.mux.HandleFunc("GET "+base+"/profiles/Me", ps.profileHandler.GetCurrentUserProfile)
 	ps.mux.HandleFunc("PATCH "+base+"/profiles/Me", ps.profileHandler.PatchCurrentUserProfile)
 	ps.mux.HandleFunc("POST "+base+"/profiles/sync", ps.profileHandler.SyncProfile)
+	ps.mux.HandleFunc("POST "+base+"/profiles/link", ps.profileHandler.LinkProfile)
 
 	// Routes with path variables
 	ps.mux.HandleFunc("GET "+base+"/profiles/{profileId}", ps.profileHandler.GetProfile)

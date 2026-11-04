@@ -112,13 +112,13 @@ factory. The name you register with is the value users will set in
 ```go
 func init() {
     queue.RegisterProfileQueueProvider("myprovider",
-        func(cfg config.ExternalBrokerConfig) (queue.ProfileUnificationQueue, error) {
-            return newProfileQueue(cfg.Addr, cfg.Username, cfg.Password, cfg.ProfileQueueName)
+        func(cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig) (queue.ProfileUnificationQueue, error) {
+            return newProfileQueue(cfg.Addr, cfg.Username, cfg.Password, cfg.ProfileQueueName, tlsCfg)
         },
     )
     queue.RegisterSchemaSyncQueueProvider("myprovider",
-        func(cfg config.ExternalBrokerConfig) (queue.SchemaSyncQueue, error) {
-            return newSchemaSyncQueue(cfg.Addr, cfg.Username, cfg.Password, cfg.SchemaSyncQueueName)
+        func(cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig) (queue.SchemaSyncQueue, error) {
+            return newSchemaSyncQueue(cfg.Addr, cfg.Username, cfg.Password, cfg.SchemaSyncQueueName, tlsCfg)
         },
     )
 }

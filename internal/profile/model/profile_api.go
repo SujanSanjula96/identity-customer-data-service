@@ -18,12 +18,16 @@
 
 package model
 
-import "time"
-import "github.com/wso2/identity-customer-data-service/internal/system/pagination"
+import (
+	"time"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/pagination"
+)
 
 type ProfileResponse struct {
 	ProfileId          string                            `json:"profile_id" bson:"profile_id"`
 	UserId             string                            `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	AnonymousProfileTracker string                         `json:"anonymous_profile_tracker,omitempty" bson:"anonymous_profile_tracker,omitempty"`
 	Meta               Meta                              `json:"meta" bson:"meta"`
 	IdentityAttributes map[string]interface{}            `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
 	Traits             map[string]interface{}            `json:"traits,omitempty" bson:"traits,omitempty"`
@@ -40,6 +44,8 @@ type ProfileListResponse struct {
 	Traits             map[string]interface{}            `json:"traits,omitempty" bson:"traits,omitempty"`
 	ApplicationData    map[string]map[string]interface{} `json:"application_data,omitempty" bson:"application_data,omitempty"`
 	MergedFrom         []Reference                       `json:"merged_from,omitempty" bson:"merged_from,omitempty"`
+	MatchScore         *float64                          `json:"match_score,omitempty" bson:"match_score,omitempty"`
+	ScoreBreakdown     map[string]float64                `json:"score_breakdown,omitempty" bson:"score_breakdown,omitempty"`
 }
 
 type Meta struct {
@@ -49,10 +55,20 @@ type Meta struct {
 }
 
 type ProfileRequest struct {
-	UserId             string                            `json:"user_id" bson:"user_id"`
-	IdentityAttributes map[string]interface{}            `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
-	Traits             map[string]interface{}            `json:"traits,omitempty" bson:"traits,omitempty"`
-	ApplicationData    map[string]map[string]interface{} `json:"application_data"`
+	UserId             string                 `json:"user_id" bson:"user_id"`
+	IdentityAttributes map[string]interface{} `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
+	Traits             map[string]interface{} `json:"traits,omitempty" bson:"traits,omitempty"`
+	ApplicationData    map[string]interface{} `json:"application_data"`
+}
+
+type ProfileLinkRequest struct {
+	ProfileId string `json:"profile_id" bson:"profile_id"`
+	UserId    string `json:"user_id" bson:"user_id"`
+}
+
+type ProfileLinkResponse struct {
+	ProfileId string `json:"profile_id" bson:"profile_id"`
+	UserId    string `json:"user_id" bson:"user_id"`
 }
 
 type ProfileSync struct {
@@ -67,4 +83,11 @@ type ProfileSync struct {
 type ProfileListAPIResponse struct {
 	Pagination pagination.Pagination `json:"pagination"`
 	Items      []ProfileListResponse `json:"profiles"`
+}
+
+// FuzzyMatchResult holds a profile along with its fuzzy match score.
+type FuzzyMatchResult struct {
+	Profile        ProfileResponse    `json:"profile"`
+	MatchScore     float64            `json:"match_score"`
+	ScoreBreakdown map[string]float64 `json:"score_breakdown"`
 }

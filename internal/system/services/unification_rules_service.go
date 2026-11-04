@@ -24,6 +24,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/handler"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
@@ -40,11 +41,21 @@ func NewUnificationRulesService(mux *http.ServeMux) *UnificationRulesService {
 
 	const base = constants.ApiBasePath + "/v1"
 	// Register routes using Go 1.22 ServeMux patterns on shared mux
+	s.mux.HandleFunc("GET "+base+"/unification-rules/options", s.unificationRulesHandler.GetUnificationOptions)
 	s.mux.HandleFunc("POST "+base+"/unification-rules", s.unificationRulesHandler.AddUnificationRule)
 	s.mux.HandleFunc("GET "+base+"/unification-rules", s.unificationRulesHandler.GetUnificationRules)
 	s.mux.HandleFunc("GET "+base+"/unification-rules/{ruleId}", s.unificationRulesHandler.GetUnificationRule)
 	s.mux.HandleFunc("PATCH "+base+"/unification-rules/{ruleId}", s.unificationRulesHandler.PatchUnificationRule)
 	s.mux.HandleFunc("DELETE "+base+"/unification-rules/{ruleId}", s.unificationRulesHandler.DeleteUnificationRule)
+
+	if config.OrganizationManagementEnabled() {
+		const policies = base + "/unification-rules/{ruleId}/sharing-policies"
+		s.mux.HandleFunc("POST "+policies, s.unificationRulesHandler.CreateSharingPolicy)
+		s.mux.HandleFunc("GET "+policies, s.unificationRulesHandler.ListSharingPolicies)
+		s.mux.HandleFunc("GET "+policies+"/{policyId}", s.unificationRulesHandler.GetSharingPolicy)
+		s.mux.HandleFunc("PUT "+policies+"/{policyId}", s.unificationRulesHandler.UpdateSharingPolicy)
+		s.mux.HandleFunc("DELETE "+policies+"/{policyId}", s.unificationRulesHandler.DeleteSharingPolicy)
+	}
 
 	return s
 }

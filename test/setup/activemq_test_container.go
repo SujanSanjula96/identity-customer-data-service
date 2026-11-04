@@ -28,9 +28,9 @@ import (
 )
 
 const (
-	activemqImage    = "apache/activemq-classic:5.18.3"
-	activemqUser     = "admin"
-	activemqPassword = "admin"
+	activemqImage     = "apache/activemq-classic:5.18.3"
+	activemqUser      = "admin"
+	activemqPassword  = "admin"
 	activemqSTOMPPort = "61613/tcp"
 )
 

@@ -146,6 +146,7 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 		"internal_claim_meta_view",
 		"internal_user_mgt_list",
 		"internal_user_mgt_view",
+		"internal_organization_view",
 	}, constants.SpaceSeparator)
 
 	if authCfg.IsSystemAppGrantEnabled {
@@ -157,14 +158,24 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	return c.fetchClientCredentialsToken(orgHandle, authCfg, scope)
 }
 
-// orgEndpoint builds an https URL on the configured host for a path under the given organization.
-// The org handle is validated and the result is checked so that request input cannot move the call to
-// another host or path. Callers must url.PathEscape any request-derived segment they put in path.
+// orgAPIPathPrefix returns the IS URL segment used for API calls (claims, apps, SCIM).
+// Sub-org UUIDs use /o — the org context is carried by the token, no UUID in path.
+// Regular tenant handles use /t/{handle}.
+func (c *IdentityClient) orgAPIPathPrefix(orgHandle string) string {
+	if _, err := uuid.Parse(orgHandle); err == nil {
+		return "/o"
+	}
+	return "/t/" + orgHandle
+}
+
+// orgEndpoint returns the https URL of path on host for the given organization. It rejects an org handle that
+// is not a single plain path segment and confirms the URL stays on host, so request input cannot move the call
+// to another host or path. Callers must url.PathEscape any other request-derived segment they put in path.
 func orgEndpoint(host, orgHandle, path string) (string, error) {
 	if !utils.IsValidOrgHandle(orgHandle) {
 		return "", fmt.Errorf("invalid organization handle: %q", orgHandle)
 	}
-	u, err := url.Parse("https://" + host + "/t/" + orgHandle + path)
+	u, err := url.Parse("https://" + host + path)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +191,11 @@ func orgEndpoint(host, orgHandle, path string) (string, error) {
 }
 
 func (c *IdentityClient) buildTokenEndpoint(orgId, tokenEndpoint string) (string, error) {
-	return orgEndpoint(c.BaseURL, orgId, tokenEndpoint)
+	if _, err := uuid.Parse(orgId); err == nil {
+		// Sub-org token endpoint lives under carbon.super: /t/carbon.super/o/{uuid}/oauth2/token
+		return orgEndpoint(c.BaseURL, orgId, "/t/carbon.super/o/"+orgId+tokenEndpoint)
+	}
+	return orgEndpoint(c.BaseURL, orgId, "/t/"+orgId+tokenEndpoint)
 }
 
 // fetchOrganizationToken obtains an organization-scoped token via system_app_grant.
@@ -226,6 +241,7 @@ func (c *IdentityClient) fetchClientCredentialsToken(orgId string, authCfg confi
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("scope", scope)
+
 	return c.requestToken(endpoint, authCfg.ClientID, authCfg.ClientSecret, form, orgId)
 }
 
@@ -307,7 +323,7 @@ func (c *IdentityClient) FetchApplicationIdentifier(applicationIdentifier, orgHa
 	logger := log.GetLogger()
 	var result idpModel.ApplicationsListResponse
 	filter := fmt.Sprintf(`clientId eq %s or issuer eq %s`, applicationIdentifier, applicationIdentifier)
-	base, err := orgEndpoint(c.BaseURL, orgHandle, "/api/server/v1/applications")
+	base, err := orgEndpoint(c.BaseURL, orgHandle, c.orgAPIPathPrefix(orgHandle)+"/api/server/v1/applications")
 	if err != nil {
 		return result, err
 	}
@@ -373,6 +389,70 @@ func (c *IdentityClient) FetchApplicationIdentifier(applicationIdentifier, orgHa
 	return result, nil
 }
 
+// GetApplication fetches an application by ID. exists is false when it is not found.
+func (c *IdentityClient) GetApplication(appID, orgHandle string) (idpModel.ApplicationItem, bool, error) {
+
+	logger := log.GetLogger()
+	var app idpModel.ApplicationItem
+
+	token, err := c.FetchToken(orgHandle)
+	if err != nil {
+		logger.Debug(fmt.Sprintf("Failed to get token for resolving application:%s of org:%s", appID, orgHandle),
+			log.Error(err))
+		return app, false, err
+	}
+
+	appsFailed := func(desc string, cause error) error {
+		return errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.GET_APPLICATIONS_FAILED.Code,
+			Message:     errors2.GET_APPLICATIONS_FAILED.Message,
+			Description: desc,
+		}, cause)
+	}
+
+	appEndpoint, err := orgEndpoint(c.BaseURL, orgHandle,
+		"/t/"+orgHandle+"/api/server/v1/applications/"+url.PathEscape(appID))
+	if err != nil {
+		return app, false, err
+	}
+	req, err := http.NewRequest("GET", appEndpoint, nil)
+	if err != nil {
+		return app, false, err
+	}
+	authCfg := config.GetCDSRuntime().Config.AuthServer
+	if authCfg.IsSystemAppGrantEnabled {
+		req.Header.Set("Authorization", constants.SystemAppHeader+constants.SpaceSeparator+token)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return app, false, appsFailed(fmt.Sprintf("Failed to fetch application:%s for org:%s", appID, orgHandle), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return app, false, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return app, false, appsFailed(fmt.Sprintf("Failed to read application response for app:%s org:%s",
+			appID, orgHandle), err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		errorMsg := fmt.Sprintf("Applications endpoint returned status %d for app:%s org:%s. Response: %s",
+			resp.StatusCode, appID, orgHandle, strings.TrimSpace(string(body)))
+		return app, false, appsFailed(errorMsg, fmt.Errorf("applications endpoint non-200: %d", resp.StatusCode))
+	}
+
+	if err := json.Unmarshal(body, &app); err != nil {
+		return app, false, appsFailed(fmt.Sprintf("Failed to parse application response for app:%s org:%s",
+			appID, orgHandle), err)
+	}
+	return app, true, nil
+}
+
 // IntrospectToken introspects an opaque token using the introspection endpoint.
 func (c *IdentityClient) IntrospectToken(token, orgHandle string) (map[string]interface{}, error) {
 
@@ -384,11 +464,13 @@ func (c *IdentityClient) IntrospectToken(token, orgHandle string) (map[string]in
 	var err error
 	if authConfig.IsSystemAppGrantEnabled {
 		log.GetLogger().Debug("Token introspection with IS through internal host as system_app_grant is enabled")
-		introspectionEndpoint, err = orgEndpoint(authConfig.ADUISHostname, orgHandle, authConfig.IntrospectionEndPoint)
+		introspectionEndpoint, err = orgEndpoint(authConfig.ADUISHostname, orgHandle,
+			c.orgAPIPathPrefix(orgHandle)+authConfig.IntrospectionEndPoint)
 		form.Set("appTenant", "carbon.super")
 	} else {
 		// It is possible to introspect any token against super tenant introspection endpoint and super tenant client credentials
-		introspectionEndpoint, err = orgEndpoint(c.BaseURL, "carbon.super", authConfig.IntrospectionEndPoint)
+		introspectionEndpoint, err = orgEndpoint(c.BaseURL, "carbon.super",
+			"/t/carbon.super"+authConfig.IntrospectionEndPoint)
 	}
 	if err != nil {
 		return nil, err
@@ -520,6 +602,7 @@ func (c *IdentityClient) GetProfileSchema(orgHandle string) ([]model.ProfileSche
 					ValueType:     constants.ComplexDataType,
 					MergeStrategy: constants.MergeStrategyOverwrite,
 					Mutability:    constants.MutabilityReadWrite,
+					DisplayName:   utils.ResolveDisplayNameFromAttribute(parent),
 					SubAttributes: subs,
 					SCIMDialect:   dialect, // mark as generated
 				})
@@ -532,7 +615,7 @@ func (c *IdentityClient) GetProfileSchema(orgHandle string) ([]model.ProfileSche
 }
 
 func (c *IdentityClient) GetAllDialects(orgHandle string) ([]map[string]interface{}, error) {
-	endpoint, err := orgEndpoint(c.BaseURL, orgHandle, "/api/server/v1/claim-dialects")
+	endpoint, err := orgEndpoint(c.BaseURL, orgHandle, c.orgAPIPathPrefix(orgHandle)+"/api/server/v1/claim-dialects")
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +662,8 @@ func (c *IdentityClient) GetAllDialects(orgHandle string) ([]map[string]interfac
 }
 
 func (c *IdentityClient) GetClaimsByDialect(dialectID, orgId string) ([]map[string]interface{}, error) {
-	endpoint, err := orgEndpoint(c.BaseURL, orgId, "/api/server/v1/claim-dialects/"+url.PathEscape(dialectID)+"/claims")
+	endpoint, err := orgEndpoint(c.BaseURL, orgId,
+		c.orgAPIPathPrefix(orgId)+"/api/server/v1/claim-dialects/"+url.PathEscape(dialectID)+"/claims")
 	if err != nil {
 		return nil, err
 	}
@@ -626,7 +710,7 @@ func (c *IdentityClient) GetClaimsByDialect(dialectID, orgId string) ([]map[stri
 
 func (c *IdentityClient) GetLocalClaimsMap(orgId string) (map[string]map[string]interface{}, error) {
 
-	endpoint, err := orgEndpoint(c.BaseURL, orgId, "/api/server/v1/claim-dialects/local/claims")
+	endpoint, err := orgEndpoint(c.BaseURL, orgId, c.orgAPIPathPrefix(orgId)+"/api/server/v1/claim-dialects/local/claims")
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +800,11 @@ func ConvertSCIMClaimWithLocal(
 	}
 	if props, ok := local["properties"].([]interface{}); ok {
 		for _, p := range props {
-			prop := p.(map[string]interface{})
+			prop, ok := p.(map[string]interface{})
+			if !ok {
+				log.GetLogger().Debug(fmt.Sprintf("GetProfileSchema: skipping non-map property entry (type=%T) for org=%s", p, orgId))
+				continue
+			}
 			if prop["key"] == "multiValued" && prop["value"] == "true" {
 				multiValued = true
 			}
@@ -738,6 +826,13 @@ func ConvertSCIMClaimWithLocal(
 				canonicalValues = append(canonicalValues, canonical)
 			}
 		}
+	}
+
+	var displayName string
+	if dn, ok := local["displayName"].(string); ok {
+		displayName = dn
+	} else {
+		displayName = utils.ResolveDisplayNameFromAttribute(attrKey)
 	}
 
 	// Find sub-attributes for the current attribute (if it's a parent)
@@ -784,6 +879,7 @@ func ConvertSCIMClaimWithLocal(
 			AttributeName:   fullAttrName,
 			ValueType:       valueType,
 			MergeStrategy:   "overwrite",
+			DisplayName:     displayName,
 			Mutability:      ifThenElse(readOnly, "readOnly", "readWrite"),
 			MultiValued:     multiValued,
 			CanonicalValues: canonicalValues,
@@ -800,6 +896,7 @@ func ConvertSCIMClaimWithLocal(
 		ValueType:       valueType,
 		MergeStrategy:   "overwrite",
 		Mutability:      ifThenElse(readOnly, "readOnly", "readWrite"),
+		DisplayName:     displayName,
 		MultiValued:     multiValued,
 		CanonicalValues: canonicalValues,
 		SubAttributes:   subAttrs,
@@ -817,7 +914,7 @@ func ifThenElse(cond bool, a, b string) string {
 // GetSCIMUser fetches a SCIM user by ID
 func (c *IdentityClient) GetSCIMUser(orgId, userId string) (map[string]interface{}, error) {
 
-	endpoint, err := orgEndpoint(c.BaseURL, orgId, "/scim2/Users/"+url.PathEscape(userId))
+	endpoint, err := orgEndpoint(c.BaseURL, orgId, c.orgAPIPathPrefix(orgId)+"/scim2/Users/"+url.PathEscape(userId))
 	if err != nil {
 		return nil, err
 	}

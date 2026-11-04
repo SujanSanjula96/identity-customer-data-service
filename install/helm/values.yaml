@@ -33,6 +33,15 @@ cloud:
           corsAllowedOrigins: []
         addr:
           host: "localhost"
+        cleanup:
+          cookie:
+            enabled: true
+            interval: 86400    # in seconds (24 hours)
+            batch_size: 500
+        shutdown:
+          # Bounds the whole graceful shutdown of the application. Keep it below
+          # terminationGracePeriodSeconds.
+          gracePeriodSeconds: 25
         sync:
           schema:
             enabled: true
@@ -43,6 +52,22 @@ cloud:
           port: 5432
           name: "cds_db"
           sslmode: require
+          # Connection pool bounds for one pod.
+          postgres:
+            maxOpenConns: 100
+            maxIdleConns: 25
+            connMaxLifetimeSeconds: 1800
+            connMaxIdleTimeSeconds: 300
+            # Bounds one connection attempt, the startup handshake included,
+            # and the check that runs when the pool opens.
+            connectTimeoutSeconds: 10
+
+        serverUrl : "http://localhost:8900"
+
+        applicationIdentifierType: "client_id" # Application identifier mode: "client_id" (default) or "app_id"
+
+        organizationManagement:
+          enabled: false
 
         identityServer:
           host: localhost
@@ -55,6 +80,23 @@ cloud:
           claimsEndpoint: "api/server/v1/claim-dialects"
           isSystemAppGrantEnabled: true
           certName: "wso2carbontls.cer"
+
+        message_queue:
+          type: "memory" # Options: "activemq", "memory"
+          broker:
+            addr: "localhost"
+            profile_queue_name: "/queue/cds-profile-unification"
+            schema_sync_queue_name: "/queue/cds-schema-sync"
+
+        identityResolution:
+          # Let a unification rule carry its own match_strength and mismatch_strength rather
+          # than taking the values derived from its attribute_type. Off until operators have
+          # a way to preview what a change would do to existing profiles.
+          allowEvidenceStrengthOverride: false
+          # Tolerant matching, server-wide. Off by default so an upgrade keeps unifying
+          # profiles exactly as it did. While it is off new fuzzy rules are refused and any
+          # already stored are evaluated as exact.
+          fuzzyMatchingEnabled: false
 
       tls:
         mtls_enabled: false
@@ -73,9 +115,15 @@ cloud:
         databasePassword: "" # Add the database admin password
         introspectionClientId: ""
         introspectionClientSecret: "" # Add the introspection client secret
+        activemqBrokerUsername: "" # Add the ActiveMQ broker username
+        activemqBrokerPassword: "" # Add the ActiveMQ broker password
       replicas: 2
       progressDeadlineSeconds: 300
       minReadySeconds: 30
+      # The outer limit Kubernetes allows a pod to stop in. Keep it above
+      # config.shutdown.gracePeriodSeconds, so the application has time to
+      # finish and exit before SIGKILL.
+      terminationGracePeriodSeconds: 30
       strategy:
         rollingUpdate:
           maxSurge: 1
@@ -89,6 +137,9 @@ cloud:
       readinessProbe:
         initialDelaySeconds: 20
         periodSeconds: 10
+        # The readiness query runs under the context of the probe request, so
+        # this is its only bound. Kubernetes defaults it to one second.
+        timeoutSeconds: 5
       imagePullPolicy: Always
       resources:
         requests:

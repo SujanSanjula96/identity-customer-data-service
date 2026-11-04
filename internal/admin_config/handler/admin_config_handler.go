@@ -42,6 +42,8 @@ func NewAdminConfigHandler() *AdminConfigHandler {
 // GetAdminConfig handles GET /admin/configs
 func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
 	if err := security.AuthnAndAuthz(r, "admin_config:view"); err != nil {
 		utils.HandleError(w, err)
 		return
@@ -49,7 +51,7 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
 	adminConfigProvider := provider.NewAdminConfigProvider()
 	adminConfigService := adminConfigProvider.GetAdminConfigService()
-	config, err := adminConfigService.GetAdminConfig(orgHandle)
+	config, err := adminConfigService.GetAdminConfig(ctx, orgHandle)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -57,14 +59,20 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 	}
 
 	resp := model.AdminConfigAPI{
-		CDSEnabled:         config.CDSEnabled,
-		SystemApplications: config.SystemApplications,
+		CDSEnabled:                 config.CDSEnabled,
+		SystemApplications:         config.SystemApplications,
+		AutoMergeEnabled:           config.AutoMergeEnabled,
+		AutoMergeThreshold:         config.AutoMergeThreshold,
+		ManualReviewThreshold:      config.ManualReviewThreshold,
+		DeterministicMatchDecisive: config.DeterministicMatchDecisive,
 	}
 	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
 }
 
 // UpdateAdminConfig handles PATCH /admin/configs
 func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
 
 	if err := security.AuthnAndAuthz(r, "admin_config:update"); err != nil {
 		utils.HandleError(w, err)
@@ -87,17 +95,21 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 
 	adminConfigService := provider.NewAdminConfigProvider().GetAdminConfigService()
 
-	existingConfig, err := adminConfigService.GetAdminConfig(orgHandle)
+	existingConfig, err := adminConfigService.GetAdminConfig(ctx, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
 	configToUpdate := model.AdminConfig{
-		OrgHandle:             orgHandle,
-		InitialSchemaSyncDone: existingConfig.InitialSchemaSyncDone,
-		CDSEnabled:            existingConfig.CDSEnabled,
-		SystemApplications:    existingConfig.SystemApplications,
+		OrgHandle:                  orgHandle,
+		InitialSchemaSyncDone:      existingConfig.InitialSchemaSyncDone,
+		CDSEnabled:                 existingConfig.CDSEnabled,
+		SystemApplications:         existingConfig.SystemApplications,
+		AutoMergeEnabled:           existingConfig.AutoMergeEnabled,
+		AutoMergeThreshold:         existingConfig.AutoMergeThreshold,
+		ManualReviewThreshold:      existingConfig.ManualReviewThreshold,
+		DeterministicMatchDecisive: existingConfig.DeterministicMatchDecisive,
 	}
 
 	// Update only if provided in request
@@ -107,16 +119,32 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	if config.SystemApplications != nil {
 		configToUpdate.SystemApplications = config.SystemApplications
 	}
+	if config.AutoMergeEnabled != nil {
+		configToUpdate.AutoMergeEnabled = *config.AutoMergeEnabled
+	}
+	if config.AutoMergeThreshold != nil {
+		configToUpdate.AutoMergeThreshold = *config.AutoMergeThreshold
+	}
+	if config.ManualReviewThreshold != nil {
+		configToUpdate.ManualReviewThreshold = *config.ManualReviewThreshold
+	}
+	if config.DeterministicMatchDecisive != nil {
+		configToUpdate.DeterministicMatchDecisive = *config.DeterministicMatchDecisive
+	}
 
-	err = adminConfigService.UpdateAdminConfig(configToUpdate, orgHandle)
+	err = adminConfigService.UpdateAdminConfig(ctx, configToUpdate, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
 	resp := model.AdminConfigAPI{
-		CDSEnabled:         configToUpdate.CDSEnabled,
-		SystemApplications: configToUpdate.SystemApplications,
+		CDSEnabled:                 configToUpdate.CDSEnabled,
+		SystemApplications:         configToUpdate.SystemApplications,
+		AutoMergeEnabled:           configToUpdate.AutoMergeEnabled,
+		AutoMergeThreshold:         configToUpdate.AutoMergeThreshold,
+		ManualReviewThreshold:      configToUpdate.ManualReviewThreshold,
+		DeterministicMatchDecisive: configToUpdate.DeterministicMatchDecisive,
 	}
 	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
 }

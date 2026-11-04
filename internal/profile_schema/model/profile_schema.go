@@ -24,6 +24,7 @@ type ProfileSchemaAttribute struct {
 	OrgId                 string           `json:"org_id,omitempty" bson:"org_id,omitempty"`
 	AttributeId           string           `json:"attribute_id" bson:"attribute_id"`
 	AttributeName         string           `json:"attribute_name" bson:"attribute_name" binding:"required"`
+	Scope                 string           `json:"scope,omitempty" bson:"scope,omitempty"`
 	DisplayName           string           `json:"display_name,omitempty" bson:"display_name,omitempty"`
 	ValueType             string           `json:"value_type" bson:"value_type" binding:"required"`
 	MergeStrategy         string           `json:"merge_strategy" bson:"merge_strategy" binding:"required"`
@@ -33,6 +34,9 @@ type ProfileSchemaAttribute struct {
 	CanonicalValues       []CanonicalValue `json:"canonical_values,omitempty" bson:"canonical_values,omitempty"` // String of options for the attribute
 	SubAttributes         []SubAttribute   `json:"sub_attributes,omitempty" bson:"sub_attributes,omitempty"`     // If the datatype is object
 	SCIMDialect           string           `json:"scim_dialect,omitempty" bson:"scim_dialect,omitempty"`         // Need to skip this in the response
+	// Set only on reads of the effective schema.
+	Origin         string `json:"origin,omitempty" bson:"-"`           // OWNED, SHARED, or INHERITED
+	OwnerOrgHandle string `json:"owner_org_handle,omitempty" bson:"-"` // The owner org of a shared or inherited attribute
 }
 
 type SubAttribute struct {
@@ -82,3 +86,9 @@ var CoreSchema = map[string]map[string]string{
 		"mutability": constants.MutabilityReadOnly,
 	},
 }
+
+// SharingResourceType is the resource type of a schema attribute in a sharing policy.
+const SharingResourceType = "SCHEMA_ATTRIBUTE"
+
+// OriginInherited is the origin of an identity attribute that a sub organization inherits.
+const OriginInherited = "INHERITED"

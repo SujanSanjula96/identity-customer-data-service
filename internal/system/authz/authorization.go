@@ -59,3 +59,17 @@ func ValidatePermission(scopeStr string, operation string) bool {
 	}
 	return true
 }
+
+// OrgOperationPrefix is the prefix of an operation in a sub organization, for example
+// org:profile:create.
+const OrgOperationPrefix = "org:"
+
+// OperationFor returns the operation to authorize. In a sub organization, it is the `org:` form of
+// the operation.
+func OperationFor(operation, pathOrgId string) string {
+
+	if pathOrgId == "" {
+		return operation
+	}
+	return OrgOperationPrefix + operation
+}

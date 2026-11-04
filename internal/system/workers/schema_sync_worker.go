@@ -19,6 +19,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -36,6 +37,9 @@ import (
 var (
 	schemaSyncQueueMu     sync.RWMutex
 	activeSchemaSyncQueue queue.SchemaSyncQueue
+	// schemaSyncLifecycle counts the jobs that are at work, so that shutdown
+	// waits for them before the database pool closes.
+	schemaSyncLifecycle *jobLifecycle
 )
 
 // StartSchemaSyncWorker initialises the schema sync queue (using the provider
@@ -43,17 +47,31 @@ var (
 // error is returned when the queue cannot be created or started; the caller
 // should treat this as a fatal startup failure.
 func StartSchemaSyncWorker() error {
-	cfg := config.GetCDSRuntime().Config.MessageQueue
+	cfg := config.GetCDSRuntime().Config
 	q, err := queue.NewSchemaSyncQueue(cfg)
 	if err != nil {
 		return fmt.Errorf("workers: failed to create schema sync queue: %w", err)
 	}
-	if err := q.Start(processSchemaSyncJob); err != nil {
-		_ = q.Close()
+	// A queue message has no caller, so the worker is the context boundary for
+	// the work one message causes.
+	lifecycle := newJobLifecycle()
+
+	if err := q.Start(func(schemaSync model.ProfileSchemaSync) {
+		err := lifecycle.run(func(ctx context.Context) {
+			processSchemaSyncJob(ctx, schemaSync)
+		})
+		if err != nil {
+			log.GetLogger().Info(fmt.Sprintf(
+				"workers: the schema sync worker is stopping, so the job for tenant %s did not run: %v",
+				schemaSync.OrgId, err))
+		}
+	}); err != nil {
+		_ = q.Close(context.Background())
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
 	}
 	schemaSyncQueueMu.Lock()
 	activeSchemaSyncQueue = q
+	schemaSyncLifecycle = lifecycle
 	schemaSyncQueueMu.Unlock()
 	return nil
 }
@@ -72,23 +90,33 @@ func EnqueueSchemaSyncJob(schemaSync model.ProfileSchemaSync) error {
 	return q.Enqueue(schemaSync)
 }
 
-// StopSchemaSyncWorker gracefully shuts down the schema sync queue. It nils
-// out the global reference under a write lock before calling Close, ensuring
-// no concurrent Enqueue can send on a closed queue. It should be called
-// during application shutdown.
-func StopSchemaSyncWorker() error {
+// StopSchemaSyncWorker shuts the schema sync queue down inside ctx. It nils
+// out the global reference under a write lock first, so no concurrent Enqueue
+// can send on a closed queue.
+//
+// It returns nil when every schema sync job that was at work returned on its
+// own, and ErrShutdownIncomplete when the deadline passed with a job still
+// running.
+//
+// It is safe to call more than once.
+func StopSchemaSyncWorker(ctx context.Context) error {
 	schemaSyncQueueMu.Lock()
 	q := activeSchemaSyncQueue
-	activeSchemaSyncQueue = nil
+	lifecycle := schemaSyncLifecycle
+	activeSchemaSyncQueue, schemaSyncLifecycle = nil, nil
 	schemaSyncQueueMu.Unlock()
-	if q != nil {
-		return q.Close()
+
+	if q == nil {
+		return nil
 	}
-	return nil
+	if lifecycle == nil {
+		return q.Close(ctx)
+	}
+	return lifecycle.stop(ctx, q.Close)
 }
 
 // processSchemaSyncJob processes a schema sync job
-func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
+func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))
@@ -96,7 +124,7 @@ func processSchemaSyncJob(schemaSync model.ProfileSchemaSync) {
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err := schemaService.SyncProfileSchema(schemaSync.OrgId)
+	err := schemaService.SyncProfileSchema(ctx, schemaSync.OrgId)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
 		return

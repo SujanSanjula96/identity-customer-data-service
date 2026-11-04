@@ -1,0 +1,92 @@
+# CDS configuration for a local run. Copied verbatim into
+# <work-dir>/cds-home/repository/conf/deployment.yaml, then completed by CDS
+# itself: it expands ${...} from the environment at load time, and script.sh
+# exports every name used here when it starts the binary. Secrets therefore
+# never reach this file.
+#
+# This mirrors config/repository/conf/deployment.yaml in the repository root.
+# Keep the two in step - script.sh warns if that file grows a section this one
+# does not have.
+
+env: dev
+
+log:
+  log_level: "${CDS_LOG_LEVEL}"
+
+cache:
+  enabled: true
+  default_cache_timeout: 15
+
+auth:
+  # The Console is served by the Identity Server and calls CDS cross-origin, so
+  # the IS origin has to be allowed. The rest are the identity-apps dev servers.
+  cors_allowed_origins:
+    - "${IS_BASE}"
+    - "${CDS_BASE}"
+    - "https://localhost:9001"
+    - "https://localhost:9000"
+    - "http://localhost:3000"
+    - "http://localhost:3001"
+
+addr:
+  host: "${CDS_LISTEN_HOST}"
+  port: ${CDS_PORT}
+
+server_url: "${CDS_BASE}"
+
+sync:
+  schema:
+    enabled: true
+    interval: 3600
+
+cleanup:
+  cookie:
+    enabled: true
+    interval: 86400
+    batch_size: 500
+
+message_queue:
+  type: "memory"
+  broker:
+    addr: ""
+    username: "admin"
+    password: ""
+    profile_queue_name: "/queue/cds-profile-unification"
+    schema_sync_queue_name: "/queue/cds-schema-sync"
+
+tls:
+  mtls_enabled: false          # IS does not present a client certificate
+  cert_dir: "${CDS_CERT_DIR}"
+  server_cert: "server.crt"
+  server_key: "server.key"
+  trust_store: "trust_store.pem"
+
+organization_management:
+  enabled: true
+
+# Must match [console.extensions] cds_application_identifier_type in
+# is-deployment.toml.
+application_identifier_type: app_id
+
+# required_scopes comes last so the block appended from the repository's own
+# configuration lands inside auth_server.
+auth_server:
+  host: "${IS_HOST}"
+  port: ${IS_PORT}
+  adu_is_hostname: "${IS_HOST}"
+  cookieDomain: "${IS_HOST}"
+  introspectionEndpoint: "/oauth2/introspect"
+  tokenEndpoint: "/oauth2/token"
+  revocationEndpoint: "/oauth2/revoke"
+  claimsEndpoint: "api/server/v1/claim-dialects"
+  isSystemAppGrantEnabled: false
+  client_id: "${CDS_SYS_CLIENT_ID}"
+  client_secret: "${AUTH_SERVER_CLIENT_SECRET}"
+  # Introspection uses the same client credentials, which IS accepts because of
+  # the [[resource.access_control]] override in is-deployment.toml.
+  introspection_client_id: "${CDS_SYS_CLIENT_ID}"
+  introspection_client_secret: "${INTROSPECTION_CLIENT_SECRET}"
+  # Must match [customer_data_service] admin_username/admin_password on the IS
+  # side.
+  admin_username: "${CDS_SYNC_USER}"
+  admin_password: "${AUTH_SERVER_ADMIN_PASSWORD}"

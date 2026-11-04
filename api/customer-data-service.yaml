@@ -11,16 +11,85 @@ paths:
     get:
       tags: [Profile]
       summary: Get all profiles
+      description: |
+        Lists profiles, optionally narrowed by `filter`, by `fuzzyFilter`, or by both.
+
+        `filter` selects profiles whose values satisfy the condition exactly.
+        `fuzzyFilter` runs the identity resolution engine instead, returning profiles whose
+        values are *similar* to the ones given, each with the score it was given.
+
+        Supplying both is a hybrid search: a profile is returned only where it is similar on
+        the `fuzzyFilter` values **and** exactly satisfies every `filter` condition.
       operationId: getAllProfiles
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          description: |
+            An exact condition, as `<attribute> <operator> <value>` — for example
+            `traits.city eq Colombo`. Repeat the parameter to apply more than one.
+          schema:
+            type: string
+          example: "traits.city eq Colombo"
+        - name: fuzzyFilter
+          in: query
+          required: false
+          description: |
+            A value to match on similarity rather than equality, written the same way and
+            always compared with `eq` — for example `traits.name eq Jonathan Smith`, which
+            also matches `Jonathon Smyth`. Repeat the parameter to search on more than one
+            attribute.
+
+            How closely two values have to agree is decided by the organisation's active
+            unification rules: an attribute is only searched where a rule names it, and the
+            rule's attribute type selects the comparison. A rule matched exactly contributes
+            nothing extra here, so tolerant search needs at least one rule set to `fuzzy`.
+
+            Tolerant matching has to be switched on for the server
+            (`identity_resolution.fuzzy_matching_enabled`). While it is off, rules stored as
+            fuzzy are read as exact and this parameter returns only exact matches.
+          schema:
+            type: string
+          example: "traits.name eq Jonathan Smith"
+        - name: threshold
+          in: query
+          required: false
+          description: |
+            Lowest match score to return, between 0 and 1. Only applies alongside
+            `fuzzyFilter`. Omitted, every scored candidate is returned.
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            maximum: 1
+          example: 0.75
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of profiles to return.
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor from a previous page. Not used by a `fuzzyFilter` search.
+          schema:
+            type: string
       responses:
         '200':
-          description: Successful response
+          description: |
+            An array of profiles. Where `fuzzyFilter` was supplied each entry carries the
+            score it was given, highest first, instead of being a bare profile.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Profile'
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Profile'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/FuzzyMatchResult'
 
   /profiles/{profile_id}:
     get:
@@ -53,6 +122,33 @@ paths:
       responses:
         '204':
           description: Profile deleted successfully
+
+  /profiles/link:
+    post:
+      tags: [Profile]
+      summary: Link an anonymous profile to a user
+      operationId: linkProfile
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileLinkRequest'
+      responses:
+        '200':
+          description: Profile linked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileLinkResponse'
+        '400':
+          description: Invalid request
+        '404':
+          description: Profile not found
+        '409':
+          description: Profile is already linked to a different user
 
   /events:
     post:
@@ -120,6 +216,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Event'
+
+  /profile-schema/{scope}/{attribute_id}/sharing-policies:
+    parameters:
+      - $ref: '#/components/parameters/Scope'
+      - $ref: '#/components/parameters/AttributeId'
+    post:
+      tags: [Sharing]
+      summary: Share a profile schema attribute with child organizations
+      description: >-
+        Only the organization that owns the attribute can share it. Identity attributes, complex
+        attributes, and sub-attributes cannot be shared. An organization has a maximum of one policy
+        for each attribute.
+      operationId: createSchemaAttributeSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '201':
+          description: Sharing policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Sharing]
+      summary: List the sharing policies of a profile schema attribute
+      operationId: listSchemaAttributeSharingPolicies
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Sharing policies retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicyList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /profile-schema/{scope}/{attribute_id}/sharing-policies/{policy_id}:
+    parameters:
+      - $ref: '#/components/parameters/Scope'
+      - $ref: '#/components/parameters/AttributeId'
+      - $ref: '#/components/parameters/PolicyId'
+    get:
+      tags: [Sharing]
+      summary: Get a sharing policy of a profile schema attribute
+      operationId: getSchemaAttributeSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Sharing policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Sharing]
+      summary: Replace the target organizations of a sharing policy
+      operationId: updateSchemaAttributeSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '200':
+          description: Sharing policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Sharing]
+      summary: Delete a sharing policy of a profile schema attribute
+      operationId: deleteSchemaAttributeSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '204':
+          description: Sharing policy deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /unification-rules:
     post:
@@ -190,6 +400,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UnificationRule'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     delete:
       tags: [Profile Unification]
       summary: Delete unification rule
@@ -203,6 +415,116 @@ paths:
       responses:
         '204':
           description: Rule deleted successfully
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /unification-rules/{rule_id}/sharing-policies:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    post:
+      tags: [Sharing]
+      summary: Share a unification rule with child organizations
+      operationId: createUnificationRuleSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '201':
+          description: Sharing policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Sharing]
+      summary: List the sharing policies of a unification rule
+      operationId: listUnificationRuleSharingPolicies
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Sharing policies retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicyList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /unification-rules/{rule_id}/sharing-policies/{policy_id}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+      - $ref: '#/components/parameters/PolicyId'
+    get:
+      tags: [Sharing]
+      summary: Get a sharing policy of a unification rule
+      operationId: getUnificationRuleSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Sharing policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Sharing]
+      summary: Replace the target organizations of a sharing policy
+      operationId: updateUnificationRuleSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '200':
+          description: Sharing policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharingPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Sharing]
+      summary: Delete a sharing policy of a unification rule
+      operationId: deleteUnificationRuleSharingPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '204':
+          description: Sharing policy deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /enrichment-rules:
     post:
@@ -404,8 +726,293 @@ paths:
               schema:
                 $ref: '#/components/schemas/ConsentCategory'
 
+  /organizations/event-sync:
+    post:
+      tags: [Organizations]
+      summary: Receive an organization lifecycle event from the identity provider
+      description: >-
+        The path names the organization in which the event occurred. For ORG_CREATED, this is the
+        parent organization. Events that arrive before the first organization sync are ignored.
+      operationId: syncOrganizationEvent
+      security:
+        - basicAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationEvent'
+      responses:
+        '204':
+          description: Event processed or ignored
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /organizations/sync:
+    post:
+      tags: [Organizations]
+      summary: Start a sync of the organization tree
+      description: >-
+        Only the primary organization can start a sync. The sync runs in the background. Use
+        GET /organizations/sync-status to get its state.
+      operationId: startOrganizationSync
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '202':
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationSyncStatus'
+              example:
+                state: SYNCING
+                started_at: "2026-10-12T06:46:18.088906Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A sync of the organization tree is running (CDS-17012).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CDS-17012
+                message: Organization sync is running.
+                description: Wait until the running sync completes. GET /organizations/sync-status returns its state.
+
+  /organizations/sync-status:
+    get:
+      tags: [Organizations]
+      summary: Get the state of the organization sync
+      operationId: getOrganizationSyncStatus
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Sync state retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationSyncStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /organizations/access-policies:
+    post:
+      tags: [Organizations]
+      summary: Select the child organizations that can use the service
+      description: >-
+        Only the primary organization can manage the organization access. It has a maximum of one
+        policy. The organization tree must be synced first.
+      operationId: createOrganizationAccessPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '201':
+          description: Organization access policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Organizations]
+      summary: List the organization access policies
+      operationId: listOrganizationAccessPolicies
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Organization access policies retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAccessPolicyList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /organizations/access-policies/{org_policy_id}:
+    parameters:
+      - name: org_policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Organizations]
+      summary: Get the organization access policy
+      operationId: getOrganizationAccessPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Organization access policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Organizations]
+      summary: Replace the selected child organizations
+      description: An update cannot change child_orgs.mode. To change the mode, delete the policy and create a new one.
+      operationId: updateOrganizationAccessPolicy
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharingPolicyRequest'
+      responses:
+        '200':
+          description: Organization access policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Organizations]
+      summary: Delete the organization access policy
+      description: After the delete, no child organization can use the service.
+      operationId: deleteOrganizationAccessPolicy
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '204':
+          description: Organization access policy deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
+  parameters:
+    RuleId:
+      name: rule_id
+      in: path
+      required: true
+      schema:
+        type: string
+    Scope:
+      name: scope
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [traits, application_data]
+    AttributeId:
+      name: attribute_id
+      in: path
+      required: true
+      schema:
+        type: string
+    PolicyId:
+      name: policy_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: The request is not valid, or the organization cannot call the endpoint.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: The credentials are not valid for the organization of the path.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The organization does not own the resource, or the organization cannot write it.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The resource, the policy, or the organization is not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: The organization already has a policy for the resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
   schemas:
+    FuzzyMatchResult:
+      type: object
+      description: |
+        A profile the identity resolution engine judged similar to the values supplied in
+        `fuzzyFilter`, with the score it was given.
+      properties:
+        profile:
+          $ref: '#/components/schemas/Profile'
+        match_score:
+          type: number
+          format: double
+          description: |
+            How alike the profile and the supplied values were judged to be, between 0 and 1.
+            It is the score of the highest-priority rule that agreed, not a combination of
+            every rule, so a rule in the breakdown can score higher than this. It is not
+            lowered when another rule disagrees: that decides whether profiles merge
+            unattended, not how alike they are.
+          example: 0.9429
+        score_breakdown:
+          type: object
+          description: Each rule that had something to compare, and what it scored.
+          additionalProperties:
+            type: number
+            format: double
+          example:
+            name: 0.9429
+            city: 1.0
+
     Profile:
       type: object
       properties:
@@ -424,6 +1031,29 @@ components:
             $ref: '#/components/schemas/ApplicationData'
         profile_hierarchy:
           $ref: '#/components/schemas/ProfileHierarchy'
+
+    ProfileLinkRequest:
+      type: object
+      properties:
+        profile_id:
+          type: string
+          example: "e8bf7337-4049-4d92-9545-711894ab2af3"
+        user_id:
+          type: string
+          example: "40497337-e8bf-4d92-9545-711894ab2af3"
+      required:
+        - profile_id
+        - user_id
+
+    ProfileLinkResponse:
+      type: object
+      properties:
+        profile_id:
+          type: string
+          example: "e8bf7337-4049-4d92-9545-711894ab2af3"
+        user_id:
+          type: string
+          example: "40497337-e8bf-4d92-9545-711894ab2af3"
 
     ProfileHierarchy:
       type: object
@@ -604,6 +1234,60 @@ components:
           type: boolean
           description: Whether the rule is currently active
           example: true
+        attribute_type:
+          type: string
+          description: |
+            What kind of value the attribute holds. Determines which comparison is applied
+            and which blocking keys are indexed.
+
+            Optional. Omitted, it defaults to `PRIMITIVE_EXACT`, which is how a rule written
+            before typed matching is read. It is **required when `unification_method` is
+            `fuzzy`**, because it selects how two values are compared and there is nothing
+            sensible to assume.
+
+            It still shapes behaviour under `deterministic`: `DATE` and `UNIQUE_ID` are
+            normalized before comparing, so a date written two ways still matches, and the
+            type seeds the evidence strengths.
+          enum: [PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, LOCATION, DATE, UNIQUE_ID]
+          example: "EMAIL"
+        unification_method:
+          type: string
+          description: |
+            Whether this rule matches on exact equality or tolerates variation. Rules of
+            both kinds are evaluated side by side within a single comparison. Only
+            FUZZY_STRING, NAME, EMAIL, PHONE and LOCATION support `fuzzy`.
+
+            Optional. Omitted, it defaults to `deterministic`.
+          enum: [deterministic, fuzzy]
+          example: "deterministic"
+        match_strength:
+          type: string
+          description: |
+            How much an agreement on this attribute supports a merge. HIGH means the
+            attribute identifies a person well enough to merge on it alone; MEDIUM and LOW
+            require a second agreeing rule.
+
+            Present only on a server that sets
+            `identity_resolution.allow_evidence_strength_override`, which is off by default.
+            Elsewhere sending it is rejected and it is never returned, because the value is
+            derived from `attribute_type` and no caller can change it.
+
+            Where the setting is on, an absent field means the rule inherits the strength
+            its `attribute_type` implies; a present one is a deliberate override.
+          enum: [HIGH, MEDIUM, LOW]
+          example: "HIGH"
+        mismatch_strength:
+          type: string
+          description: |
+            How much a disagreement on this attribute opposes a merge. HIGH makes the
+            attribute discriminating: two present, differing values veto an automatic merge
+            whatever else agrees. Independent of `match_strength`, because the two
+            directions rarely carry equal weight — matching emails strongly imply the same
+            person while differing emails imply little, and a date of birth is the reverse.
+
+            Gated and reported exactly as `match_strength`.
+          enum: [HIGH, MEDIUM, LOW]
+          example: "LOW"
         created_at:
           type: integer
           format: int64
@@ -614,6 +1298,15 @@ components:
           format: int64
           description: UNIX timestamp of last update
           example: 1744176544
+        origin:
+          type: string
+          readOnly: true
+          enum: [OWNED, SHARED]
+          description: Set only on reads. SHARED for a rule that a parent organization shares with this organization.
+        owner_org_handle:
+          type: string
+          readOnly: true
+          description: The organization that owns a shared rule.
 
     UnificationRulePatch:
       type: object
@@ -630,6 +1323,49 @@ components:
           type: boolean
           description: Whether the rule is currently active
           example: true
+        attribute_type:
+          type: string
+          description: |
+            What kind of value the attribute holds. Determines which comparison is applied
+            and which blocking keys are indexed.
+          enum: [PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, LOCATION, DATE, UNIQUE_ID]
+          example: "EMAIL"
+        unification_method:
+          type: string
+          description: |
+            Whether this rule matches on exact equality or tolerates variation. Rules of
+            both kinds are evaluated side by side within a single comparison. Only
+            FUZZY_STRING, NAME, EMAIL, PHONE and LOCATION support `fuzzy`.
+          enum: [deterministic, fuzzy]
+          example: "deterministic"
+        match_strength:
+          type: string
+          description: |
+            How much an agreement on this attribute supports a merge. HIGH means the
+            attribute identifies a person well enough to merge on it alone; MEDIUM and LOW
+            require a second agreeing rule.
+
+            Present only on a server that sets
+            `identity_resolution.allow_evidence_strength_override`, which is off by default.
+            Elsewhere sending it is rejected and it is never returned, because the value is
+            derived from `attribute_type` and no caller can change it.
+
+            Where the setting is on, an absent field means the rule inherits the strength
+            its `attribute_type` implies; a present one is a deliberate override.
+          enum: [HIGH, MEDIUM, LOW]
+          example: "HIGH"
+        mismatch_strength:
+          type: string
+          description: |
+            How much a disagreement on this attribute opposes a merge. HIGH makes the
+            attribute discriminating: two present, differing values veto an automatic merge
+            whatever else agrees. Independent of `match_strength`, because the two
+            directions rarely carry equal weight — matching emails strongly imply the same
+            person while differing emails imply little, and a date of birth is the reverse.
+
+            Gated and reported exactly as `match_strength`.
+          enum: [HIGH, MEDIUM, LOW]
+          example: "LOW"
 
     ConsentCategory:
       type: object
@@ -697,8 +1433,154 @@ components:
         user_agent:
           type: string
           example: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          example: CDS-17014
+        message:
+          type: string
+          example: Invalid share request.
+        description:
+          type: string
+
+    ChildOrg:
+      type: object
+      required:
+        - org_id
+        - reach
+      properties:
+        org_id:
+          type: string
+          description: A direct child of the initiating organization. The organization must be active.
+          example: "9b2e4c71-5d8a-4f3e-a6b0-2c7d1e8f4a95"
+        reach:
+          type: string
+          enum: [org, subtree]
+          description: "org: the organization only. subtree: the organization and all current and future organizations below it."
+
+    ChildOrgs:
+      type: object
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum: [all, selected]
+          description: "all: all current and future organizations below the initiating organization. selected: the organizations in orgs."
+        orgs:
+          type: array
+          description: Required with mode selected. Must be empty with mode all. Each organization once.
+          items:
+            $ref: '#/components/schemas/ChildOrg'
+
+    SharingPolicyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - child_orgs
+      properties:
+        child_orgs:
+          $ref: '#/components/schemas/ChildOrgs'
+      example:
+        child_orgs:
+          mode: selected
+          orgs:
+            - org_id: "9b2e4c71-5d8a-4f3e-a6b0-2c7d1e8f4a95"
+              reach: subtree
+
+    SharingPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        resource_type:
+          type: string
+          enum: [SCHEMA_ATTRIBUTE, UNIFICATION_RULE]
+        resource_id:
+          type: string
+        owning_org_id:
+          type: string
+        initiating_org_id:
+          type: string
+        child_orgs:
+          $ref: '#/components/schemas/ChildOrgs'
+
+    SharingPolicyList:
+      type: object
+      properties:
+        total_results:
+          type: integer
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharingPolicy'
+
+    OrganizationAccessPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        owning_org_id:
+          type: string
+        initiating_org_id:
+          type: string
+        child_orgs:
+          $ref: '#/components/schemas/ChildOrgs'
+
+    OrganizationAccessPolicyList:
+      type: object
+      properties:
+        total_results:
+          type: integer
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationAccessPolicy'
+
+    OrganizationEvent:
+      type: object
+      required:
+        - event
+        - org_id
+      properties:
+        event:
+          type: string
+          enum: [ORG_CREATED, ORG_UPDATED, ORG_DELETED]
+        org_id:
+          type: string
+          description: The organization ID in the identity provider.
+
+    OrganizationSyncStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [NOT_SYNCED, SYNCING, SYNCED, FAILED]
+        started_at:
+          type: string
+          format: date-time
+          description: The start of the last sync.
+        finished_at:
+          type: string
+          format: date-time
+          description: The end of the last sync. Not set while a sync runs.
+        last_synced_at:
+          type: string
+          format: date-time
+          description: The end of the last sync that completed. A later failed sync keeps it.
+        error:
+          type: string
+          description: The error of a failed sync.
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+    basicAuth:
+      type: http
+      scheme: basic
 #        bearerFormat: JWT  # ⚠️ Optional. You can even remove this if you allow both JWT & opaque.

@@ -41,7 +41,7 @@ func (h *HealthHandler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 // HandleReadiness responds to /ready requests.
 func (h *HealthHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 	healthCheckService := provider.NewHealthCheckProvider().GetHealthCheckService()
-	if err := healthCheckService.CheckReadiness(); err != nil {
+	if err := healthCheckService.CheckReadiness(r.Context()); err != nil {
 		response := map[string]string{
 			"status": "not ready",
 			"error":  err.Error(),

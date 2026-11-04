@@ -98,6 +98,16 @@ var (
 		Message: "Error while fetching applications.",
 	}
 
+	UPSERT_APPLICATION_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15112",
+		Message: "Error while persisting application information.",
+	}
+
+	GET_APPLICATION_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15113",
+		Message: "Error while resolving application information.",
+	}
+
 	ADD_UNIFICATION_RULE = ErrorMessage{
 		Code:    errorPrefix + "15201",
 		Message: "Error while adding unification rules.",
@@ -268,6 +278,12 @@ var (
 		Description: "Multiple user profiles record found for the given user_id",
 	}
 
+	PROFILE_ALREADY_LINKED = ErrorMessage{
+		Code:        errorPrefix + "11017",
+		Message:     "Profile already linked.",
+		Description: "The profile is already linked to a different user",
+	}
+
 	UNIFICATION_RULE_NOT_FOUND = ErrorMessage{
 		Code:    errorPrefix + "12001",
 		Message: "No unification rule found.",
@@ -297,9 +313,9 @@ var (
 		Message: "Invalid request payload.",
 	}
 
-	INVALID_ATTRIBUTE_NAME = ErrorMessage{
+	INVALID_ATTRIBUTE = ErrorMessage{
 		Code:    errorPrefix + "13002",
-		Message: "Invalid attribute name.",
+		Message: "Invalid attribute.",
 	}
 
 	SCHEMA_ATTRIBUTE_ALREADY_EXISTS = ErrorMessage{
@@ -347,6 +363,11 @@ var (
 		Message: "Invalid request payload for updating consent category.",
 	}
 
+	CONSENT_CAT_MANDATORY = ErrorMessage{
+		Code:    errorPrefix + "14006",
+		Message: "Consent category is mandatory and cannot be modified or deleted.",
+	}
+
 	UPDATE_CONFIG_BAD_REQUEST = ErrorMessage{
 		Code:    errorPrefix + "16002",
 		Message: "Invalid request payload for updating admin configuration.",
@@ -356,6 +377,142 @@ var (
 		Code:        errorPrefix + "16001",
 		Message:     "Not enabled.",
 		Description: "Customer data service is not enabled for the organization",
+	}
+
+	IR_SEARCH_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15501",
+		Message: "Identity resolution failed.",
+	}
+
+	IR_MERGE_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15502",
+		Message: "Merge failed.",
+	}
+
+	IR_REVIEW_TASK_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15503",
+		Message: "Review task operation failed.",
+	}
+
+	IR_BLOCKING_KEYS_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15504",
+		Message: "Blocking key operation failed.",
+	}
+
+	IR_AUDIT_LOG = ErrorMessage{
+		Code:    errorPrefix + "15505",
+		Message: "Merge audit log failed.",
+	}
+
+	IR_SAMPLE_VALUES = ErrorMessage{
+		Code:    errorPrefix + "15506",
+		Message: "Attribute sampling failed.",
+	}
+
+	IR_WORKER_FAILED = ErrorMessage{
+		Code:    errorPrefix + "15507",
+		Message: "Identity resolution worker failed.",
+	}
+
+	IR_CANNOT_MERGE = ErrorMessage{
+		Code:    errorPrefix + "17001",
+		Message: "Cannot merge profiles.",
+	}
+
+	IR_REVIEW_TASK_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17002",
+		Message: "Review task not found.",
+	}
+
+	IR_REVIEW_TASK_RESOLVED = ErrorMessage{
+		Code:    errorPrefix + "17003",
+		Message: "Review task already resolved.",
+	}
+
+	// Organizations and sharing.
+	//   156xx - Server errors
+	//   17xxx - Client errors
+
+	ORGANIZATION_STORE = ErrorMessage{
+		Code:    errorPrefix + "15601",
+		Message: "Error while accessing organizations.",
+	}
+
+	ORGANIZATION_SYNC = ErrorMessage{
+		Code:    errorPrefix + "15602",
+		Message: "Error while syncing organizations with the identity provider.",
+	}
+
+	SHARE_STORE = ErrorMessage{
+		Code:    errorPrefix + "15603",
+		Message: "Error while accessing share policies.",
+	}
+
+	SHARE_BAD_REQUEST = ErrorMessage{
+		Code:    errorPrefix + "17014",
+		Message: "Invalid share request.",
+	}
+
+	SHARED_RESOURCE_READ_ONLY = ErrorMessage{
+		Code:        errorPrefix + "17015",
+		Message:     "Shared resource is read-only.",
+		Description: "Only the owner organization can change a shared resource.",
+	}
+
+	SHARE_POLICY_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17016",
+		Message: "Share policy not found.",
+	}
+
+	SHARED_NAME_CONFLICT = ErrorMessage{
+		Code:    errorPrefix + "17004",
+		Message: "Name is used by a shared resource.",
+	}
+
+	ORGANIZATION_NOT_FOUND = ErrorMessage{
+		Code:    errorPrefix + "17006",
+		Message: "Organization not found.",
+	}
+
+	SUB_ORG_CONFIG_NOT_ALLOWED = ErrorMessage{
+		Code:        errorPrefix + "17007",
+		Message:     "Configuration is inherited.",
+		Description: "A child organization inherits the CDS enablement from its primary organization.",
+	}
+
+	SHARE_POLICY_EXISTS = ErrorMessage{
+		Code:    errorPrefix + "17008",
+		Message: "Policy already exists.",
+	}
+
+	ORGANIZATION_PATH_NOT_SUPPORTED = ErrorMessage{
+		Code:        errorPrefix + "17009",
+		Message:     "Organization path not supported.",
+		Description: "The requested organization cannot be accessed using this API path.",
+	}
+	SUB_ORG_WRITE_NOT_ALLOWED = ErrorMessage{
+		Code:    errorPrefix + "17013",
+		Message: "Child organization is read-only.",
+		Description: "A child organization cannot change the profile schema, the unification rules, the consent " +
+			"categories, the sharing policies, or the configuration.",
+	}
+
+	INHERITED_ATTRIBUTE_READ_ONLY = ErrorMessage{
+		Code:        errorPrefix + "17010",
+		Message:     "Inherited attribute is read-only.",
+		Description: "A child organization only inherits the identity attributes from its primary organization.",
+	}
+
+	ORGANIZATIONS_NOT_SYNCED = ErrorMessage{
+		Code:        errorPrefix + "17011",
+		Message:     "Organizations are not synced.",
+		Description: "Sync the organizations with POST /organizations/sync, and wait until it completes.",
+	}
+
+	TREE_SYNC_RUNNING = ErrorMessage{
+		Code:        errorPrefix + "17012",
+		Message:     "Organization sync is running.",
+		Description: "Wait until the running sync completes. GET /organizations/sync-status returns its state.",
 	}
 
 	INVALID_FILTER_FORMAT = ErrorMessage{

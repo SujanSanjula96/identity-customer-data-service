@@ -20,9 +20,11 @@ package models
 
 // ConsentCategory represents a category of user consent
 type ConsentCategory struct {
-	CategoryName       string   `json:"category_name" bson:"category_name"`                   // Human-readable category name
-	CategoryIdentifier string   `json:"category_identifier" bson:"category_identifier"`       // Identifier used for internal referencing
-	OrgHandle          string   `json:"org_handle" bson:"org_handle"`                         // Identifier of the organization
-	Purpose            string   `json:"purpose" bson:"purpose"`                               // One of: profiling, personalization, destination
-	Destinations       []string `json:"destinations,omitempty" bson:"destinations,omitempty"` // Optional list of destination names
+	CategoryName       string             `json:"category_name" bson:"category_name"`                   // Human-readable category name
+	CategoryIdentifier string             `json:"category_identifier" bson:"category_identifier"`       // Identifier used for internal referencing
+	OrgHandle          string             `json:"org_handle" bson:"org_handle"`                         // Identifier of the organization
+	Purpose            string             `json:"purpose" bson:"purpose"`                               // One of: profiling, personalization, destination
+	Destinations       []string           `json:"destinations,omitempty" bson:"destinations,omitempty"` // Optional list of destination names
+	Attributes         []ConsentAttribute `json:"attributes,omitempty" bson:"attributes,omitempty"`     // Profile attributes covered by this consent category
+	IsMandatory        bool               `json:"is_mandatory" bson:"is_mandatory"`                     // If true, category is system-managed and cannot be modified or deleted
 }
