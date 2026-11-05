@@ -314,3 +314,69 @@ CREATE INDEX IF NOT EXISTS idx_organizations_primary
 -- ================================
 CREATE INDEX IF NOT EXISTS idx_resource_sharing_policy_owning_org_type
     ON resource_sharing_policy (owning_org_id, resource_type);
+
+-- ================================
+-- ORG ID MIGRATION: the state after step 4
+-- ================================
+-- The tables above have the org_handle columns of a database from before the org ID migration.
+-- These statements give them the state that dbscripts/migrations/003 and 004 leave: org_id NOT
+-- NULL with its keys and indexes, and org_handle nullable. All three org_id_migration phases run
+-- on this state, so the suite can run in each of them (CDS_TEST_ORG_PHASE).
+
+ALTER TABLE profiles                     ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE profile_reference            ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE profile_reference            ADD COLUMN reference_profile_org_id VARCHAR(255);
+ALTER TABLE profile_schema               ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE unification_rules            ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE applications                 ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE consent_categories           ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE cds_config                   ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE profile_unification_modes    ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE profile_unification_triggers ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE review_tasks                 ADD COLUMN org_id VARCHAR(255) NOT NULL;
+ALTER TABLE rejection_pairs              ADD COLUMN org_id VARCHAR(255) NOT NULL;
+
+CREATE INDEX idx_profiles_org_id_created_profile ON profiles (org_id, created_at, profile_id);
+CREATE INDEX idx_profiles_org_id_user ON profiles (org_id, user_id);
+CREATE INDEX idx_profile_reference_org_id_status_profile ON profile_reference (org_id, profile_status, profile_id);
+CREATE INDEX idx_profile_schema_org_id_scope ON profile_schema (org_id, scope);
+CREATE INDEX idx_profile_schema_org_id_attr_name ON profile_schema (org_id, attribute_name);
+CREATE INDEX idx_unification_rules_org_id_active_priority ON unification_rules (org_id, is_active, priority);
+CREATE INDEX idx_review_tasks_org_id_status ON review_tasks (org_id, status);
+CREATE INDEX idx_rejection_pairs_org_id_p1 ON rejection_pairs (org_id, profile_id_1);
+CREATE INDEX idx_rejection_pairs_org_id_p2 ON rejection_pairs (org_id, profile_id_2);
+
+ALTER TABLE applications ADD CONSTRAINT applications_org_id_client_id_key UNIQUE (org_id, client_id);
+ALTER TABLE profile_unification_modes
+    ADD CONSTRAINT profile_unification_modes_org_id_merge_type_rule_key UNIQUE (org_id, merge_type, rule);
+ALTER TABLE profile_unification_triggers ADD CONSTRAINT profile_unification_triggers_org_id_key UNIQUE (org_id);
+
+CREATE UNIQUE INDEX cds_config_org_handle_config_key ON cds_config (org_handle, config);
+ALTER TABLE cds_config DROP CONSTRAINT cds_config_pkey;
+ALTER TABLE cds_config ADD CONSTRAINT cds_config_pkey PRIMARY KEY (org_id, config);
+
+ALTER TABLE profile_reference            ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE profile_schema               ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE unification_rules            ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE applications                 ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE consent_categories           ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE cds_config                   ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE profile_unification_modes    ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE profile_unification_triggers ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE review_tasks                 ALTER COLUMN org_handle DROP NOT NULL;
+ALTER TABLE rejection_pairs              ALTER COLUMN org_handle DROP NOT NULL;
+
+-- Step 4 rebuilds blocking_keys keyed by org_id, with a nullable org_handle for dual_write. The test
+-- table has no partitions, as above.
+DROP TABLE blocking_keys;
+CREATE TABLE blocking_keys (
+    profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    org_handle      VARCHAR(255),
+    attribute_name  VARCHAR(255) NOT NULL,
+    key_value       VARCHAR(512) NOT NULL,
+    org_id          VARCHAR(255) NOT NULL,
+    PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
+);
+CREATE INDEX idx_blocking_keys_org_id_profile ON blocking_keys (org_id, profile_id);
+CREATE INDEX idx_blocking_keys_org_handle_profile ON blocking_keys (org_handle, profile_id);
+CREATE INDEX idx_blocking_keys_org_handle_key ON blocking_keys (org_handle, attribute_name, key_value);

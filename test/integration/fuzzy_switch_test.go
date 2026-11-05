@@ -41,9 +41,9 @@ import (
 var fuzzyRuleInsert = dbmodel.DBQuery{
 	ID: "TEST-FUZZY-01",
 	Query: `INSERT INTO unification_rules
-		(rule_id, org_handle, rule_name, property_name, priority, is_active,
+		(rule_id, {{org_cols}}, rule_name, property_name, priority, is_active,
 		 attribute_type, unification_method, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		VALUES ($1, {{org_val $2}}, $3, $4, $5, $6, $7, $8, $9, $10)`,
 }
 
 // insertFuzzyNameRule stores a rule asking for tolerant matching on a name. It is written
@@ -61,7 +61,7 @@ func insertFuzzyNameRule(t *testing.T, org string) {
 
 	now := time.Now().UTC()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		uuid.New().String(), org, "name", "traits.name", 1, true,
+		uuid.New().String(), writeOrgKey(t, org), "name", "traits.name", 1, true,
 		constants.AttributeTypeName, constants.UnificationMethodFuzzy, now, now)
 	if err != nil {
 		t.Fatalf("store fuzzy rule: %v", err)

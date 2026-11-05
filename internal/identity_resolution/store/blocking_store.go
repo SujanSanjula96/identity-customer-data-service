@@ -30,12 +30,18 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys []model.BlockingKey) error {
 	logger := log.GetLogger()
 	if len(keys) == 0 {
 		return nil
+	}
+
+	orgKey, err := orgkey.ForWrite(ctx, orgHandle)
+	if err != nil {
+		return err
 	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -60,7 +66,7 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 	}
 
 	deleteQuery := scripts.DeleteBlockingKeysSQL
-	if _, err = tx.ExecContext(ctx, deleteQuery, orgHandle, profileID); err != nil {
+	if _, err = tx.ExecContext(ctx, deleteQuery, orgKey, profileID); err != nil {
 		logger.Error("BlockingStore: failed to delete existing blocking keys", log.Error(err))
 		if rbErr := tx.Rollback(); rbErr != nil {
 			logger.Error("BlockingStore: failed to rollback transaction", log.Error(rbErr))
@@ -78,8 +84,8 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
-			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, profileID, orgHandle, key.AttributeName, key.KeyValue)
+			fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, profileID, orgKey, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
 
@@ -112,6 +118,14 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error {
 	logger := log.GetLogger()
 
+	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -123,7 +137,7 @@ func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error 
 	defer dbClient.Close()
 
 	deleteQuery := scripts.DeleteBlockingKeysSQL
-	_, err = dbClient.ExecuteQueryContext(ctx, deleteQuery, orgHandle, profileID)
+	_, err = dbClient.ExecuteQueryContext(ctx, deleteQuery, orgKey, profileID)
 	if err != nil {
 		logger.Error("BlockingStore: failed to delete blocking keys", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -140,6 +154,14 @@ func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error 
 func DeleteBlockingKeysByAttribute(ctx context.Context, orgHandle, attributeName string) error {
 	logger := log.GetLogger()
 
+	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -151,7 +173,7 @@ func DeleteBlockingKeysByAttribute(ctx context.Context, orgHandle, attributeName
 	defer dbClient.Close()
 
 	query := scripts.DeleteBlockingKeysByAttributeSQL
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgHandle, attributeName)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgKey, attributeName)
 	if err != nil {
 		logger.Error(fmt.Sprintf("BlockingStore: failed to delete blocking keys for attribute '%s'", attributeName),
 			log.Error(err))
@@ -173,6 +195,11 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 		return nil
 	}
 
+	orgKey, err := orgkey.ForWrite(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -189,8 +216,8 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
-			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, profileID, orgHandle, key.AttributeName, key.KeyValue)
+			fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, profileID, orgKey, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
 
@@ -241,6 +268,11 @@ func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKe
 		return nil
 	}
 
+	orgKey, err := orgkey.ForWrite(ctx, orgHandle)
+	if err != nil {
+		return err
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -264,8 +296,8 @@ func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKe
 
 		for _, row := range chunk {
 			valueClauses = append(valueClauses,
-				fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-			args = append(args, row.profileID, orgHandle,
+				fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+			args = append(args, row.profileID, orgKey,
 				row.key.AttributeName, row.key.KeyValue)
 			argIdx += blockingKeyColumns
 		}
@@ -319,6 +351,14 @@ func FindCandidateIDsByKeys(ctx context.Context,
 		return []string{}, nil
 	}
 
+	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return nil, err
+	}
+	if !known {
+		return []string{}, nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
@@ -329,7 +369,7 @@ func FindCandidateIDsByKeys(ctx context.Context,
 	}
 	defer dbClient.Close()
 
-	args := []interface{}{orgHandle, attributeName}
+	args := []interface{}{orgKey, attributeName}
 	var inClauses []string
 	argIdx := 3
 
@@ -447,6 +487,14 @@ func CountProfilesByBlockingKey(ctx context.Context, orgHandle, attributeName, k
 		}
 	}
 
+	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
+	if err != nil {
+		return 0, err
+	}
+	if !known {
+		return 0, nil
+	}
+
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return 0, errors2.NewServerError(errors2.ErrorMessage{
@@ -458,7 +506,7 @@ func CountProfilesByBlockingKey(ctx context.Context, orgHandle, attributeName, k
 	defer dbClient.Close()
 
 	query := scripts.IRCountProfilesByBlockingKey
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, attributeName, keyValue)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, attributeName, keyValue)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("BlockingStore: frequency lookup failed for attribute '%s'", attributeName),
 			log.Error(err))

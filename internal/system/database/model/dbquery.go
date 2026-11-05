@@ -39,14 +39,16 @@ type DBQuery struct {
 	SQLiteQuery string
 }
 
-// GetQuery returns the statement for dbType. A populated DBQuery never resolves
-// to an empty statement.
+// GetQuery returns the statement for dbType, with its org tokens rendered for
+// the org_id_migration phase of dbType. A populated DBQuery never resolves to
+// an empty statement.
 func (q DBQuery) GetQuery(dbType string) string {
 
+	statement := q.Query
 	if dbType == database.TypeSQLite && q.SQLiteQuery != "" {
-		return q.SQLiteQuery
+		statement = q.SQLiteQuery
 	}
-	return q.Query
+	return RenderOrgTokens(statement, database.OrgPhaseFor(dbType))
 }
 
 // Format applies fmt.Sprintf to every dialect variant, for statements completed

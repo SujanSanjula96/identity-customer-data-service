@@ -20,9 +20,12 @@ package idp
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 )
 
 // WSO2ISAdapter reads the organization tree from the WSO2 IS organization management API.
@@ -39,9 +42,18 @@ func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle 
 
 	// Only a primary organization answers the self call on its own tenant path. A primary
 	// organization can still have a parent, such as the super organization.
-	org, err := a.client.GetSelfOrganization(primaryHandle)
+	org, found, err := a.client.GetSelfOrganization(primaryHandle)
 	if err != nil {
 		return Organization{}, err
+	}
+	// A handle that IS does not know is not a primary organization. The caller sent a wrong
+	// handle, so it is a client error.
+	if !found {
+		return Organization{}, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
+			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+			Description: fmt.Sprintf("The identity provider does not know the organization '%s'.", primaryHandle),
+		}, http.StatusNotFound)
 	}
 	primary := toOrganization(org)
 	primary.ParentId = ""
