@@ -38,12 +38,12 @@ func insertCandidateFixture(t *testing.T, id, org, userID, status, attributes st
 	if suiteDBType == database.TypeSQLite {
 		args = database.NormalizeSQLiteArgs(args)
 	}
-	_, err := suiteDB.Exec(orgSQL(`INSERT INTO profiles
-		(profile_id, {{org_cols}}, user_id, identity_attributes, traits, created_at)
-		VALUES ($1, {{org_val $2}}, $3, $4, $4, $5)`), args...)
+	_, err := suiteDB.Exec(`INSERT INTO profiles
+		(profile_id, org_id, user_id, identity_attributes, traits, created_at)
+		VALUES ($1, $2, $3, $4, $4, $5)`, args...)
 	require.NoError(t, err)
-	_, err = suiteDB.Exec(orgSQL(`INSERT INTO profile_reference (profile_id, {{org_cols}}, profile_status)
-		VALUES ($1, {{org_val $2}}, $3)`), id, args[1], status)
+	_, err = suiteDB.Exec(`INSERT INTO profile_reference (profile_id, org_id, profile_status)
+		VALUES ($1, $2, $3)`, id, args[1], status)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = suiteDB.Exec(`DELETE FROM profile_reference WHERE profile_id = $1`, id)
@@ -193,19 +193,19 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 		b.Run(fmt.Sprintf("masters_%d", count), func(b *testing.B) {
 			org := "unification-bench-" + uuid.NewString()
 			key := writeOrgKey(b, org)
-			_, err := suiteDB.Exec(orgSQL(`INSERT INTO profiles
-				(profile_id, {{org_cols}}, user_id, created_at, identity_attributes)
-				SELECT $1 || '-' || n, {{org_val $3}}, 'user-' || n,
+			_, err := suiteDB.Exec(`INSERT INTO profiles
+				(profile_id, org_id, user_id, created_at, identity_attributes)
+				SELECT $1 || '-' || n, $3, 'user-' || n,
 				TIMESTAMPTZ '2026-01-01' + n * INTERVAL '1 microsecond',
 				jsonb_build_object('email', jsonb_build_array('profile-' || n || '@example.test'),
-				'tag', jsonb_build_array('common')) FROM generate_series(1, $2::int) n`), org, count, key)
+				'tag', jsonb_build_array('common')) FROM generate_series(1, $2::int) n`, org, count, key)
 			require.NoError(b, err)
 			b.Cleanup(func() {
-				_, _ = suiteDB.Exec(orgSQL(`DELETE FROM profile_reference WHERE {{org}} = $1`), key)
-				_, _ = suiteDB.Exec(orgSQL(`DELETE FROM profiles WHERE {{org}} = $1`), key)
+				_, _ = suiteDB.Exec(`DELETE FROM profile_reference WHERE org_id = $1`, key)
+				_, _ = suiteDB.Exec(`DELETE FROM profiles WHERE org_id = $1`, key)
 			})
-			_, err = suiteDB.Exec(orgSQL(`INSERT INTO profile_reference (profile_id, {{org_cols}}, profile_status)
-				SELECT profile_id, {{org_cols}}, 'REFERENCE_PROFILE' FROM profiles WHERE {{org}} = $1`), key)
+			_, err = suiteDB.Exec(`INSERT INTO profile_reference (profile_id, org_id, profile_status)
+				SELECT profile_id, org_id, 'REFERENCE_PROFILE' FROM profiles WHERE org_id = $1`, key)
 			require.NoError(b, err)
 			_, err = suiteDB.Exec(`ANALYZE profiles; ANALYZE profile_reference`)
 			require.NoError(b, err)

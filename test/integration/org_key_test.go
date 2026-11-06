@@ -23,20 +23,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
-// orgSQL renders the org tokens of a statement that a test runs on suiteDB itself, for the
-// org_id_migration phase of the suite.
-func orgSQL(statement string) string {
-
-	return model.RenderOrgTokens(statement, database.OrgPhaseFor(suiteDBType))
-}
-
-// writeOrgKey returns the org key that a statement of the suite's phase writes for the
-// organization. It stores the organization when it is not stored yet, as a store does.
+// writeOrgKey returns the org ID that a statement writes for the organization. It stores the
+// organization when it is not stored yet, as a store does.
 func writeOrgKey(t testing.TB, org string) string {
 
 	t.Helper()
@@ -45,7 +36,7 @@ func writeOrgKey(t testing.TB, org string) string {
 	return key
 }
 
-// readOrgKey returns the org key that a statement of the suite's phase filters by.
+// readOrgKey returns the org ID that a statement filters by.
 func readOrgKey(t testing.TB, org string) string {
 
 	t.Helper()
