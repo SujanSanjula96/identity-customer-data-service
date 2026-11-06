@@ -87,7 +87,7 @@ func AddProfileSchemaAttributesForScope(ctx context.Context,
 			}, err)
 		}
 
-		valueStrings = append(valueStrings, fmt.Sprintf("({{org_val $%d}}, $%d, $%d, $%d, $%d, $%d,  $%d, $%d,  $%d, $%d, $%d, $%d) ",
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d,  $%d, $%d,  $%d, $%d, $%d, $%d) ",
 			idx+1, idx+2, idx+3, idx+4, idx+5, idx+6, idx+7, idx+8, idx+9, idx+10, idx+11, idx+12))
 		valueArgs = append(valueArgs, orgKey, attr.AttributeId, attr.AttributeName, attr.ValueType,
 			attr.MergeStrategy, attr.ApplicationIdentifier, attr.Mutability, attr.MultiValued, subAttrsJSON,
@@ -450,7 +450,7 @@ func PatchProfileSchemaAttributeById(ctx context.Context,
 	args = append(args, orgKey, attributeId)
 
 	query := scripts.UpdateProfileSchemaAttributeFields.Append(strings.Join(setClauses, ", ") +
-		` WHERE {{org}} = $` + strconv.Itoa(argIndex) + ` AND attribute_id = $` + strconv.Itoa(argIndex+1))
+		` WHERE org_id = $` + strconv.Itoa(argIndex) + ` AND attribute_id = $` + strconv.Itoa(argIndex+1))
 
 	_, err = dbClient.ExecuteQueryContext(ctx, query, args...)
 	if err != nil {
@@ -779,7 +779,7 @@ func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.P
 		attr.AttributeName = attrKey
 		incomingIDs = append(incomingIDs, attr.AttributeId)
 
-		valueStrings = append(valueStrings, fmt.Sprintf("({{org_val $%d}},$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6,
 			argIndex+7, argIndex+8, argIndex+9, argIndex+10, argIndex+11, argIndex+12))
 		valueArgs = append(valueArgs,
