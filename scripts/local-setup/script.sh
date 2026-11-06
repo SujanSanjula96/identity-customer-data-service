@@ -1260,6 +1260,14 @@ render_cds_config() {
   ok "wrote $target"
 }
 
+# application_identifier_type of the rendered configuration; client_id when unset.
+cds_app_identifier_type() {
+  local mode
+  mode="$(sed -n 's/^application_identifier_type:[[:space:]]*["'\'']\{0,1\}\([a-z_]*\).*/\1/p' \
+    "$CDS_HOME/repository/conf/deployment.yaml" 2>/dev/null | head -1)"
+  echo "${mode:-client_id}"
+}
+
 # --------------------------------------------------------------------------- #
 # 11. Start / stop CDS
 # --------------------------------------------------------------------------- #
@@ -1337,7 +1345,20 @@ enable_cds_for_org() {
   fi
 
   # Admin surfaces see unfiltered profiles; regular applications get consent-filtered data.
-  body="$(jq -n --arg console "CONSOLE" --arg cli "${CLIENT_ID:-}" \
+  # In app_id mode CDS looks each entry up as an IS application ID; in
+  # client_id mode, the CDS default, entries are OAuth client IDs, and the
+  # Console's client ID is "CONSOLE".
+  local console_ref cli_ref
+  if [ "$(cds_app_identifier_type)" = "app_id" ]; then
+    console_ref="$(app_id_by_name Console)"
+    [ -n "$console_ref" ] || warn "could not find the Console application - leaving it out of system_applications"
+    cli_ref="$(app_id_by_name "$CLIENT_APP_NAME")"
+    [ -n "$cli_ref" ] || die "could not find the app ID of '$CLIENT_APP_NAME'"
+  else
+    console_ref="CONSOLE"
+    cli_ref="${CLIENT_ID:-}"
+  fi
+  body="$(jq -n --arg console "$console_ref" --arg cli "$cli_ref" \
     '{cds_enabled: true, system_applications: ([$console, $cli] | map(select(. != "")))}')"
   code="$(curl -sk --max-time 120 -o "$LOG_DIR/enable-cds.json" -w '%{http_code}' \
     -X PATCH -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
