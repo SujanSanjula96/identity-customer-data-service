@@ -1,19 +1,19 @@
 CREATE TABLE profile_unification_modes
 (
     id         SERIAL PRIMARY KEY,
-    org_handle  VARCHAR(255) NOT NULL,
     merge_type VARCHAR(255) NOT NULL,
     rule       VARCHAR(255) NOT NULL,
-    UNIQUE (org_handle, merge_type, rule)
+    org_id     VARCHAR(255) NOT NULL,
+    UNIQUE (org_id, merge_type, rule)
 );
 
 CREATE TABLE profile_unification_triggers
 (
     id           SERIAL PRIMARY KEY,
-    org_handle    VARCHAR(255) NOT NULL UNIQUE,
     trigger_type VARCHAR(255) NOT NULL,
     last_trigger BIGINT DEFAULT 0,
-    duration     BIGINT DEFAULT 0
+    duration     BIGINT DEFAULT 0,
+    org_id       VARCHAR(255) NOT NULL UNIQUE
 );
 
 -- Profiles Table
@@ -21,7 +21,6 @@ CREATE TABLE profiles
 (
     profile_id          VARCHAR(255) PRIMARY KEY,
     user_id             VARCHAR(255),
-    org_handle           VARCHAR(255),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     location            VARCHAR(255),
@@ -29,24 +28,25 @@ CREATE TABLE profiles
     list_profile        BOOLEAN DEFAULT TRUE,
     delete_profile      BOOLEAN DEFAULT FALSE,
     traits              JSONB   DEFAULT '{}'::jsonb,
-    identity_attributes JSONB   DEFAULT '{}'::jsonb
+    identity_attributes JSONB   DEFAULT '{}'::jsonb,
+    -- The org ID columns come last, as in a database that the v0.7.x org ID migration moved.
+    org_id              VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE profile_reference
 (
     profile_id                  VARCHAR(255) PRIMARY KEY,
-    org_handle                  VARCHAR(255) NOT NULL,
     profile_status              VARCHAR(255),
     reference_profile_id        VARCHAR(255),
-    reference_profile_org_handle VARCHAR(255),
-    reference_reason            VARCHAR(255)
+    reference_reason            VARCHAR(255),
+    org_id                      VARCHAR(255) NOT NULL,
+    reference_profile_org_id    VARCHAR(255)
 );
 
 CREATE TABLE profile_schema
 (
     attribute_id           VARCHAR(255) NOT NULL PRIMARY KEY,
     scope                  VARCHAR(255),
-    org_handle             VARCHAR(255) NOT NULL,
     attribute_name         VARCHAR(255) NOT NULL,
     display_name           VARCHAR(255) NOT NULL,
     value_type             VARCHAR(255) NOT NULL,
@@ -56,13 +56,13 @@ CREATE TABLE profile_schema
     multi_valued           BOOLEAN DEFAULT FALSE,
     canonical_values       JSONB   DEFAULT '[]'::jsonb,
     sub_attributes         JSONB   DEFAULT '[]'::jsonb,
-    scim_dialect VARCHAR(255)
+    scim_dialect VARCHAR(255),
+    org_id                 VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE unification_rules
 (
     rule_id       VARCHAR(255) PRIMARY KEY,
-    org_handle     VARCHAR(255) NOT NULL,
     rule_name     VARCHAR(255) NOT NULL,
     property_name VARCHAR(255) NOT NULL,
     property_id  VARCHAR(255) REFERENCES profile_schema(attribute_id) ON DELETE CASCADE,
@@ -82,7 +82,8 @@ CREATE TABLE unification_rules
     match_strength     VARCHAR(20),
     mismatch_strength  VARCHAR(20),
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    org_id        VARCHAR(255) NOT NULL
 );
 
 -- Application Data Table
@@ -98,22 +99,22 @@ CREATE TABLE application_data
 CREATE TABLE applications
 (
     app_id         VARCHAR(255) PRIMARY KEY,
-    org_handle     VARCHAR(255) NOT NULL,
     client_id      VARCHAR(255),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (org_handle, client_id)
+    org_id         VARCHAR(255) NOT NULL,
+    UNIQUE (org_id, client_id)
 );
 
 CREATE TABLE consent_categories
 (
     id                  SERIAL PRIMARY KEY,
-    org_handle           VARCHAR(255)        NOT NULL,
     category_name       VARCHAR(255)        NOT NULL,
     category_identifier VARCHAR(255) UNIQUE NOT NULL,
     purpose             VARCHAR(255)        NOT NULL,
     destinations        TEXT[],
-    is_mandatory        BOOLEAN             NOT NULL DEFAULT FALSE
+    is_mandatory        BOOLEAN             NOT NULL DEFAULT FALSE,
+    org_id              VARCHAR(255)        NOT NULL
 );
 
 CREATE TABLE consent_category_attributes
@@ -148,10 +149,10 @@ ALTER TABLE application_data
     ADD CONSTRAINT unique_profile_app UNIQUE (profile_id, app_id);
 
 CREATE TABLE cds_config (
-    org_handle VARCHAR(255) NOT NULL,
     config VARCHAR(255) NOT NULL,
     value VARCHAR(500),
-    PRIMARY KEY (org_handle, config)
+    org_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (org_id, config)
 );
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -183,17 +184,16 @@ CREATE TABLE IF NOT EXISTS resource_sharing_policy_target (
 
 CREATE TABLE IF NOT EXISTS blocking_keys (
     profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-    org_handle      VARCHAR(255) NOT NULL,
     attribute_name  VARCHAR(255) NOT NULL,
     key_value       VARCHAR(512) NOT NULL,
-    PRIMARY KEY (org_handle, attribute_name, key_value, profile_id)
+    org_id          VARCHAR(255) NOT NULL,
+    PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_profile ON blocking_keys(org_handle, profile_id);
+CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_id_profile ON blocking_keys(org_id, profile_id);
 
 CREATE TABLE IF NOT EXISTS review_tasks (
     id                      VARCHAR(255) PRIMARY KEY,
-    org_handle              VARCHAR(255) NOT NULL,
     incoming_profile_id       VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
     candidate_profile_id    VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
     match_score             DECIMAL(5,4) NOT NULL,
@@ -204,16 +204,16 @@ CREATE TABLE IF NOT EXISTS review_tasks (
     resolved_at             TIMESTAMPTZ,
     resolved_by             VARCHAR(255),
     resolution_notes        TEXT,
+    org_id              VARCHAR(255) NOT NULL,
     CONSTRAINT uq_review_task_profiles UNIQUE (incoming_profile_id, candidate_profile_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_review_tasks_org_status ON review_tasks(org_handle, status);
+CREATE INDEX IF NOT EXISTS idx_review_tasks_org_id_status ON review_tasks(org_id, status);
 CREATE INDEX IF NOT EXISTS idx_review_tasks_created ON review_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_review_tasks_incoming ON review_tasks(incoming_profile_id, status);
 
 CREATE TABLE IF NOT EXISTS rejection_pairs (
     id              VARCHAR(255) PRIMARY KEY,
-    org_handle      VARCHAR(255) NOT NULL,
     -- Stored with the lower id first, so one row means one pair whichever direction the
     -- review task happened to run in and the unique constraint below isenforceable.
     profile_id_1    VARCHAR(255) NOT NULL,
@@ -225,21 +225,22 @@ CREATE TABLE IF NOT EXISTS rejection_pairs (
     score_breakdown JSONB DEFAULT '{}'::jsonb,
     rejected_by     VARCHAR(255),
     rejected_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id          VARCHAR(255) NOT NULL,
     CONSTRAINT uq_rejection_pair UNIQUE (profile_id_1, profile_id_2)
 );
 
-CREATE INDEX IF NOT EXISTS idx_rejection_pairs_p1 ON rejection_pairs(org_handle, profile_id_1);
-CREATE INDEX IF NOT EXISTS idx_rejection_pairs_p2 ON rejection_pairs(org_handle, profile_id_2);
+CREATE INDEX IF NOT EXISTS idx_rejection_pairs_org_id_p1 ON rejection_pairs(org_id, profile_id_1);
+CREATE INDEX IF NOT EXISTS idx_rejection_pairs_org_id_p2 ON rejection_pairs(org_id, profile_id_2);
 
 -- ================================
 -- PROFILES (Hot path: tenant + cursor pagination + ordering)
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_profiles_org_created_profile
-    ON profiles (org_handle, created_at, profile_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id_created_profile
+    ON profiles (org_id, created_at, profile_id);
 
 -- user_id filtering within tenant
-CREATE INDEX IF NOT EXISTS idx_profiles_org_user
-    ON profiles (org_handle, user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id_user
+    ON profiles (org_id, user_id);
 
 -- Optional: speeds ILIKE/contains on user_id
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -253,8 +254,8 @@ CREATE INDEX IF NOT EXISTS idx_profile_reference_status_profile
     ON profile_reference (profile_status, profile_id);
 
 -- Optional but useful if org filtering is frequent on reference table
-CREATE INDEX IF NOT EXISTS idx_profile_reference_org_status_profile
-    ON profile_reference (org_handle, profile_status, profile_id);
+CREATE INDEX IF NOT EXISTS idx_profile_reference_org_id_status_profile
+    ON profile_reference (org_id, profile_status, profile_id);
 
 -- For lookups by reference_profile_id
 CREATE INDEX IF NOT EXISTS idx_profile_reference_reference_profile
@@ -288,17 +289,17 @@ CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin
 -- ================================
 -- PROFILE_SCHEMA (Rare filtering, minimal indexes)
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_profile_schema_org_scope
-    ON profile_schema (org_handle, scope);
+CREATE INDEX IF NOT EXISTS idx_profile_schema_org_id_scope
+    ON profile_schema (org_id, scope);
 
-CREATE INDEX IF NOT EXISTS idx_profile_schema_org_attr_name
-    ON profile_schema (org_handle, attribute_name);
+CREATE INDEX IF NOT EXISTS idx_profile_schema_org_id_attr_name
+    ON profile_schema (org_id, attribute_name);
 
 -- ================================
 -- UNIFICATION_RULES
 -- ================================
-CREATE INDEX IF NOT EXISTS idx_unification_rules_org_active_priority
-    ON unification_rules (org_handle, is_active, priority);
+CREATE INDEX IF NOT EXISTS idx_unification_rules_org_id_active_priority
+    ON unification_rules (org_id, is_active, priority);
 
 CREATE INDEX IF NOT EXISTS idx_unification_rules_property_id
     ON unification_rules (property_id);
@@ -314,69 +315,3 @@ CREATE INDEX IF NOT EXISTS idx_organizations_primary
 -- ================================
 CREATE INDEX IF NOT EXISTS idx_resource_sharing_policy_owning_org_type
     ON resource_sharing_policy (owning_org_id, resource_type);
-
--- ================================
--- ORG ID MIGRATION: the state after step 4
--- ================================
--- The tables above have the org_handle columns of a database from before the org ID migration.
--- These statements give them the state that dbscripts/migrations/003 and 004 leave: org_id NOT
--- NULL with its keys and indexes, and org_handle nullable. All three org_id_migration phases run
--- on this state, so the suite can run in each of them (CDS_TEST_ORG_PHASE).
-
-ALTER TABLE profiles                     ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE profile_reference            ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE profile_reference            ADD COLUMN reference_profile_org_id VARCHAR(255);
-ALTER TABLE profile_schema               ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE unification_rules            ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE applications                 ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE consent_categories           ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE cds_config                   ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE profile_unification_modes    ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE profile_unification_triggers ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE review_tasks                 ADD COLUMN org_id VARCHAR(255) NOT NULL;
-ALTER TABLE rejection_pairs              ADD COLUMN org_id VARCHAR(255) NOT NULL;
-
-CREATE INDEX idx_profiles_org_id_created_profile ON profiles (org_id, created_at, profile_id);
-CREATE INDEX idx_profiles_org_id_user ON profiles (org_id, user_id);
-CREATE INDEX idx_profile_reference_org_id_status_profile ON profile_reference (org_id, profile_status, profile_id);
-CREATE INDEX idx_profile_schema_org_id_scope ON profile_schema (org_id, scope);
-CREATE INDEX idx_profile_schema_org_id_attr_name ON profile_schema (org_id, attribute_name);
-CREATE INDEX idx_unification_rules_org_id_active_priority ON unification_rules (org_id, is_active, priority);
-CREATE INDEX idx_review_tasks_org_id_status ON review_tasks (org_id, status);
-CREATE INDEX idx_rejection_pairs_org_id_p1 ON rejection_pairs (org_id, profile_id_1);
-CREATE INDEX idx_rejection_pairs_org_id_p2 ON rejection_pairs (org_id, profile_id_2);
-
-ALTER TABLE applications ADD CONSTRAINT applications_org_id_client_id_key UNIQUE (org_id, client_id);
-ALTER TABLE profile_unification_modes
-    ADD CONSTRAINT profile_unification_modes_org_id_merge_type_rule_key UNIQUE (org_id, merge_type, rule);
-ALTER TABLE profile_unification_triggers ADD CONSTRAINT profile_unification_triggers_org_id_key UNIQUE (org_id);
-
-CREATE UNIQUE INDEX cds_config_org_handle_config_key ON cds_config (org_handle, config);
-ALTER TABLE cds_config DROP CONSTRAINT cds_config_pkey;
-ALTER TABLE cds_config ADD CONSTRAINT cds_config_pkey PRIMARY KEY (org_id, config);
-
-ALTER TABLE profile_reference            ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE profile_schema               ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE unification_rules            ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE applications                 ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE consent_categories           ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE cds_config                   ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE profile_unification_modes    ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE profile_unification_triggers ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE review_tasks                 ALTER COLUMN org_handle DROP NOT NULL;
-ALTER TABLE rejection_pairs              ALTER COLUMN org_handle DROP NOT NULL;
-
--- Step 4 rebuilds blocking_keys keyed by org_id, with a nullable org_handle for dual_write. The test
--- table has no partitions, as above.
-DROP TABLE blocking_keys;
-CREATE TABLE blocking_keys (
-    profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-    org_handle      VARCHAR(255),
-    attribute_name  VARCHAR(255) NOT NULL,
-    key_value       VARCHAR(512) NOT NULL,
-    org_id          VARCHAR(255) NOT NULL,
-    PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
-);
-CREATE INDEX idx_blocking_keys_org_id_profile ON blocking_keys (org_id, profile_id);
-CREATE INDEX idx_blocking_keys_org_handle_profile ON blocking_keys (org_handle, profile_id);
-CREATE INDEX idx_blocking_keys_org_handle_key ON blocking_keys (org_handle, attribute_name, key_value);

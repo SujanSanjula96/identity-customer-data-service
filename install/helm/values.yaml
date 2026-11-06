@@ -46,11 +46,6 @@ cloud:
           schema:
             enabled: true
             interval: 3600 # in seconds
-        # The phase of the org handle to org ID migration: dual_write, read_org_id or org_id_only.
-        # Move one phase forward at a time, after the schema step that the phase needs. A
-        # deployment that upgrades from org handles sets dual_write before the upgrade.
-        orgIdMigration:
-          phase: "org_id_only"
         datasource:
           type: "postgres"
           hostname: "localhost"

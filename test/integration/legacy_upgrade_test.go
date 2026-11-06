@@ -41,13 +41,13 @@ import (
 var legacyRuleInsert = dbmodel.DBQuery{
 	ID: "TEST-LEGACY-01",
 	Query: `INSERT INTO unification_rules
-		(rule_id, {{org_cols}}, rule_name, property_name, priority, is_active, created_at, updated_at)
-		VALUES ($1, {{org_val $2}}, $3, $4, $5, $6, $7, $8)`,
+		(rule_id, org_id, rule_name, property_name, priority, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 }
 
 var legacyConfigInsert = dbmodel.DBQuery{
 	ID:    "TEST-LEGACY-02",
-	Query: `INSERT INTO cds_config ({{org_cols}}, config, value) VALUES ({{org_val $1}}, $2, $3)`,
+	Query: `INSERT INTO cds_config (org_id, config, value) VALUES ($1, $2, $3)`,
 }
 
 // insertLegacyRule writes a unification rule the way one existed before typed matching:

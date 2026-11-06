@@ -16,9 +16,7 @@
  * under the License.
  */
 
-// Package orgkey gives the stores the org key: the value that the statements of the active
-// org_id_migration phase write and filter by. It is the org handle in dual_write and the org ID
-// afterwards.
+// Package orgkey gives the stores the org key: the org ID that the statements write and filter by.
 //
 // The APIs, the queue messages and the workers carry the org handle. A store resolves it here, so
 // every caller (a request, the profile worker, a queue consumer, a background job) gets the same
@@ -34,10 +32,7 @@ import (
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/cache"
-	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // Ref is an organization as the database stores it.
@@ -95,19 +90,10 @@ func RefFrom(ctx context.Context) (Ref, bool) {
 	return ref, ok
 }
 
-// Phase returns the org_id_migration phase of the configured datasource.
-func Phase() database.OrgPhase {
-
-	return database.OrgPhaseFor(provider.NewDBProvider().GetDBType())
-}
-
 // ForRead returns the org key to filter by. known is false when the organization has no row: it
 // owns no data, and the caller returns an empty result. ForRead never calls the identity provider.
 func ForRead(ctx context.Context, handle string) (key string, isKnown bool, err error) {
 
-	if !Phase().ReadsOrgId() {
-		return handle, true, nil
-	}
 	ref, found, err := Resolve(ctx, handle, false)
 	if err != nil || !found {
 		return "", false, err
@@ -116,20 +102,9 @@ func ForRead(ctx context.Context, handle string) (key string, isKnown bool, err 
 }
 
 // ForWrite returns the org key to write. It stores the organization when it has no row yet.
-//
-// In dual_write the key is the handle, and the statement reads the org ID from the organizations
-// table. A failed lookup there does not fail the write: the row gets no org ID, and the backfill
-// fills it in.
 func ForWrite(ctx context.Context, handle string) (string, error) {
 
 	ref, found, err := Resolve(ctx, handle, true)
-	if !Phase().ReadsOrgId() {
-		if err != nil || !found {
-			log.GetLogger().Warn(fmt.Sprintf("Could not resolve the organization '%s'. The row is written "+
-				"without an org ID.", handle), log.Error(err))
-		}
-		return handle, nil
-	}
 	if err != nil {
 		return "", err
 	}

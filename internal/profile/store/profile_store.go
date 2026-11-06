@@ -37,13 +37,7 @@ func scanProfileRow(row map[string]interface{}) (model.Profile, error) {
 	profile.OrgHandle = rows.String(row, "org_handle")
 	profile.CreatedAt = row["created_at"].(time.Time)
 	profile.UpdatedAt = row["updated_at"].(time.Time)
-	if orgkey.Phase().ReadsOrgId() {
-		// The stored location names the org handle of the time the profile was written, and the
-		// org_id_only phase stores none. The location follows the current handle instead.
-		profile.Location = utils.BuildProfileLocation(profile.OrgHandle, profile.ProfileId)
-	} else {
-		profile.Location = rows.String(row, "location")
-	}
+	profile.Location = utils.BuildProfileLocation(profile.OrgHandle, profile.ProfileId)
 	profileStatus := row["profile_status"].(string)
 	if profileStatus != "" && profileStatus != "null" {
 		if profileStatus == constants.WaitOnAdmin {
@@ -106,11 +100,6 @@ func InsertProfile(ctx context.Context, profile model.Profile) error {
 	if err != nil {
 		return err
 	}
-	// Servers of the phases before org_id_only read the stored location; org_id_only builds it.
-	var location interface{} = profile.Location
-	if !orgkey.Phase().WritesOrgHandle() {
-		location = nil
-	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
@@ -147,7 +136,7 @@ func InsertProfile(ctx context.Context, profile model.Profile) error {
 		orgKey,
 		profile.CreatedAt,
 		profile.UpdatedAt,
-		location,
+		nil, // location: the profile location is built when the profile is read
 		profile.ProfileStatus.ListProfile,
 		false, // delete_profile is not used in this context, set to false
 		traitsJSON,
@@ -1116,7 +1105,7 @@ func GetAllProfilesWithFilter(ctx context.Context,
 	argID := 1
 	joinedAppIDs := map[string]bool{}
 
-	conditions = append(conditions, fmt.Sprintf("%s = $%d", scripts.OrgColumn("p"), argID))
+	conditions = append(conditions, fmt.Sprintf("p.org_id = $%d", argID))
 	args = append(args, orgKey)
 	argID++
 
@@ -1416,7 +1405,7 @@ func GetProfileIDsWithFilters(ctx context.Context, orgHandle string, filters []s
 	argID := 1
 	joinedAppIDs := map[string]bool{}
 
-	conditions = append(conditions, fmt.Sprintf("%s = $%d", scripts.OrgColumn("p"), argID))
+	conditions = append(conditions, fmt.Sprintf("p.org_id = $%d", argID))
 	args = append(args, orgKey)
 	argID++
 

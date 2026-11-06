@@ -84,7 +84,7 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
-			fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
 		args = append(args, profileID, orgKey, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
@@ -216,7 +216,7 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
-			fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
 		args = append(args, profileID, orgKey, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
@@ -296,7 +296,7 @@ func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKe
 
 		for _, row := range chunk {
 			valueClauses = append(valueClauses,
-				fmt.Sprintf("($%d, {{org_val $%d}}, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+				fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
 			args = append(args, row.profileID, orgKey,
 				row.key.AttributeName, row.key.KeyValue)
 			argIdx += blockingKeyColumns
