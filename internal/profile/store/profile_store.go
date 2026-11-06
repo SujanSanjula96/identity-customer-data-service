@@ -136,7 +136,6 @@ func InsertProfile(ctx context.Context, profile model.Profile) error {
 		orgKey,
 		profile.CreatedAt,
 		profile.UpdatedAt,
-		nil, // location: the profile location is built when the profile is read
 		profile.ProfileStatus.ListProfile,
 		false, // delete_profile is not used in this context, set to false
 		traitsJSON,
