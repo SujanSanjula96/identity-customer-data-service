@@ -180,8 +180,8 @@ var UpdateUnificationRule = newQuery("CDS-UNR-05",
 var InsertProfile = newQuery("CDS-PRF-01",
 	`
 		INSERT INTO profiles (
-		profile_id, user_id, org_id, created_at, updated_at, location, list_profile, delete_profile, traits, identity_attributes
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		profile_id, user_id, org_id, created_at, updated_at, list_profile, delete_profile, traits, identity_attributes
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	ON CONFLICT (profile_id) DO NOTHING;`)
 
 var InsertProfileReference = newQuery("CDS-PRF-02",
@@ -192,7 +192,7 @@ var InsertProfileReference = newQuery("CDS-PRF-02",
 
 var GetProfileById = newQuery("CDS-PRF-03",
 	`
-		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at,p.location, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
+		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
 		       p.traits, p.identity_attributes, r.profile_status, r.reference_profile_id, r.reference_reason
 		FROM 
 			profiles p
@@ -254,7 +254,6 @@ var GetProfilesByOrgId = newQuery("CDS-PRF-10",
 			(SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
 			p.created_at, 
 			p.updated_at, 
-			p.location, 
 			p.user_id, 
 			r.profile_status, 
 			r.reference_profile_id, 
@@ -289,7 +288,6 @@ var GetProfilesByOrgId = newQuery("CDS-PRF-10",
 			(SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
 			p.created_at,
 			p.updated_at,
-			p.location,
 			p.user_id,
 			r.profile_status,
 			r.reference_profile_id,
@@ -346,7 +344,6 @@ var GetAllProfilesWithFilterBase = newQuery("CDS-PRF-14",
                 (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
                 p.created_at,
                 p.updated_at,
-                p.location,
                 r.profile_status,
                 r.reference_profile_id,
                 r.reference_reason,
@@ -365,7 +362,7 @@ var FetchReferencedProfiles = newQuery("CDS-PRF-16",
 
 var GetProfileByUserId = newQuery("CDS-PRF-17",
 	`
-		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at,p.location, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
+		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
 		       p.traits, p.identity_attributes, r.profile_status, r.reference_profile_id, r.reference_reason
 		FROM 
 			profiles p
