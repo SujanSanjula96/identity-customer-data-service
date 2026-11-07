@@ -91,6 +91,9 @@ func AllQueries() map[string]model.DBQuery {
 		"UpdateOrgConfiguration":                      UpdateOrgConfiguration,
 		"GetOrgConfiguration":                         GetOrgConfiguration,
 		"UpdateInitialSchemaSyncDoneConfig":           UpdateInitialSchemaSyncDoneConfig,
+		"GetOrgServiceCredentials":                    GetOrgServiceCredentials,
+		"UpsertOrgServiceCredentials":                 UpsertOrgServiceCredentials,
+		"CheckOrgServiceCredentials":                  CheckOrgServiceCredentials,
 		"HealthCheckPing":                             HealthCheckPing,
 
 		// Organization management statements.

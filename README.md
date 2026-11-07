@@ -39,6 +39,10 @@ Lightweight, extensible Customer Data Server built to power personalized experie
          AUTH_SERVER_CLIENT_SECRET=<your_client_secret>
          AUTH_SERVER_ADMIN_PASSWORD=<your_admin_password>
       ```
+   > A single application serves a single tenant, because an Identity Server OAuth
+   > client can only authenticate at the token endpoint of the tenant it belongs to.
+   > To have the Identity Server create one per organization instead, as each enables
+   > CDS, see [Service Credentials](docs/guides/service-credentials.md).
 
 4. Create Application that you want to use to access these APIs from
     - Register applications you want to integrate with the CDS.

@@ -59,6 +59,7 @@ func (sm *ServiceManager) RegisterServices() error {
 	_ = services.NewConsentCategoryService(routesMux)
 	_ = services.NewAdminConfigService(routesMux)
 	_ = services.NewIdentityResolutionService(routesMux)
+	_ = services.NewServiceCredentialsService(routesMux)
 	if config.OrganizationManagementEnabled() {
 		_ = services.NewOrganizationService(routesMux)
 	}

@@ -17,6 +17,7 @@
 | [Local Development Setup](guides/local-development.md) | Running CDS with an Identity Server locally |
 | [IS Sync](guides/is-sync.md) | Identity Server event integration — user lifecycle and session events |
 | [Schema Sync](guides/schema-sync.md) | Keeping CDS schema aligned with IS claim changes |
+| [Service Credentials](guides/service-credentials.md) | Where the credentials CDS calls the Identity Server management APIs with come from, one pair per organization |
 | [Extending Queue Providers](guides/extending-queue-providers.md) | Adding a new message queue provider (Kafka, RabbitMQ, SQS, etc.) |
 
 ## Process

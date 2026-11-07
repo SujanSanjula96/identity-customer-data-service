@@ -19,9 +19,11 @@
 package client
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,7 +43,28 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/servicecreds"
 )
+
+// managementAPIScope is what CDS asks a token for: the Identity Server
+// management APIs it calls, and nothing else.
+var managementAPIScope = strings.Join([]string{
+	"internal_application_mgt_view",
+	"internal_claim_meta_view",
+	"internal_user_mgt_list",
+	"internal_user_mgt_view",
+	"internal_organization_view",
+}, constants.SpaceSeparator)
+
+// tokenEndpointStatusError is the cause of a token request the token endpoint
+// answered with a status other than 200.
+type tokenEndpointStatusError struct {
+	StatusCode int
+}
+
+func (e *tokenEndpointStatusError) Error() string {
+	return fmt.Sprintf("token endpoint non-200: %d", e.StatusCode)
+}
 
 type IdentityClient struct {
 	BaseURL    string
@@ -139,15 +162,7 @@ func newOutboundHTTPClient(tlsCfg config.TLSConfig, serverHostForSNI string) (*h
 func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	logger := log.GetLogger()
 	authCfg := config.GetCDSRuntime().Config.AuthServer
-
-	// Common scope for both flows.
-	scope := strings.Join([]string{
-		"internal_application_mgt_view",
-		"internal_claim_meta_view",
-		"internal_user_mgt_list",
-		"internal_user_mgt_view",
-		"internal_organization_view",
-	}, constants.SpaceSeparator)
+	scope := managementAPIScope
 
 	if authCfg.IsSystemAppGrantEnabled {
 		logger.Debug(fmt.Sprintf("Fetching token using system_app_grant for org: %s", orgHandle))
@@ -232,17 +247,69 @@ func (c *IdentityClient) fetchOrganizationToken(
 }
 
 // fetchClientCredentialsToken obtains an organization-scoped token directly using client_credentials grant.
+//
+// The credentials are the organization's own where the Identity Server has sent
+// them. They have to be: the endpoint is that organization's token endpoint, and
+// an Identity Server client can only authenticate at the token endpoint of its
+// own tenant. An organization with none uses the configured pair, as before.
 func (c *IdentityClient) fetchClientCredentialsToken(orgId string, authCfg config.AuthServerConfig, scope string) (string, error) {
+
+	clientID, clientSecret := authCfg.ClientID, authCfg.ClientSecret
+	if servicecreds.Enabled() {
+		// FetchToken carries no context of its own, and this is a primary-key read that
+		// the token request around it dwarfs.
+		creds, found, err := servicecreds.Get(context.Background(), orgId)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			clientID, clientSecret = creds.ClientID, creds.ClientSecret
+		}
+	}
 
 	endpoint, err := c.buildTokenEndpoint(orgId, authCfg.TokenEndpoint)
 	if err != nil {
 		return "", err
 	}
+	return c.requestToken(endpoint, clientID, clientSecret, clientCredentialsForm(scope), orgId)
+}
+
+// VerifyClientCredentials asks the token endpoint of orgHandle for a token with
+// the given client, so that credentials are known to work before they are
+// stored. It returns a client error when the token endpoint refuses the client,
+// and a server error when the token endpoint cannot be reached.
+func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecret string) error {
+
+	authCfg := config.GetCDSRuntime().Config.AuthServer
+	endpoint, err := c.buildTokenEndpoint(orgHandle, authCfg.TokenEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = c.requestToken(endpoint, clientID, clientSecret, clientCredentialsForm(managementAPIScope), orgHandle)
+	if err == nil {
+		return nil
+	}
+
+	var serverErr *errors2.ServerError
+	var statusErr *tokenEndpointStatusError
+	if errors.As(err, &serverErr) && errors.As(serverErr.Err, &statusErr) &&
+		statusErr.StatusCode >= 400 && statusErr.StatusCode < 500 {
+		return errors2.NewClientError(errors2.ErrorMessage{
+			Code:    errors2.SERVICE_CREDENTIALS_REJECTED.Code,
+			Message: errors2.SERVICE_CREDENTIALS_REJECTED.Message,
+			Description: fmt.Sprintf("The token endpoint of the organization %s refused the client %s with "+
+				"status %d.", orgHandle, clientID, statusErr.StatusCode),
+		}, http.StatusBadRequest)
+	}
+	return err
+}
+
+func clientCredentialsForm(scope string) url.Values {
+
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("scope", scope)
-
-	return c.requestToken(endpoint, authCfg.ClientID, authCfg.ClientSecret, form, orgId)
+	return form
 }
 
 // requestToken performs the actual HTTP POST and extracts access_token from JSON.
@@ -289,7 +356,7 @@ func (c *IdentityClient) requestToken(endpoint, clientID, clientSecret string,
 			Code:        errors2.TOKEN_FETCH_FAILED.Code,
 			Message:     errors2.TOKEN_FETCH_FAILED.Message,
 			Description: errorMsg,
-		}, fmt.Errorf("token endpoint non-200: %d", resp.StatusCode))
+		}, &tokenEndpointStatusError{StatusCode: resp.StatusCode})
 	}
 
 	var result struct {
@@ -476,13 +543,37 @@ func (c *IdentityClient) IntrospectToken(token, orgHandle string) (map[string]in
 		return nil, err
 	}
 
+	return c.introspect(introspectionEndpoint, authConfig.IntrospectionClientId, authConfig.IntrospectionClientSecret,
+		form)
+}
+
+// IntrospectTokenAsOrg introspects the token at the introspection endpoint of
+// orgHandle, authenticated as the client of that organization. An Identity
+// Server client can only authenticate at the endpoints of its own tenant.
+func (c *IdentityClient) IntrospectTokenAsOrg(token, orgHandle, clientID, clientSecret string) (map[string]interface{},
+	error) {
+
+	authConfig := config.GetCDSRuntime().Config.AuthServer
+	introspectionEndpoint, err := orgEndpoint(c.BaseURL, orgHandle,
+		"/t/"+orgHandle+authConfig.IntrospectionEndPoint)
+	if err != nil {
+		return nil, err
+	}
+	form := url.Values{}
+	form.Set("token", token)
+	return c.introspect(introspectionEndpoint, clientID, clientSecret, form)
+}
+
+func (c *IdentityClient) introspect(introspectionEndpoint, clientID, clientSecret string,
+	form url.Values) (map[string]interface{}, error) {
+
 	log.GetLogger().Info("Introspecting token at endpoint: " + introspectionEndpoint)
 	req, err := http.NewRequest("POST", introspectionEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 
-	req.SetBasicAuth(authConfig.IntrospectionClientId, authConfig.IntrospectionClientSecret)
+	req.SetBasicAuth(clientID, clientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.HTTPClient.Do(req)

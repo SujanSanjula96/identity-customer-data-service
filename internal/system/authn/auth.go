@@ -19,6 +19,7 @@
 package authn
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
+	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
@@ -67,7 +69,7 @@ func ValidateTokenForOrg(token, orgHandle, pathOrgId string) (map[string]interfa
 		}
 
 		// Introspect to check if token is still active (not revoked)
-		introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+		introspectionClaims, err := introspect(identityClient, token, orgHandle)
 		if err != nil {
 			logger.Error(fmt.Sprintf("JWT token introspection failed for organization: '%s'", orgHandle),
 				log.Error(err))
@@ -88,7 +90,7 @@ func ValidateTokenForOrg(token, orgHandle, pathOrgId string) (map[string]interfa
 	logger.Debug(fmt.Sprintf("Token is identified as opaque. Validating opaque token for organization: '%s' "+
 		"using introspection", orgHandle))
 
-	introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+	introspectionClaims, err := introspect(identityClient, token, orgHandle)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Opaque token introspection failed for organization: '%s'", orgHandle),
 			log.Error(err))
@@ -218,4 +220,15 @@ func unauthorizedError() error {
 		Message:     errors2.UN_AUTHORIZED.Message,
 		Description: errors2.UN_AUTHORIZED.Description,
 	}, http.StatusUnauthorized)
+}
+
+// introspect asks the identity provider whether the token is active. The adapter
+// of the identity provider introspects it when it can, as with the service
+// credentials of the organization.
+func introspect(identityClient *client.IdentityClient, token, orgHandle string) (map[string]interface{}, error) {
+
+	if introspector, ok := idp.GetAdapter().(idp.TokenIntrospector); ok {
+		return introspector.IntrospectToken(context.Background(), token, orgHandle)
+	}
+	return identityClient.IntrospectToken(token, orgHandle)
 }

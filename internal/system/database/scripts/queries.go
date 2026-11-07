@@ -528,6 +528,19 @@ var UpdateInitialSchemaSyncDoneConfig = newQuery("CDS-CFG-04",
                  ON CONFLICT (org_id, config) 
                  DO UPDATE SET value = EXCLUDED.value`)
 
+var GetOrgServiceCredentials = newQuery("CDS-SVC-01",
+	`SELECT client_id, client_secret, key_id FROM org_service_credentials WHERE org_handle = $1`)
+
+var CheckOrgServiceCredentials = newQuery("CDS-SVC-03",
+	`SELECT org_handle FROM org_service_credentials LIMIT 1`)
+
+var UpsertOrgServiceCredentials = newQuery("CDS-SVC-02",
+	`INSERT INTO org_service_credentials (org_handle, client_id, client_secret, key_id)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (org_handle)
+                 DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret,
+                               key_id = EXCLUDED.key_id`)
+
 // HealthCheckPing checks that the datasource answers.
 var HealthCheckPing = newQuery("CDS-SYS-01", `SELECT 1;`)
 
