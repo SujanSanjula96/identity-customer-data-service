@@ -29,7 +29,6 @@ CREATE TABLE profiles
     delete_profile      BOOLEAN DEFAULT FALSE,
     traits              JSONB   DEFAULT '{}'::jsonb,
     identity_attributes JSONB   DEFAULT '{}'::jsonb,
-    -- The org ID columns come last, as in a database that the v0.7.x org ID migration moved.
     org_id              VARCHAR(255) NOT NULL
 );
 
