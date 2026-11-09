@@ -103,7 +103,7 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 		Container: container,
 		DB:        db,
 		Host:      host,
-		Port:      port.Int(),
+		Port:      int(port.Num()),
 		Username:  "testuser",
 		Password:  "testpass",
 		Database:  "testdb",
