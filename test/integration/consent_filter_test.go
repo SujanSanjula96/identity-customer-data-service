@@ -102,7 +102,7 @@ func Test_ConsentFilter(t *testing.T) {
 	t.Run("Setup_marketing_category", func(t *testing.T) {
 		cat := consentModel.ConsentCategory{
 			CategoryName: "Marketing",
-			OrgHandle:    org.Handle,
+			OrgId:        org.ID,
 			Purpose:      "personalization",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}
@@ -176,7 +176,7 @@ func Test_ConsentFilter(t *testing.T) {
 		// Add a second optional category the profile has NOT consented to.
 		analyticsCat := consentModel.ConsentCategory{
 			CategoryName: "Analytics",
-			OrgHandle:    org.Handle,
+			OrgId:        org.ID,
 			Purpose:      "profiling",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}

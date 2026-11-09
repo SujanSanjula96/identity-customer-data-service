@@ -134,9 +134,9 @@ func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSyn
 	}
 	err = schemaService.SyncProfileSchema(ctx, org)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
+		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", org.ID), log.Error(err))
 		return
 	}
 
-	logger.Info(fmt.Sprintf("Profile schema sync completed successfully for tenant: %s", schemaSync.OrgId))
+	logger.Info(fmt.Sprintf("Profile schema sync completed successfully for tenant: %s", org.ID))
 }

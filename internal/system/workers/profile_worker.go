@@ -209,7 +209,7 @@ func unifyProfiles(ctx context.Context, org orgModel.Ref, newProfile profileMode
 		return
 	}
 	if len(unificationRules) == 0 {
-		logger.Info(fmt.Sprintf("No unification rules found for tenant: %s", org.Handle))
+		logger.Info(fmt.Sprintf("No unification rules found for tenant: %s", org.ID))
 	}
 
 	logger.Info(fmt.Sprintf("Beginning to evaluate unification for profile: %s", newProfile.ProfileId))
@@ -334,8 +334,8 @@ func MergeMatchedProfiles(ctx context.Context, org orgModel.Ref, existingMasterP
 	schemaRules, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, org)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to fetch profile schema attributes for org %s during unification of profile %s",
-			org.Handle, newProfile.ProfileId), log.Error(err))
-		return nil, fmt.Errorf("fetch schema rules for org '%s': %w", org.Handle, err)
+			org.ID, newProfile.ProfileId), log.Error(err))
+		return nil, fmt.Errorf("fetch schema rules for org '%s': %w", org.ID, err)
 	}
 	newMasterProfile := MergeProfiles(existingMasterProfile, newProfile, schemaRules)
 

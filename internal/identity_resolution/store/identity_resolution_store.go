@@ -431,8 +431,8 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 	if v, ok := row["id"]; ok && v != nil {
 		task.ID = fmt.Sprintf("%v", v)
 	}
-	if v, ok := row["org_handle"]; ok && v != nil {
-		task.OrgHandle = fmt.Sprintf("%v", v)
+	if v, ok := row["org_id"]; ok && v != nil {
+		task.OrgId = fmt.Sprintf("%v", v)
 	}
 	if v, ok := row["incoming_profile_id"]; ok && v != nil {
 		task.IncomingProfileID = fmt.Sprintf("%v", v)

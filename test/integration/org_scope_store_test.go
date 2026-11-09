@@ -62,7 +62,7 @@ func Test_OrgScope_UnificationRuleStore(t *testing.T) {
 
 	now := time.Now().UTC()
 	rule := unificationModel.UnificationRule{
-		RuleId: uuid.New().String(), OrgHandle: ownerOrg.Handle, RuleName: "Owner loyalty rule",
+		RuleId: uuid.New().String(), OrgId: ownerOrg.ID, RuleName: "Owner loyalty rule",
 		PropertyName: "traits.loyalty_id", Priority: 1, IsActive: true, CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, ruleSvc.AddUnificationRule(ctx, rule, ownerOrg))
@@ -131,7 +131,7 @@ func Test_OrgScope_ProfileStore(t *testing.T) {
 		require.NoError(t, consentSvc.SeedDefaultConsentCategory(ctx, org))
 	}
 	ownerCategory, err := consentSvc.AddConsentCategory(ctx, ownerOrg, consentModel.ConsentCategory{
-		CategoryName: "Owner Marketing", OrgHandle: ownerOrg.Handle, Purpose: "personalization",
+		CategoryName: "Owner Marketing", OrgId: ownerOrg.ID, Purpose: "personalization",
 	})
 	require.NoError(t, err)
 

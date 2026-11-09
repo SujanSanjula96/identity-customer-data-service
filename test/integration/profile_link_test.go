@@ -65,7 +65,7 @@ func Test_ProfileLink(t *testing.T) {
 
 	t.Run("PreRequisite_EnableCDSAndAddSchema", func(t *testing.T) {
 		err := adminConfigStore.UpdateAdminConfig(context.Background(), adminConfigModel.AdminConfig{
-			OrgHandle:  org.Handle,
+			OrgId:      org.ID,
 			CDSEnabled: true,
 		}, org.ID)
 		require.NoError(t, err)

@@ -169,7 +169,7 @@ func scheduleLocked(primary model.Ref) {
 			treeSyncMu.Unlock()
 			if err != nil {
 				log.GetLogger().Error(fmt.Sprintf("Failed to store the organization sync state of primary "+
-					"organization '%s'.", primary.Handle), log.Error(err))
+					"organization '%s'.", primary.ID), log.Error(err))
 			}
 		}
 	}()
@@ -200,7 +200,7 @@ func runTreeSync(ctx context.Context, primary model.Ref) {
 	finished := time.Now().UTC().Format(time.RFC3339Nano)
 	values[model.ConfigTreeSyncFinishedAt] = finished
 	if err != nil {
-		logger.Error(fmt.Sprintf("The organization sync of primary organization '%s' failed.", primary.Handle),
+		logger.Error(fmt.Sprintf("The organization sync of primary organization '%s' failed.", primary.ID),
 			log.Error(err))
 		values[model.ConfigTreeSyncState] = model.TreeSyncFailed
 		values[model.ConfigTreeSyncError] = err.Error()
@@ -220,7 +220,7 @@ func runTreeSync(ctx context.Context, primary model.Ref) {
 	}
 	if err := store.SetTreeSyncValues(ctx, primary.ID, values); err != nil {
 		logger.Error(fmt.Sprintf("Failed to store the organization sync state of primary organization '%s'.",
-			primary.Handle), log.Error(err))
+			primary.ID), log.Error(err))
 	}
 }
 

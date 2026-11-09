@@ -107,9 +107,9 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 	// The task is fetched by ID alone, so ownership has to be checked here. Reported as
 	// not-found rather than forbidden: confirming that someone else's task ID exists is
 	// itself a leak.
-	if task.OrgHandle != org.Handle {
+	if task.OrgId != org.ID {
 		logger.Warn(fmt.Sprintf("Service: org '%s' attempted to resolve task '%s' owned by org '%s'",
-			org.Handle, taskID, task.OrgHandle))
+			org.ID, taskID, task.OrgId))
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_NOT_FOUND.Code,
 			Message:     errors2.IR_REVIEW_TASK_NOT_FOUND.Message,

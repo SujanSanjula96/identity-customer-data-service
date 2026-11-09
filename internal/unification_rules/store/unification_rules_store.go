@@ -311,7 +311,7 @@ func scanUnificationRule(row map[string]interface{}) model.UnificationRule {
 	var rule model.UnificationRule
 
 	rule.RuleId = stringColumn(row, "rule_id")
-	rule.OrgHandle = stringColumn(row, "org_handle")
+	rule.OrgId = stringColumn(row, "org_id")
 	rule.RuleName = stringColumn(row, "rule_name")
 	rule.PropertyName = stringColumn(row, "property_name")
 	rule.PropertyId = stringColumn(row, "property_id")

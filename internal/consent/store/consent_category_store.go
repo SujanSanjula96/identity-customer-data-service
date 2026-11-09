@@ -25,6 +25,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -133,7 +134,7 @@ func GetAllConsentCategories(ctx context.Context, orgId string) ([]model.Consent
 		categories = append(categories, model.ConsentCategory{
 			CategoryName:       row["category_name"].(string),
 			CategoryIdentifier: row["category_identifier"].(string),
-			OrgHandle:          row["org_handle"].(string),
+			OrgId:              rows.String(row, "org_id"),
 			Purpose:            row["purpose"].(string),
 			Destinations:       parseStringArray(row["destinations"]),
 			IsMandatory:        parseBool(row["is_mandatory"]),
@@ -208,7 +209,7 @@ func GetConsentCategoryByID(ctx context.Context, id string, orgId string) (*mode
 	category := model.ConsentCategory{
 		CategoryName:       row["category_name"].(string),
 		CategoryIdentifier: row["category_identifier"].(string),
-		OrgHandle:          row["org_handle"].(string),
+		OrgId:              rows.String(row, "org_id"),
 		Purpose:            row["purpose"].(string),
 		Destinations:       parseStringArray(row["destinations"]),
 		IsMandatory:        parseBool(row["is_mandatory"]),
@@ -267,7 +268,7 @@ func GetConsentCategoryByName(ctx context.Context, name string, orgId string) (*
 	category := model.ConsentCategory{
 		CategoryName:       row["category_name"].(string),
 		CategoryIdentifier: row["category_identifier"].(string),
-		OrgHandle:          row["org_handle"].(string),
+		OrgId:              rows.String(row, "org_id"),
 		Purpose:            row["purpose"].(string),
 		Destinations:       parseStringArray(row["destinations"]),
 		IsMandatory:        parseBool(row["is_mandatory"]),

@@ -184,7 +184,7 @@ func Test_ResolveReviewTask_RejectsForeignOrg(t *testing.T) {
 
 	refA, refB := setup.TestOrg(t, orgA), setup.TestOrg(t, orgB)
 	task := irModel.ReviewTask{
-		OrgHandle:          orgB,
+		OrgId:              refB.ID,
 		IncomingProfileID:  incoming.ProfileId,
 		CandidateProfileID: candidate.ProfileId,
 		MatchScore:         0.8,
@@ -217,7 +217,7 @@ func Test_ReviewTask_CanBeRecreatedAfterCancellation(t *testing.T) {
 
 	ref := setup.TestOrg(t, org)
 	task := irModel.ReviewTask{
-		OrgHandle:          org,
+		OrgId:              ref.ID,
 		IncomingProfileID:  incoming.ProfileId,
 		CandidateProfileID: candidate.ProfileId,
 		MatchScore:         0.80,

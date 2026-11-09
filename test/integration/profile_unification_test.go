@@ -122,7 +122,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	emailBasedRule := model.UnificationRule{
 		RuleName:     RuleNameEmailBased,
 		RuleId:       emailRuleId,
-		OrgHandle:    SuperTenantOrg.Handle,
+		OrgId:        SuperTenantOrg.ID,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
 		IsActive:     true,
@@ -135,7 +135,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	phoneBasedRule := model.UnificationRule{
 		RuleName:     RuleNamePhoneBased,
 		RuleId:       phoneRuleId,
-		OrgHandle:    SuperTenantOrg.Handle,
+		OrgId:        SuperTenantOrg.ID,
 		PropertyName: "identity_attributes.phone_number",
 		Priority:     2,
 		IsActive:     true,
@@ -148,7 +148,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	// The score-based pipeline only auto-merges when AutoMergeEnabled is true on the
 	// org's admin config; otherwise high-score matches are routed to manual review.
 	require.NoError(t, adminStore.UpdateAdminConfig(context.Background(), adminModel.AdminConfig{
-		OrgHandle:             SuperTenantOrg.Handle,
+		OrgId:                 SuperTenantOrg.ID,
 		AutoMergeEnabled:      true,
 		AutoMergeThreshold:    constants.DefaultAutoMergeThreshold,
 		ManualReviewThreshold: constants.DefaultManualReviewThreshold,

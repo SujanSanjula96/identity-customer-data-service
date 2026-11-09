@@ -133,7 +133,7 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, org)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error fetching profile schema for organization: %s", org.Handle)
+		errMsg := fmt.Sprintf("Error fetching profile schema for organization: %s", org.ID)
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.ADD_PROFILE.Code,
@@ -146,7 +146,7 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	var schema model.ProfileSchema
 	schemaBytes, _ := json.Marshal(rawSchema) // serialize
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-		errMsg := fmt.Sprintf("Invalid schema format for organization: %s while validating for profile creation.", org.Handle)
+		errMsg := fmt.Sprintf("Invalid schema format for organization: %s while validating for profile creation.", org.ID)
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.ADD_PROFILE.Code,
@@ -1803,13 +1803,13 @@ func (ps *ProfilesService) GetProfilesWithFuzzyResolution(
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,
 			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.Handle),
+			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.ID),
 		}, err)
 	}
 	rules := filterActiveRules(rawRules)
 	if len(rules) == 0 {
 		logger.Warn("Service: no active unification rules, fuzzy resolution returning empty",
-			log.String("org.Handle", org.Handle))
+			log.String("orgId", org.ID))
 		return []profileModel.FuzzyMatchResult{}, nil
 	}
 
@@ -1877,7 +1877,7 @@ func (ps *ProfilesService) GetProfilesHybrid(
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,
 			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.Handle),
+			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.ID),
 		}, err)
 	}
 	rules := filterActiveRules(rawRules)

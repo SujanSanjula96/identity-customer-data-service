@@ -135,7 +135,7 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 	for _, shared := range sharedRules {
 		if shared.PropertyName == rule.PropertyName {
 			return sharingService.ConflictError(fmt.Sprintf("The unification rule '%s' on property '%s' is shared "+
-				"with this organization by '%s'.", shared.RuleName, rule.PropertyName, shared.OrgHandle))
+				"with this organization by a parent organization.", shared.RuleName, rule.PropertyName))
 		}
 	}
 
@@ -196,7 +196,6 @@ func (urs *UnificationRuleService) GetUnificationRules(ctx context.Context,
 	result := make([]model.UnificationRule, 0, len(shared)+len(owned))
 	for _, rule := range shared {
 		rule.Origin = shareModel.OriginShared
-		rule.OwnerOrgHandle = rule.OrgHandle
 		rule.State = shareModel.StateActive
 		result = append(result, rule)
 	}
@@ -243,7 +242,6 @@ func (urs *UnificationRuleService) GetUnificationRuleForOrg(ctx context.Context,
 		if s.Rule.RuleId == ruleId && s.State == shareModel.StateActive {
 			sharedRule := s.Rule
 			sharedRule.Origin = shareModel.OriginShared
-			sharedRule.OwnerOrgHandle = sharedRule.OrgHandle
 			sharedRule.State = s.State
 			return &sharedRule, nil
 		}
@@ -475,7 +473,7 @@ func resolveSharedRuleStates(shared []shareModel.SharedResource, rules, owned []
 	var result []sharedRule
 	for _, r := range ordered {
 		rule, ok := byId[r.ResourceId]
-		if !ok || rule.OrgHandle != r.OwnerOrgHandle {
+		if !ok || rule.OrgId != r.OwnerOrgId {
 			continue
 		}
 		state := shareModel.StateActive

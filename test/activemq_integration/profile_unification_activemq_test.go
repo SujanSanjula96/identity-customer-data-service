@@ -88,7 +88,7 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	emailRule := model.UnificationRule{
 		RuleId:       uuid.New().String(),
 		RuleName:     "email_match",
-		OrgHandle:    orgHandle,
+		OrgId:        org.ID,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
 		IsActive:     true,

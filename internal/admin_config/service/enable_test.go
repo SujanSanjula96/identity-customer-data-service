@@ -74,7 +74,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 	ctx := context.Background()
 	acme := orgModel.Ref{ID: "acme-id", Handle: "acme"}
 	if err := store.UpdateAdminConfig(ctx, model.AdminConfig{
-		OrgHandle:          "acme",
+		OrgId:              "acme",
 		SystemApplications: []string{},
 	}, acme.ID); err != nil {
 		t.Fatalf("failed to store the configuration: %v", err)
@@ -84,7 +84,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 	}
 
 	err = AdminConfigService{}.UpdateAdminConfig(ctx, model.AdminConfig{
-		OrgHandle:          "acme",
+		OrgId:              "acme",
 		CDSEnabled:         true,
 		SystemApplications: []string{},
 	}, acme)

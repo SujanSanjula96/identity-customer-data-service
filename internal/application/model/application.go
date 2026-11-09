@@ -20,7 +20,7 @@ package model
 
 // Application holds the information of an application.
 type Application struct {
-	AppID     string `json:"app_id"`
-	OrgHandle string `json:"org_handle"`
-	ClientID  string `json:"client_id"`
+	AppID    string `json:"app_id"`
+	OrgId    string `json:"org_id"`
+	ClientID string `json:"client_id"`
 }

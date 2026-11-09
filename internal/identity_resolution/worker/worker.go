@@ -52,7 +52,7 @@ func ResolveProfileAsync(ctx context.Context, org orgModel.Ref, profile profileM
 	// Load unification rules for blocking key generation and scoring/merge decisions.
 	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 	if err != nil {
-		logger.Error(fmt.Sprintf("AsyncWorker: failed to load unification rules for org '%s'", org.Handle), log.Error(err))
+		logger.Error(fmt.Sprintf("AsyncWorker: failed to load unification rules for org '%s'", org.ID), log.Error(err))
 		return
 	}
 
@@ -122,7 +122,7 @@ func ResolveProfileAsync(ctx context.Context, org orgModel.Ref, profile profileM
 
 	candidateProfiles, err := irStore.GetProfilesByIDs(ctx, candidateIDs)
 	if err != nil {
-		logger.Error(fmt.Sprintf("AsyncWorker: failed to load candidate profiles for org '%s'", org.Handle), log.Error(err))
+		logger.Error(fmt.Sprintf("AsyncWorker: failed to load candidate profiles for org '%s'", org.ID), log.Error(err))
 		return
 	}
 
@@ -376,7 +376,6 @@ func insertReviewTask(ctx context.Context, org orgModel.Ref, incomingProfileID s
 
 	explanation := sc.explanation
 	task := model.ReviewTask{
-		OrgHandle:          org.Handle,
 		IncomingProfileID:  incomingProfileID,
 		CandidateProfileID: sc.id,
 		MatchScore:         sc.similarity,
@@ -427,7 +426,7 @@ func ReindexAfterMerge(ctx context.Context, masterProfileID string, triggerProfi
 
 	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 	if err != nil {
-		logger.Warn(fmt.Sprintf("ReindexAfterMerge: failed to load unification rules for org '%s'", org.Handle),
+		logger.Warn(fmt.Sprintf("ReindexAfterMerge: failed to load unification rules for org '%s'", org.ID),
 			log.Error(err))
 		return
 	}
@@ -476,7 +475,7 @@ func IndexNewAttribute(ctx context.Context, org orgModel.Ref, rule urModel.Unifi
 	inFlightKey := org.ID + "|" + rule.PropertyName
 	if _, running := backfillsInFlight.LoadOrStore(inFlightKey, true); running {
 		logger.Info(fmt.Sprintf("Reindexer: backfill already running for '%s' in org '%s', skipping",
-			rule.PropertyName, org.Handle))
+			rule.PropertyName, org.ID))
 		return
 	}
 	defer backfillsInFlight.Delete(inFlightKey)
@@ -500,7 +499,7 @@ func IndexNewAttribute(ctx context.Context, org orgModel.Ref, rule urModel.Unifi
 	}
 
 	logger.Info(fmt.Sprintf("Reindexer: starting backfill of '%s' for org '%s'",
-		rule.PropertyName, org.Handle))
+		rule.PropertyName, org.ID))
 
 	totalIndexed, totalScanned := 0, 0
 	afterProfileID := ""
@@ -510,7 +509,7 @@ func IndexNewAttribute(ctx context.Context, org orgModel.Ref, rule urModel.Unifi
 		if err != nil {
 			logger.Error(fmt.Sprintf(
 				"Reindexer: backfill of '%s' for org '%s' ABORTED after %d profiles — the index is incomplete",
-				rule.PropertyName, org.Handle, totalScanned), log.Error(err))
+				rule.PropertyName, org.ID, totalScanned), log.Error(err))
 			return
 		}
 		if len(profiles) == 0 {
@@ -539,7 +538,7 @@ func IndexNewAttribute(ctx context.Context, org orgModel.Ref, rule urModel.Unifi
 			if err := irStore.InsertBlockingKeysBatch(ctx, org.ID, perProfileKeys); err != nil {
 				logger.Error(fmt.Sprintf(
 					"Reindexer: batch insert failed for org '%s' at profile '%s' — those profiles are unindexed",
-					org.Handle, afterProfileID), log.Error(err))
+					org.ID, afterProfileID), log.Error(err))
 			} else {
 				totalIndexed += len(perProfileKeys)
 			}
@@ -551,7 +550,7 @@ func IndexNewAttribute(ctx context.Context, org orgModel.Ref, rule urModel.Unifi
 	}
 
 	logger.Info(fmt.Sprintf("Reindexer: backfill of '%s' for org '%s' complete — %d of %d profiles indexed",
-		rule.PropertyName, org.Handle, totalIndexed, totalScanned))
+		rule.PropertyName, org.ID, totalIndexed, totalScanned))
 }
 
 // RemoveAttributeIndex removes all blocking keys for a specific attribute in an org.

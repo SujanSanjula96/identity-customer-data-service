@@ -613,7 +613,7 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isCDSEnabled(ctx, org) {
-		errMsg := "CDS is not enabled for organization: " + org.Handle
+		errMsg := "CDS is not enabled for organization: " + org.ID
 		log.GetLogger().Info(errMsg)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
@@ -961,7 +961,7 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.GetLogger().Info(fmt.Sprintf("Linked profile: %s to user: %s in organization: %s", profileId, userId,
-		org.Handle))
+		org.ID))
 
 	linkResponse := model.ProfileLinkResponse{
 		ProfileId: profileId,
@@ -1139,7 +1139,12 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 		return
 	}
 	if !known || !isCDSEnabled(ctx, org) {
-		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgHandle
+		// An organization that CDS does not know has no org ID.
+		orgLabel := orgHandle
+		if known {
+			orgLabel = org.ID
+		}
+		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgLabel
 		log.GetLogger().Info(errMsg)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,

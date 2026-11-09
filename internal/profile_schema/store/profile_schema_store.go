@@ -328,7 +328,7 @@ func GetProfileSchemaAttributesForOrg(ctx context.Context, orgId string) ([]mode
 	return schema, nil
 }
 
-// GetProfileSchemaAttributesByIds returns the attributes with the IDs. OwnerOrgHandle of each
+// GetProfileSchemaAttributesByIds returns the attributes with the IDs. OwnerOrgId of each
 // attribute is set.
 func GetProfileSchemaAttributesByIds(ctx context.Context,
 	attributeIds []string) ([]model.ProfileSchemaAttribute, error) {
@@ -363,7 +363,7 @@ func GetProfileSchemaAttributesByIds(ctx context.Context,
 	attrs := make([]model.ProfileSchemaAttribute, 0, len(results))
 	for _, row := range results {
 		attr := mapRowToProfileAttribute(row)
-		attr.OwnerOrgHandle = rows.String(row, "org_handle")
+		attr.OwnerOrgId = rows.String(row, "org_id")
 		attrs = append(attrs, attr)
 	}
 	return attrs, nil

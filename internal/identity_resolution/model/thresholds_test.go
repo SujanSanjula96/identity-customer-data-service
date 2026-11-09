@@ -57,7 +57,7 @@ func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T
 	}
 	ctx := context.Background()
 	primaryConfig := adminModel.AdminConfig{
-		OrgHandle:                  "primary",
+		OrgId:                      "primary",
 		CDSEnabled:                 true,
 		SystemApplications:         []string{},
 		AutoMergeEnabled:           false,

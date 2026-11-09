@@ -92,7 +92,7 @@ func (h *ConsentCategoryHandler) AddConsentCategory(w http.ResponseWriter, r *ht
 		utils.HandleError(w, err)
 		return
 	}
-	category := req.ToCategory(org.Handle, "")
+	category := req.ToCategory(org.ID, "")
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
 	consentCat, err := service.AddConsentCategory(ctx, org, category)
@@ -182,7 +182,7 @@ func (h *ConsentCategoryHandler) UpdateConsentCategory(w http.ResponseWriter, r 
 		utils.HandleError(w, err)
 		return
 	}
-	category := req.ToCategory(org.Handle, categoryId)
+	category := req.ToCategory(org.ID, categoryId)
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
 	if err := service.UpdateConsentCategory(ctx, org, category); err != nil {

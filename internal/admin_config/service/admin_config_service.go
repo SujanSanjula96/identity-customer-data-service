@@ -97,7 +97,7 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, org orgMode
 func (a AdminConfigService) GetAdminConfig(ctx context.Context, org orgModel.Ref) (model.AdminConfig, error) {
 
 	defaultConfig := model.AdminConfig{
-		OrgHandle:             org.Handle,
+		OrgId:                 org.ID,
 		CDSEnabled:            false,
 		InitialSchemaSyncDone: false,
 		SystemApplications:    []string{},
@@ -109,7 +109,7 @@ func (a AdminConfigService) GetAdminConfig(ctx context.Context, org orgModel.Ref
 	if config == nil {
 		config = &defaultConfig
 	}
-	config.OrgHandle = org.Handle
+	config.OrgId = org.ID
 	// A sub organization uses the enablement of its primary organization.
 	if !config.CDSEnabled {
 		config.CDSEnabled = a.IsCDSEnabled(ctx, org)
@@ -247,7 +247,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		// CDS is being enabled for the first time. Trigger initial schema sync.
 		err := schemaService.SyncProfileSchema(ctx, org)
 		if err != nil {
-			logger.Error(fmt.Sprintf("UpdateAdminConfig: schema sync failed for org=%s", org.Handle), log.Error(err))
+			logger.Error(fmt.Sprintf("UpdateAdminConfig: schema sync failed for org=%s", org.ID), log.Error(err))
 			return err
 		}
 		// Seed the mandatory "Identity Data" consent category after schema is ready.
@@ -255,7 +255,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 			return err
 		}
 		updatedConfig.InitialSchemaSyncDone = true
-		logger.Debug(fmt.Sprintf("UpdateAdminConfig: CDS enabled for org=%s", org.Handle))
+		logger.Debug(fmt.Sprintf("UpdateAdminConfig: CDS enabled for org=%s", org.ID))
 	}
 
 	// In app_id mode, register each system application so its clientId->app_id mapping exists for the GET path.

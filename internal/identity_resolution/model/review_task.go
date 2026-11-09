@@ -22,7 +22,7 @@ import "github.com/wso2/identity-customer-data-service/internal/system/paginatio
 
 type ReviewTask struct {
 	ID                 string `json:"id"`
-	OrgHandle          string `json:"org_handle"`
+	OrgId              string `json:"-"` // For the owner check only
 	IncomingProfileID  string `json:"incoming_profile_id"`
 	CandidateProfileID string `json:"candidate_profile_id"`
 	// MatchScore is the pair's similarity before any cap. It orders a profile's tasks and is

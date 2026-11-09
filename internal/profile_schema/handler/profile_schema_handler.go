@@ -554,7 +554,12 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		return
 	}
 	if !known || !isCDSEnabled(ctx, org) {
-		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgId
+		// An organization that CDS does not know has no org ID.
+		orgLabel := orgId
+		if known {
+			orgLabel = org.ID
+		}
+		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgLabel
 		logger.Info(errMsg)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
@@ -570,7 +575,7 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 			Code:    errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
 			Message: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
 			Description: fmt.Sprintf("The organization '%s' inherits the identity attributes from '%s'. "+
-				"Sync the identity attributes of '%s'.", orgId, source.Handle, source.Handle),
+				"Sync the identity attributes of '%s'.", org.ID, source.ID, source.ID),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return

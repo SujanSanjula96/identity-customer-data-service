@@ -56,14 +56,6 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 		utils.HandleError(w, err)
 		return
 	}
-	if org.Handle == "" {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: "Organization handle is required.",
-		}, http.StatusBadRequest))
-		return
-	}
 
 	pageSize, parseErr := pagination.ParsePageSize(r)
 	if parseErr != nil {
@@ -106,14 +98,6 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
 	if err != nil {
 		utils.HandleError(w, err)
-		return
-	}
-	if org.Handle == "" {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: "Organization handle is required.",
-		}, http.StatusBadRequest))
 		return
 	}
 	taskID := r.PathValue("taskId")

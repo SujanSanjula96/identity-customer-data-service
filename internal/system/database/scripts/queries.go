@@ -55,7 +55,7 @@ var GetProfileSchemaByOrg = newQuery("CDS-SCH-02",
 var GetProfileSchemaAttributesByIds = newQuery("CDS-SCH-16",
 	`SELECT attribute_id, attribute_name, scope, display_name, value_type, merge_strategy, mutability,
 	application_identifier, multi_valued, CAST(sub_attributes AS TEXT) AS sub_attributes,
-	CAST(canonical_values AS TEXT) AS canonical_values, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profile_schema.org_id) AS org_handle FROM profile_schema WHERE attribute_id IN (%s)`)
+	CAST(canonical_values AS TEXT) AS canonical_values, org_id FROM profile_schema WHERE attribute_id IN (%s)`)
 
 var DeleteIdentityClaimsOfProfileSchema = newQuery("CDS-SCH-03",
 	`DELETE FROM profile_schema WHERE org_id = $1 AND scope = 'identity_attributes'`)
@@ -97,9 +97,9 @@ var InsertProfileSchemaAttributesForScope = newQuery("CDS-SCH-07",
 	`INSERT INTO profile_schema (org_id, attribute_id, attribute_name, value_type, merge_strategy, 
                             application_identifier, mutability, multi_valued, sub_attributes, canonical_values, scope, display_name) VALUES `)
 var GetProfileSchemaAttributeByScope = newQuery("CDS-SCH-08",
-	`SELECT attribute_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profile_schema.org_id) AS org_handle, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,   sub_attributes::text,
+	`SELECT attribute_id, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,   sub_attributes::text,
   canonical_values::text FROM profile_schema WHERE org_id = $1 AND scope = $2`,
-	`SELECT attribute_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profile_schema.org_id) AS org_handle, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,
+	`SELECT attribute_id, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,
   CAST(sub_attributes AS TEXT) AS sub_attributes, CAST(canonical_values AS TEXT) AS canonical_values
   FROM profile_schema WHERE org_id = $1 AND scope = $2`)
 
@@ -130,9 +130,9 @@ var GetProfileSchemaAttributeById = newQuery("CDS-SCH-11",
 	          FROM profile_schema WHERE org_id = $1 AND attribute_id = $2`)
 
 var FilterProfileSchemaAttributes = newQuery("CDS-SCH-12",
-	`SELECT attribute_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profile_schema.org_id) AS org_handle, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued, sub_attributes::text,
+	`SELECT attribute_id, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued, sub_attributes::text,
   canonical_values::text FROM profile_schema WHERE org_id = $1`,
-	`SELECT attribute_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profile_schema.org_id) AS org_handle, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,
+	`SELECT attribute_id, attribute_name, display_name, value_type, merge_strategy, mutability, application_identifier, multi_valued,
   CAST(sub_attributes AS TEXT) AS sub_attributes, CAST(canonical_values AS TEXT) AS canonical_values FROM profile_schema WHERE org_id = $1`)
 
 var DeleteProfileSchemaAttributeById = newQuery("CDS-SCH-13",
@@ -150,18 +150,18 @@ var UpdateProfileSchemaAttributeFields = newQuery("CDS-SCH-15",
 	`UPDATE profile_schema SET `)
 
 var GetUnificationRules = newQuery("CDS-UNR-01",
-	`SELECT rule_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = unification_rules.org_id) AS org_handle, rule_name, property_name, property_id, priority, is_active, attribute_type, unification_method,
+	`SELECT rule_id, org_id, rule_name, property_name, property_id, priority, is_active, attribute_type, unification_method,
 	 match_strength, mismatch_strength, created_at, updated_at
 FROM unification_rules WHERE org_id = $1`)
 
 // GetUnificationRulesByIds returns the rules with the IDs. The %s is the IN list of rule IDs.
 var GetUnificationRulesByIds = newQuery("CDS-UNR-06",
-	`SELECT rule_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = unification_rules.org_id) AS org_handle, rule_name, property_name, property_id, priority, is_active, attribute_type,
+	`SELECT rule_id, org_id, rule_name, property_name, property_id, priority, is_active, attribute_type,
 	 unification_method, match_strength, mismatch_strength, created_at, updated_at
 	 FROM unification_rules WHERE rule_id IN (%s)`)
 
 var GetUnificationRule = newQuery("CDS-UNR-02",
-	`SELECT rule_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = unification_rules.org_id) AS org_handle, rule_name, property_name, property_id, priority, is_active, attribute_type, unification_method,
+	`SELECT rule_id, org_id, rule_name, property_name, property_id, priority, is_active, attribute_type, unification_method,
 	 match_strength, mismatch_strength, created_at, updated_at
 	 FROM unification_rules WHERE rule_id = $1 AND org_id = $2`)
 
@@ -446,13 +446,13 @@ var UpsertDefaultIdentityDataCategory = newQuery("CDS-CON-05",
 				)`)
 
 var GetAllConsentCategories = newQuery("CDS-CON-06",
-	`SELECT category_name, category_identifier, (SELECT o.org_handle FROM organizations o WHERE o.org_id = consent_categories.org_id) AS org_handle, purpose, destinations, is_mandatory FROM consent_categories WHERE org_id = $1`)
+	`SELECT category_name, category_identifier, org_id, purpose, destinations, is_mandatory FROM consent_categories WHERE org_id = $1`)
 
 var GetConsentCategoryById = newQuery("CDS-CON-07",
-	`SELECT category_name, category_identifier, (SELECT o.org_handle FROM organizations o WHERE o.org_id = consent_categories.org_id) AS org_handle, purpose, destinations, is_mandatory FROM consent_categories WHERE category_identifier = $1 AND org_id = $2`)
+	`SELECT category_name, category_identifier, org_id, purpose, destinations, is_mandatory FROM consent_categories WHERE category_identifier = $1 AND org_id = $2`)
 
 var GetConsentCategoryByName = newQuery("CDS-CON-08",
-	`SELECT category_name, category_identifier, (SELECT o.org_handle FROM organizations o WHERE o.org_id = consent_categories.org_id) AS org_handle, purpose, destinations, is_mandatory FROM consent_categories WHERE category_name = $1 AND org_id = $2`)
+	`SELECT category_name, category_identifier, org_id, purpose, destinations, is_mandatory FROM consent_categories WHERE category_name = $1 AND org_id = $2`)
 
 var GetConsentCategoryIdsByOrg = newQuery("CDS-CON-16",
 	`SELECT category_identifier FROM consent_categories WHERE org_id = $1`)
@@ -616,13 +616,13 @@ var IRFindRelatedPendingReviewTasks = newQuery("CDS-IDR-12",
 				   AND (incoming_profile_id IN ($3, $4) OR candidate_profile_id IN ($3, $4))`)
 
 var IRGetReviewTaskByID = newQuery("CDS-IDR-13",
-	`SELECT id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = review_tasks.org_id) AS org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
+	`SELECT id, org_id, incoming_profile_id, candidate_profile_id, match_score, status,
 				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE id = $1`)
 
 var IRGetPendingReviewTasks = newQuery("CDS-IDR-14",
-	`SELECT id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = review_tasks.org_id) AS org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
+	`SELECT id, org_id, incoming_profile_id, candidate_profile_id, match_score, status,
 				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE org_id = $1 AND status = $2
@@ -633,7 +633,7 @@ var IRCountPendingReviewTasks = newQuery("CDS-IDR-15",
 	`SELECT COUNT(*) FROM review_tasks WHERE org_id = $1 AND status = $2`)
 
 var IRGetPendingReviewTasksByProfile = newQuery("CDS-IDR-16",
-	`SELECT id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = review_tasks.org_id) AS org_handle, incoming_profile_id, candidate_profile_id, match_score, status,
+	`SELECT id, org_id, incoming_profile_id, candidate_profile_id, match_score, status,
 				        score_breakdown, match_reason, created_at, resolved_at, resolved_by, resolution_notes
 				 FROM review_tasks
 				 WHERE org_id = $1 AND status = $2

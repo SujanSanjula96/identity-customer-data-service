@@ -60,16 +60,16 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 	}
 	if !exists {
 		logger.Debug(fmt.Sprintf("Application '%s' does not exist in the identity server for organization '%s'",
-			appIdentifier, org.Handle))
+			appIdentifier, org.ID))
 		return false, nil
 	}
 
 	// clientId is empty for SAML-only apps; the row is still persisted (with a NULL clientId) so the table
 	// holds an entry for every application.
 	if err := store.UpsertApplication(ctx, org.ID, model.Application{
-		AppID:     appIdentifier,
-		OrgHandle: org.Handle,
-		ClientID:  app.ClientId,
+		AppID:    appIdentifier,
+		OrgId:    org.ID,
+		ClientID: app.ClientId,
 	}); err != nil {
 		return false, err
 	}

@@ -323,7 +323,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 
 	for _, org := range []orgModel.Ref{f.owner, f.other} {
 		require.NoError(t, adminConfigStore.UpdateAdminConfig(ctx, adminConfigModel.AdminConfig{
-			OrgHandle:  org.Handle,
+			OrgId:      org.ID,
 			CDSEnabled: true,
 		}, org.ID))
 		_, err := schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{{
@@ -347,7 +347,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 
 	ownerCategory, err := consentSvc.AddConsentCategory(ctx, f.owner, consentModel.ConsentCategory{
 		CategoryName: "Owner Marketing",
-		OrgHandle:    f.ownerOrg,
+		OrgId:        f.owner.ID,
 		Purpose:      "personalization",
 		Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 	})
@@ -356,7 +356,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 
 	otherCategory, err := consentSvc.AddConsentCategory(ctx, f.other, consentModel.ConsentCategory{
 		CategoryName: "Other Marketing",
-		OrgHandle:    f.otherOrg,
+		OrgId:        f.other.ID,
 		Purpose:      "personalization",
 		Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 	})
@@ -395,7 +395,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 	require.NoError(t, unificationService.GetUnificationRuleService().AddUnificationRule(ctx,
 		unificationModel.UnificationRule{
 			RuleId:       f.ownerRuleId,
-			OrgHandle:    f.ownerOrg,
+			OrgId:        f.owner.ID,
 			RuleName:     "Owner loyalty rule",
 			PropertyName: "traits.loyalty_id",
 			Priority:     1,

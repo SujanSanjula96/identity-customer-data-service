@@ -43,9 +43,9 @@ func Test_ApplicationStore(t *testing.T) {
 
 	t.Run("Upsert_And_Resolve", func(t *testing.T) {
 		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
-			AppID:     appUUID,
-			OrgHandle: org.Handle,
-			ClientID:  clientID,
+			AppID:    appUUID,
+			OrgId:    org.ID,
+			ClientID: clientID,
 		})
 		require.NoError(t, err)
 
@@ -68,9 +68,9 @@ func Test_ApplicationStore(t *testing.T) {
 	t.Run("Org_Scoped", func(t *testing.T) {
 		otherUUID := "aaaa1111-e8bf-4d92-9545-bbbbbbbbbbbb"
 		err := appStore.UpsertApplication(context.Background(), otherOrg.ID, appModel.Application{
-			AppID:     otherUUID,
-			OrgHandle: otherOrg.Handle,
-			ClientID:  clientID, // same clientId, different org
+			AppID:    otherUUID,
+			OrgId:    otherOrg.ID,
+			ClientID: clientID, // same clientId, different org
 		})
 		require.NoError(t, err)
 
@@ -86,9 +86,9 @@ func Test_ApplicationStore(t *testing.T) {
 	t.Run("ClientId_Rotation_Updates_Mapping", func(t *testing.T) {
 		newClientID := "RotatedClientId"
 		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
-			AppID:     appUUID, // same app
-			OrgHandle: org.Handle,
-			ClientID:  newClientID, // rotated clientId
+			AppID:    appUUID, // same app
+			OrgId:    org.ID,
+			ClientID: newClientID, // rotated clientId
 		})
 		require.NoError(t, err)
 
@@ -108,7 +108,7 @@ func Test_ApplicationStore(t *testing.T) {
 		samlB := "saml-2222-e8bf-4d92-9545-dddddddddddd"
 
 		// SAML-only apps have no clientId; two of them in the same org must both persist without colliding.
-		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlA, OrgHandle: org.Handle}))
-		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlB, OrgHandle: org.Handle}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlA, OrgId: org.ID}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlB, OrgId: org.ID}))
 	})
 }

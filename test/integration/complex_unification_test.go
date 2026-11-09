@@ -100,7 +100,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	userIdRuleId := uuid.New().String()
 	userIdRule := model.UnificationRule{
 		RuleId:       userIdRuleId,
-		OrgHandle:    SuperTenantOrg.Handle,
+		OrgId:        SuperTenantOrg.ID,
 		RuleName:     UserIdBased,
 		PropertyName: "identity_attributes.user_id",
 		Priority:     0,
@@ -113,7 +113,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	emailRuleId := uuid.New().String()
 	emailRule := model.UnificationRule{
 		RuleId:       emailRuleId,
-		OrgHandle:    SuperTenantOrg.Handle,
+		OrgId:        SuperTenantOrg.ID,
 		RuleName:     EmailBased,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
@@ -126,7 +126,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	phoneRuleId := uuid.New().String()
 	phoneRule := model.UnificationRule{
 		RuleId:       phoneRuleId,
-		OrgHandle:    SuperTenantOrg.Handle,
+		OrgId:        SuperTenantOrg.ID,
 		RuleName:     PhoneBased,
 		PropertyName: "identity_attributes.phone_number",
 		Priority:     2,
@@ -139,7 +139,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	// The score-based pipeline only auto-merges when AutoMergeEnabled is true on the
 	// org's admin config; otherwise high-score matches are routed to manual review.
 	require.NoError(t, adminStore.UpdateAdminConfig(context.Background(), adminModel.AdminConfig{
-		OrgHandle:             SuperTenantOrg.Handle,
+		OrgId:                 SuperTenantOrg.ID,
 		AutoMergeEnabled:      true,
 		AutoMergeThreshold:    constants.DefaultAutoMergeThreshold,
 		ManualReviewThreshold: constants.DefaultManualReviewThreshold,
