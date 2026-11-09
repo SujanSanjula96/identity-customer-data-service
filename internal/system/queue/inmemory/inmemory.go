@@ -122,13 +122,13 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 	if q.closed {
-		return fmt.Errorf("inmemory: schema sync queue closed, dropping job for tenant %s", sync.OrgId)
+		return fmt.Errorf("inmemory: schema sync queue closed, dropping job for tenant %s", sync.OrgHandle)
 	}
 	select {
 	case q.ch <- sync:
 		return nil
 	default:
-		return fmt.Errorf("inmemory: schema sync queue full, dropping job for tenant %s", sync.OrgId)
+		return fmt.Errorf("inmemory: schema sync queue full, dropping job for tenant %s", sync.OrgHandle)
 	}
 }
 

@@ -42,7 +42,7 @@ var (
 	storeLocks sync.Map
 )
 
-// ResolveOrganization returns the org ID and the org handle of the organization. The APIs, the queue
+// ResolveOrganization returns the org ID and the org handle of the organization. The APIs, the schema sync
 // messages and the identity provider events carry the org handle: the edge of each flow (a request
 // handler or a worker job) calls this once and passes the organization on.
 //
@@ -83,6 +83,13 @@ func ResolveOrganization(ctx context.Context, orgHandle string) (model.Ref, erro
 func LookupOrganization(ctx context.Context, orgHandle string) (ref model.Ref, found bool, err error) {
 
 	return store.LookupOrganizationRef(ctx, orgHandle)
+}
+
+// LookupOrganizationById returns the org ID and the org handle of the stored organization with the ID.
+// found is false when CDS has no row for the ID. It does not call the identity provider.
+func LookupOrganizationById(ctx context.Context, orgId string) (ref model.Ref, found bool, err error) {
+
+	return store.LookupOrganizationRefById(ctx, orgId)
 }
 
 func organizationNotFound(orgHandle string) error {

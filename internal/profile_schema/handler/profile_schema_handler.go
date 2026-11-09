@@ -535,8 +535,8 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		http.Error(w, "Invalid request.", http.StatusBadRequest)
 		return
 	}
-	orgId := schemaSync.OrgId
-	if orgId == "" {
+	orgHandle := schemaSync.OrgHandle
+	if orgHandle == "" {
 		errMsg := fmt.Sprintf("Organization handle cannot be empty in sync event: %s", schemaSync.Event)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.UPDATE_PROFILE.Code,
@@ -548,14 +548,14 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 	}
 	logger := log.GetLogger()
 	// An identity server event must not store an organization that CDS does not know.
-	org, known, err := orgService.LookupOrganization(ctx, orgId)
+	org, known, err := orgService.LookupOrganization(ctx, orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 	if !known || !isCDSEnabled(ctx, org) {
 		// An organization that CDS does not know has no org ID.
-		orgLabel := orgId
+		orgLabel := orgHandle
 		if known {
 			orgLabel = org.ID
 		}
@@ -581,7 +581,7 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		return
 	}
 
-	logger.Info(fmt.Sprintf("Received schema sync request: %s for organization: %s ", schemaSync.Event, schemaSync.OrgId))
+	logger.Info(fmt.Sprintf("Received schema sync request: %s for organization: %s ", schemaSync.Event, org.ID))
 
 	if schemaSync.Event == constants.AddScimAttributeEvent || schemaSync.Event == constants.UpdateScimAttributeEvent ||
 		schemaSync.Event == constants.DeleteScimAttributeEvent ||
@@ -589,7 +589,7 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		// Enqueue the schema sync job for asynchronous processing
 		err := workers.EnqueueSchemaSyncJob(schemaSync)
 		if err != nil {
-			errMsg := fmt.Sprintf("Unable to process schema sync request for organization: %s. The system is currently at capacity. Please try again in a few moments.", schemaSync.OrgId)
+			errMsg := fmt.Sprintf("Unable to process schema sync request for organization: %s. The system is currently at capacity. Please try again in a few moments.", org.ID)
 			logger.Error(errMsg)
 			serverError := errors2.NewServerError(errors2.ErrorMessage{
 				Code:        errors2.SYNC_PROFILE_SCHEMA.Code,
@@ -600,7 +600,7 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 			return
 		}
 
-		logger.Debug("Schema sync request enqueued successfully for organization: " + schemaSync.OrgId)
+		logger.Debug("Schema sync request enqueued successfully for organization: " + org.ID)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

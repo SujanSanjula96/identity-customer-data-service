@@ -192,7 +192,7 @@ var InsertProfileReference = newQuery("CDS-PRF-02",
 
 var GetProfileById = newQuery("CDS-PRF-03",
 	`
-		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
+		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, p.org_id, p.list_profile, p.delete_profile, 
 		       p.traits, p.identity_attributes, r.profile_status, r.reference_profile_id, r.reference_reason
 		FROM 
 			profiles p
@@ -251,7 +251,7 @@ var GetProfilesByOrgId = newQuery("CDS-PRF-10",
 	`
 		SELECT 
 			p.profile_id, 
-			(SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
+			p.org_id,
 			p.created_at, 
 			p.updated_at, 
 			p.user_id, 
@@ -285,7 +285,7 @@ var GetProfilesByOrgId = newQuery("CDS-PRF-10",
 	`
 		SELECT
 			p.profile_id,
-			(SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
+			p.org_id,
 			p.created_at,
 			p.updated_at,
 			p.user_id,
@@ -341,7 +341,7 @@ var GetProfileIDsWithFiltersBase = newQuery("CDS-PRF-21",
 var GetAllProfilesWithFilterBase = newQuery("CDS-PRF-14",
 	`SELECT DISTINCT p.profile_id,
                 p.user_id,
-                (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle,
+                p.org_id,
                 p.created_at,
                 p.updated_at,
                 r.profile_status,
@@ -362,7 +362,7 @@ var FetchReferencedProfiles = newQuery("CDS-PRF-16",
 
 var GetProfileByUserId = newQuery("CDS-PRF-17",
 	`
-		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.list_profile, p.delete_profile, 
+		SELECT p.profile_id, p.user_id, p.created_at, p.updated_at, p.org_id, p.list_profile, p.delete_profile, 
 		       p.traits, p.identity_attributes, r.profile_status, r.reference_profile_id, r.reference_reason
 		FROM 
 			profiles p
@@ -546,14 +546,14 @@ var DeleteBlockingKeysByAttributeSQL = newQuery("CDS-IDR-02",
 // the scan is in flight shifts every later row back one place and one row is never read —
 // leaving a silent hole in the index. Seeking past the last id already seen cannot skip.
 var IRGetProfilesForOrgAfter = newQuery("CDS-IDR-03",
-	`SELECT profile_id, user_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = profiles.org_id) AS org_handle, traits, identity_attributes
+	`SELECT profile_id, user_id, traits, identity_attributes
 				 FROM profiles
 				 WHERE org_id = $1 AND delete_profile = FALSE AND profile_id > $2
 				 ORDER BY profile_id
 				 LIMIT $3`)
 
 var IRGetProfilesByIDs = newQuery("CDS-IDR-04",
-	`SELECT p.profile_id, p.user_id, (SELECT o.org_handle FROM organizations o WHERE o.org_id = p.org_id) AS org_handle, p.traits, p.identity_attributes,
+	`SELECT p.profile_id, p.user_id, p.traits, p.identity_attributes,
 				        pr.reference_profile_id
 				 FROM profiles p
 				 LEFT JOIN profile_reference pr ON p.profile_id = pr.profile_id

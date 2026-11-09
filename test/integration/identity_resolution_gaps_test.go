@@ -51,7 +51,7 @@ func insertBareProfile(t *testing.T, org, userID string, traits map[string]inter
 	profile := profileModel.Profile{
 		ProfileId:          uuid.New().String(),
 		UserId:             userID,
-		OrgHandle:          org,
+		OrgId:              ref.ID,
 		Traits:             traits,
 		IdentityAttributes: map[string]interface{}{},
 		CreatedAt:          time.Now().UTC(),

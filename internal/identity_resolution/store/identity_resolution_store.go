@@ -86,9 +86,6 @@ func scanProfileData(row map[string]interface{}) (model.ProfileData, error) {
 	if v, ok := row["user_id"]; ok && v != nil {
 		pd.UserID = fmt.Sprintf("%v", v)
 	}
-	if v, ok := row["org_handle"]; ok && v != nil {
-		pd.OrgHandle = fmt.Sprintf("%v", v)
-	}
 	if v, ok := row["reference_profile_id"]; ok && v != nil {
 		pd.ReferenceProfileID = fmt.Sprintf("%v", v)
 	}

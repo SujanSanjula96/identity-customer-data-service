@@ -19,7 +19,6 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
-	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
 // Unmarshal JSONB fields separately
@@ -33,10 +32,9 @@ func scanProfileRow(row map[string]interface{}) (model.Profile, error) {
 
 	profile.ProfileId = row["profile_id"].(string)
 	profile.UserId = row["user_id"].(string)
-	profile.OrgHandle = rows.String(row, "org_handle")
+	profile.OrgId = rows.String(row, "org_id")
 	profile.CreatedAt = row["created_at"].(time.Time)
 	profile.UpdatedAt = row["updated_at"].(time.Time)
-	profile.Location = utils.BuildProfileLocation(profile.OrgHandle, profile.ProfileId)
 	profileStatus := row["profile_status"].(string)
 	if profileStatus != "" && profileStatus != "null" {
 		if profileStatus == constants.WaitOnAdmin {

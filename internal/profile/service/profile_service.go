@@ -170,7 +170,7 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	}
 	profile := profileModel.Profile{
 		ProfileId:          profileId,
-		OrgHandle:          org.Handle,
+		OrgId:              org.ID,
 		UserId:             profileRequest.UserId,
 		ApplicationData:    appData,
 		Traits:             profileRequest.Traits,
@@ -181,7 +181,6 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 		},
 		CreatedAt: createdTime,
 		UpdatedAt: createdTime,
-		Location:  utils.BuildProfileLocation(org.Handle, profileId),
 	}
 
 	if err := profileStore.InsertProfile(ctx, org.ID, profile); err != nil {
@@ -203,14 +202,14 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 		if rulesErr != nil {
 			logger.Warn("CreateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
-			profile.OrgHandle = org.Handle
+			profile.OrgId = org.ID
 			queue.Enqueue(profile)
 		} else {
 			// A profile carrying a userId must always be evaluated: merging profiles that
 			// share a userId is a system invariant that holds with no rules configured, so
 			// gating on rule attributes alone would silently disable it.
 			if profile.UserId != "" || hasAttributeMatchingAnyRule(flattenProfileAttrs(profile), activeRules) {
-				profile.OrgHandle = org.Handle
+				profile.OrgId = org.ID
 				queue.Enqueue(profile)
 			}
 		}
@@ -824,14 +823,13 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		// convert profile request to model
 		profileToUpDate = profileModel.Profile{
 			ProfileId:          profileId,
-			OrgHandle:          profile.OrgHandle,
+			OrgId:              profile.OrgId,
 			UserId:             updatedProfile.UserId,
 			ApplicationData:    appData,
 			Traits:             updatedProfile.Traits,
 			IdentityAttributes: updatedProfile.IdentityAttributes,
 			UpdatedAt:          updatedTime,
 			CreatedAt:          profile.CreatedAt,
-			Location:           profile.Location,
 			ProfileStatus:      profile.ProfileStatus,
 		}
 	} else {
@@ -850,14 +848,13 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 
 		profileToUpDate = profileModel.Profile{
 			ProfileId:          masterProfile.ProfileId,
-			OrgHandle:          masterProfile.OrgHandle,
+			OrgId:              masterProfile.OrgId,
 			UserId:             updatedProfile.UserId,
 			ApplicationData:    appData,
 			Traits:             updatedProfile.Traits,
 			IdentityAttributes: updatedProfile.IdentityAttributes,
 			UpdatedAt:          updatedTime,
 			CreatedAt:          masterProfile.CreatedAt,
-			Location:           masterProfile.Location,
 			ProfileStatus:      masterProfile.ProfileStatus,
 		}
 	}
@@ -879,7 +876,7 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 		if rulesErr != nil {
 			logger.Warn("UpdateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
-			profileToUpDate.OrgHandle = org.Handle
+			profileToUpDate.OrgId = org.ID
 			queue.Enqueue(profileToUpDate)
 		} else {
 			before := flattenProfileAttrs(*profile)
@@ -894,7 +891,7 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 			// evaluation instead, so only a materially stronger match reopens it.
 
 			if shouldResolveAfterUpdate(*profile, profileToUpDate, matchedValuesChanged, activeRules) {
-				profileToUpDate.OrgHandle = org.Handle
+				profileToUpDate.OrgId = org.ID
 				queue.Enqueue(profileToUpDate)
 			}
 		}
@@ -969,7 +966,7 @@ func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId string, org
 			Meta: profileModel.Meta{
 				CreatedAt: profile.CreatedAt,
 				UpdatedAt: profile.UpdatedAt,
-				Location:  profile.Location,
+				Location:  utils.BuildProfileLocation(org.Handle, profile.ProfileId),
 			},
 			MergedFrom: alias,
 		}
@@ -1001,7 +998,7 @@ func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId string, org
 				Meta: profileModel.Meta{
 					CreatedAt: masterProfile.CreatedAt,
 					UpdatedAt: masterProfile.UpdatedAt,
-					Location:  masterProfile.Location,
+					Location:  utils.BuildProfileLocation(org.Handle, masterProfile.ProfileId),
 				},
 				MergedTo: alias,
 			}
@@ -1310,7 +1307,7 @@ func (ps *ProfilesService) GetAllProfilesCursor(ctx context.Context,
 		baseMeta := profileModel.Meta{
 			CreatedAt: profile.CreatedAt,
 			UpdatedAt: profile.UpdatedAt,
-			Location:  profile.Location,
+			Location:  utils.BuildProfileLocation(org.Handle, profile.ProfileId),
 		}
 
 		alias, err := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
@@ -1430,7 +1427,7 @@ func (ps *ProfilesService) GetAllProfilesWithFilterCursor(ctx context.Context,
 		baseMeta := profileModel.Meta{
 			CreatedAt: profile.CreatedAt,
 			UpdatedAt: profile.UpdatedAt,
-			Location:  profile.Location,
+			Location:  utils.BuildProfileLocation(org.Handle, profile.ProfileId),
 		}
 
 		alias, err := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
@@ -1520,7 +1517,7 @@ func (ps *ProfilesService) FindProfileByUserId(ctx context.Context,
 		Meta: profileModel.Meta{
 			CreatedAt: profile.CreatedAt,
 			UpdatedAt: profile.UpdatedAt,
-			Location:  profile.Location,
+			Location:  utils.BuildProfileLocation(org.Handle, profile.ProfileId),
 		},
 		MergedFrom: alias,
 	}
@@ -2092,7 +2089,7 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 		baseMeta := profileModel.Meta{
 			CreatedAt: profile.CreatedAt,
 			UpdatedAt: profile.UpdatedAt,
-			Location:  profile.Location,
+			Location:  utils.BuildProfileLocation(org.Handle, profile.ProfileId),
 		}
 		alias, _ := profileStore.FetchReferencedProfiles(ctx, profile.ProfileId)
 

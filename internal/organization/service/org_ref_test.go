@@ -185,3 +185,35 @@ func TestConcurrentResolvesStoreOnce(t *testing.T) {
 		t.Fatalf("expected one identity provider lookup, got %d", fake.lookups.Load())
 	}
 }
+
+func TestLookupOrganizationById(t *testing.T) {
+
+	fake, testDB := setUpLookup(t, map[string]string{"pied-piper": "pied-piper-id"})
+	ctx := context.Background()
+
+	// An unknown ID is not found, and the identity provider is not called.
+	if _, found, err := LookupOrganizationById(ctx, "pied-piper-id"); err != nil || found {
+		t.Fatalf("expected pied-piper-id to be unknown before it is resolved, got %v, %v", found, err)
+	}
+	if fake.lookups.Load() != 0 {
+		t.Fatal("LookupOrganizationById called the identity provider")
+	}
+
+	// The ID of an organization that ResolveOrganization stored is found with its handle.
+	if _, err := ResolveOrganization(ctx, "pied-piper"); err != nil {
+		t.Fatal(err)
+	}
+	ref, found, err := LookupOrganizationById(ctx, "pied-piper-id")
+	if err != nil || !found || ref.ID != "pied-piper-id" || ref.Handle != "pied-piper" {
+		t.Fatalf("LookupOrganizationById(pied-piper-id) = %+v, %v, %v", ref, found, err)
+	}
+
+	// The second lookup comes from the cache, so it finds the row after the row is gone.
+	if _, err := testDB.DB.Exec(`DELETE FROM organizations WHERE org_id = 'pied-piper-id'`); err != nil {
+		t.Fatal(err)
+	}
+	if ref, found, err := LookupOrganizationById(ctx, "pied-piper-id"); err != nil || !found ||
+		ref.Handle != "pied-piper" {
+		t.Fatalf("expected the cached organization, got %+v, %v, %v", ref, found, err)
+	}
+}

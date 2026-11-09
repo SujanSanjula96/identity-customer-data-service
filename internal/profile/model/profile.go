@@ -41,10 +41,9 @@ type Reference struct {
 type Profile struct {
 	ProfileId          string                 `json:"profile_id" bson:"profile_id"`
 	UserId             string                 `json:"user_id" bson:"user_id"`
-	OrgHandle          string                 `json:"org_handle" bson:"org_handle"`
+	OrgId              string                 `json:"org_id" bson:"org_id"`
 	CreatedAt          time.Time              `json:"created_at" bson:"created_at"`
 	UpdatedAt          time.Time              `json:"updated_at" bson:"updated_at"`
-	Location           string                 `json:"location" bson:"location"`
 	IdentityAttributes map[string]interface{} `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
 	Traits             map[string]interface{} `json:"traits,omitempty" bson:"traits,omitempty"`
 	ApplicationData    []ApplicationData      `json:"application_data,omitempty" bson:"application_data,omitempty"`

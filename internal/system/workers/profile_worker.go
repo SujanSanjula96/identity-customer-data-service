@@ -36,7 +36,6 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/queue"
-	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/provider"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -87,11 +86,16 @@ func StartProfileWorker() error {
 
 	if err := q.Start(func(profile profileModel.Profile) {
 		err := lifecycle.run(func(ctx context.Context) {
-			// The queue message carries the org handle. Resolve the org once for the job.
-			org, err := orgService.ResolveOrganization(ctx, profile.OrgHandle)
+			// The queue message carries the org ID. Read the org once for the job.
+			org, found, err := orgService.LookupOrganizationById(ctx, profile.OrgId)
 			if err != nil {
-				log.GetLogger().Error(fmt.Sprintf("Failed to resolve the organization of profile %s for unification",
-					profile.ProfileId), log.Error(err))
+				log.GetLogger().Error(fmt.Sprintf("Failed to read the organization %s of profile %s for unification",
+					profile.OrgId, profile.ProfileId), log.Error(err))
+				return
+			}
+			if !found {
+				log.GetLogger().Error(fmt.Sprintf("CDS does not know the organization %s of profile %s, so the "+
+					"profile was not unified", profile.OrgId, profile.ProfileId))
 				return
 			}
 			storedProfile, err := profileStore.GetProfileWithOptions(ctx, profile.ProfileId, org.ID,
@@ -265,7 +269,7 @@ func mergeUnificationCandidate(ctx context.Context, org orgModel.Ref, candidateI
 		logger.Error("Failed to load unification candidate", log.Error(err))
 		return true
 	}
-	if candidate == nil || candidate.OrgHandle != incoming.OrgHandle ||
+	if candidate == nil || candidate.OrgId != incoming.OrgId ||
 		candidate.ProfileStatus == nil || !candidate.ProfileStatus.IsReferenceProfile {
 		return false
 	}
@@ -496,7 +500,6 @@ func mergeSameKindProfiles(ctx context.Context, org orgModel.Ref,
 
 		newMasterProfile.ProfileId = uuid.New().String()
 		newMasterProfile.UserId = ""
-		newMasterProfile.Location = utils.BuildProfileLocation(newMasterProfile.OrgHandle, newMasterProfile.ProfileId)
 
 		childProfile1 := profileModel.Reference{
 			ProfileId: newProfile.ProfileId,
@@ -593,7 +596,7 @@ func MergeProfiles(existingProfile profileModel.Profile, incomingProfile profile
 		merged.UserId = existingProfile.UserId
 	}
 
-	merged.OrgHandle = incomingProfile.OrgHandle
+	merged.OrgId = incomingProfile.OrgId
 	merged.CreatedAt = existingProfile.CreatedAt
 	merged.UpdatedAt = time.Now().UTC()
 

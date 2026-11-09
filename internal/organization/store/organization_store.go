@@ -41,6 +41,9 @@ const refCacheTTL = 5 * time.Minute
 // that another pod stores is found on the next lookup.
 var refs = cache.NewCache(refCacheTTL)
 
+// refsById caches LookupOrganizationRefById by org ID, as refs does by org handle.
+var refsById = cache.NewCache(refCacheTTL)
+
 func serverError(description string, err error) error {
 	return errors2.NewServerError(errors2.ErrorMessage{
 		Code:        errors2.ORGANIZATION_STORE.Code,
@@ -68,6 +71,7 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
 	}
 	refs.Delete(org.OrgHandle)
+	refsById.Delete(org.OrgId)
 	return nil
 }
 
@@ -104,6 +108,24 @@ func LookupOrganizationRef(ctx context.Context, orgHandle string) (ref model.Ref
 		return model.Ref{}, false, err
 	}
 	refs.Set(orgHandle, org.Ref())
+	return org.Ref(), true, nil
+}
+
+// LookupOrganizationRefById returns the org ID and the org handle of the stored organization with the
+// ID. found is false when the ID has no row. As LookupOrganizationRef does, it reads the table when
+// organization management is disabled. The result is cached.
+func LookupOrganizationRefById(ctx context.Context, orgId string) (ref model.Ref, found bool, err error) {
+
+	if value, ok := refsById.Get(orgId); ok {
+		if ref, ok := value.(model.Ref); ok {
+			return ref, true, nil
+		}
+	}
+	org, err := getOne(ctx, scripts.GetOrganizationById, orgId)
+	if err != nil || org == nil {
+		return model.Ref{}, false, err
+	}
+	refsById.Set(orgId, org.Ref())
 	return org.Ref(), true, nil
 }
 

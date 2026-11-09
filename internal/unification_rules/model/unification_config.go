@@ -22,13 +22,11 @@ import "github.com/wso2/identity-customer-data-service/internal/system/constants
 
 // ProfileUnificationMode represents rules for merging user profiles
 type ProfileUnificationMode struct {
-	OrgHandle string `json:"org_handle" bson:"org_handle" `
 	MergeType string `json:"merge_type" bson:"merge_type" binding:"required"`
 	Rule      string `json:"rule" bson:"rule" binding:"required"`
 }
 
 type ProfileUnificationTrigger struct {
-	OrgHandle   string `json:"org_handle" bson:"org_handle" `
 	TriggerType string `json:"trigger_type" bson:"trigger_type" binding:"required"`
 	LastTrigger int64  `json:"last_trigger" bson:"last_trigger"`
 	Duration    int64  `json:"duration" bson:"duration"`

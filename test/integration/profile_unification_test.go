@@ -358,7 +358,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		jsonData := []byte(`{
 	   "rule_name": "` + RuleNameEmailBased + `",
 		"rule_id": "` + emailRuleId + `",
-		"org_handle": "` + OtherTenant.Handle + `",
+		"org_id": "` + OtherTenant.ID + `",
 	   "property_name": "identity_attributes.email",
 	   "priority": 1,
 	   "is_active": true

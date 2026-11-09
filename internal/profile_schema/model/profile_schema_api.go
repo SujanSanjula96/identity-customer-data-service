@@ -19,6 +19,6 @@
 package model
 
 type ProfileSchemaSync struct {
-	OrgId string `json:"orgHandle" bson:"orgHandle"`
-	Event string `json:"event" bson:"event"`
+	OrgHandle string `json:"orgHandle" bson:"orgHandle"`
+	Event     string `json:"event" bson:"event"`
 }
