@@ -63,7 +63,7 @@ func TestAdminConfigRowsDefaultAutoMergeEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := scanAdminConfigRows("acme", tt.rows)
+			config := scanAdminConfigRows(tt.rows)
 			if config.AutoMergeEnabled != tt.want {
 				t.Errorf("AutoMergeEnabled = %v, want %v", config.AutoMergeEnabled, tt.want)
 			}
@@ -109,7 +109,7 @@ func TestAdminConfigRowsDefaultDeterministicMatchDecisive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := scanAdminConfigRows("acme", tt.rows)
+			config := scanAdminConfigRows(tt.rows)
 			if config.DeterministicMatchDecisive != tt.want {
 				t.Errorf("DeterministicMatchDecisive = %v, want %v", config.DeterministicMatchDecisive, tt.want)
 			}

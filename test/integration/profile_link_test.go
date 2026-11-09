@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,7 +54,7 @@ const linkTestScope = "internal_cds_profile_link"
 
 func Test_ProfileLink(t *testing.T) {
 
-	org := fmt.Sprintf("carbon.super-link-%d", time.Now().UnixNano())
+	org := setup.TestOrg(t, fmt.Sprintf("carbon.super-link-%d", time.Now().UnixNano()))
 	profileSvc := profileService.GetProfilesService()
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
 
@@ -64,14 +65,14 @@ func Test_ProfileLink(t *testing.T) {
 
 	t.Run("PreRequisite_EnableCDSAndAddSchema", func(t *testing.T) {
 		err := adminConfigStore.UpdateAdminConfig(context.Background(), adminConfigModel.AdminConfig{
-			OrgHandle:  org,
+			OrgHandle:  org.Handle,
 			CDSEnabled: true,
-		}, org)
+		}, org.ID)
 		require.NoError(t, err)
 
 		identityAttributes := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         org,
+				OrgId:         org.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "identity_attributes.email",
 				ValueType:     constants.StringDataType,
@@ -93,7 +94,7 @@ func Test_ProfileLink(t *testing.T) {
 		require.Empty(t, anonymous.UserId)
 
 		userId := "user-" + uuid.New().String()
-		status, body := doLink(t, router, org, linkBody(anonymous.ProfileId, userId))
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, userId))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		var linkResponse profileModel.ProfileLinkResponse
@@ -123,7 +124,7 @@ func Test_ProfileLink(t *testing.T) {
 			"Garbage":          `not-json`,
 		} {
 			t.Run(name, func(t *testing.T) {
-				status, body := doLink(t, router, org, payload)
+				status, body := doLink(t, router, org.Handle, payload)
 				require.Equal(t, http.StatusBadRequest, status, string(body))
 
 				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
@@ -134,7 +135,7 @@ func Test_ProfileLink(t *testing.T) {
 	})
 
 	t.Run("Link_Unknown_Profile_Is_Not_Found", func(t *testing.T) {
-		status, body := doLink(t, router, org,
+		status, body := doLink(t, router, org.Handle,
 			linkBody(uuid.New().String(), "user-does-not-matter"))
 		require.Equal(t, http.StatusNotFound, status, string(body))
 	})
@@ -146,11 +147,11 @@ func Test_ProfileLink(t *testing.T) {
 		require.NoError(t, err)
 
 		firstUser := "user-" + uuid.New().String()
-		status, body := doLink(t, router, org, linkBody(anonymous.ProfileId, firstUser))
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, firstUser))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		secondUser := "user-" + uuid.New().String()
-		status, body = doLink(t, router, org, linkBody(anonymous.ProfileId, secondUser))
+		status, body = doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, secondUser))
 		require.Equal(t, http.StatusConflict, status, string(body))
 
 		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org)
@@ -167,11 +168,11 @@ func Test_ProfileLink(t *testing.T) {
 		userId := "user-" + uuid.New().String()
 		payload := linkBody(anonymous.ProfileId, userId)
 
-		status, body := doLink(t, router, org, payload)
+		status, body := doLink(t, router, org.Handle, payload)
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		// A retry after a lost response must not fail.
-		status, body = doLink(t, router, org, payload)
+		status, body = doLink(t, router, org.Handle, payload)
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		var linkResponse profileModel.ProfileLinkResponse
@@ -199,7 +200,7 @@ func Test_ProfileLink(t *testing.T) {
 		}, org)
 		require.NoError(t, err)
 
-		status, body := doLink(t, router, org, linkBody(anonymous.ProfileId, userId))
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, userId))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		time.Sleep(2 * time.Second)

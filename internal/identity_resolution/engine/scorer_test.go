@@ -51,8 +51,8 @@ func TestScoreCandidateDecisions(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	plain := ScoringContext{OrgHandle: "acme", Thresholds: thresholds}
-	valueSharedWidely := ScoringContext{OrgHandle: "acme", Thresholds: thresholds,
+	plain := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+	valueSharedWidely := ScoringContext{OrgId: "acme", Thresholds: thresholds,
 		ValueFrequency: func(_, _, _ string) (int, error) { return constants.RarityCommonMinProfiles * 6, nil }}
 
 	nic := testRule("identity_attributes.nic", constants.AttributeTypeUniqueID, constants.UnificationMethodDeterministic, 1)
@@ -163,7 +163,7 @@ func TestScoreCandidateIsIndependentOfRuleCount(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgHandle: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
 
 	incoming := map[string]interface{}{
 		"identity_attributes.email": "j.smith@acme.com",

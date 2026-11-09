@@ -21,6 +21,7 @@ package model
 import (
 	"context"
 	adminStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -45,16 +46,16 @@ func DefaultThresholds() Thresholds {
 	}
 }
 
-func LoadThresholds(ctx context.Context, orgHandle string) Thresholds {
+func LoadThresholds(ctx context.Context, org orgModel.Ref) Thresholds {
 	logger := log.GetLogger()
 	defaults := DefaultThresholds()
 
 	// A sub organization uses the settings of its primary organization.
-	configHandle := orgHandle
-	if primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle); known {
-		configHandle = primaryHandle
+	configOrgId := org.ID
+	if primary, known := orgService.PrimaryOf(ctx, org.ID); known {
+		configOrgId = primary.ID
 	}
-	adminCfg, err := adminStore.GetAdminConfig(ctx, configHandle)
+	adminCfg, err := adminStore.GetAdminConfig(ctx, configOrgId)
 	if err != nil || adminCfg == nil {
 		logger.Warn("LoadThresholds: failed to load admin config, using defaults")
 		return defaults

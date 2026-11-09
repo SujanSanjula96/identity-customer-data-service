@@ -87,14 +87,14 @@ var (
 )
 
 // StartTreeSync starts a background sync of the organization tree and returns the sync state.
-func StartTreeSync(ctx context.Context, primaryHandle string) (*model.TreeSyncStatus, error) {
+func StartTreeSync(ctx context.Context, primary model.Ref) (*model.TreeSyncStatus, error) {
 
-	if _, err := EnsurePrimary(ctx, primaryHandle); err != nil {
+	if _, err := EnsurePrimary(ctx, primary.Handle); err != nil {
 		return nil, err
 	}
 	treeSyncMu.Lock()
 	defer treeSyncMu.Unlock()
-	status, err := store.GetTreeSyncStatus(ctx, primaryHandle)
+	status, err := store.GetTreeSyncStatus(ctx, primary.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,29 +105,29 @@ func StartTreeSync(ctx context.Context, primaryHandle string) (*model.TreeSyncSt
 			Description: errors2.TREE_SYNC_RUNNING.Description,
 		}, http.StatusConflict)
 	}
-	if err := markSyncing(ctx, primaryHandle); err != nil {
+	if err := markSyncing(ctx, primary.ID); err != nil {
 		return nil, err
 	}
-	scheduleLocked(primaryHandle)
-	return store.GetTreeSyncStatus(ctx, primaryHandle)
+	scheduleLocked(primary)
+	return store.GetTreeSyncStatus(ctx, primary.ID)
 }
 
 // ResetTreeSync clears the tree sync state of the primary organization.
-func ResetTreeSync(ctx context.Context, primaryHandle string) error {
+func ResetTreeSync(ctx context.Context, primary model.Ref) error {
 
 	treeSyncMu.Lock()
 	defer treeSyncMu.Unlock()
-	if run, running := treeSyncRuns[primaryHandle]; running {
+	if run, running := treeSyncRuns[primary.ID]; running {
 		run.again = false
 	}
-	status, err := store.GetTreeSyncStatus(ctx, primaryHandle)
+	status, err := store.GetTreeSyncStatus(ctx, primary.ID)
 	if err != nil {
 		return err
 	}
 	if status.State == model.TreeSyncNotSynced && status.LastSyncedAt == nil {
 		return nil
 	}
-	return store.SetTreeSyncValues(ctx, primaryHandle, clearedTreeSyncValues())
+	return store.SetTreeSyncValues(ctx, primary.ID, clearedTreeSyncValues())
 }
 
 // clearedTreeSyncValues returns the tree sync keys with empty values.
@@ -142,41 +142,41 @@ func clearedTreeSyncValues() map[string]string {
 }
 
 // GetTreeSyncStatus returns the tree sync state of the primary organization.
-func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSyncStatus, error) {
-	return store.GetTreeSyncStatus(ctx, primaryHandle)
+func GetTreeSyncStatus(ctx context.Context, primaryId string) (*model.TreeSyncStatus, error) {
+	return store.GetTreeSyncStatus(ctx, primaryId)
 }
 
 // scheduleLocked starts the sync goroutine. The caller holds treeSyncMu.
-func scheduleLocked(primaryHandle string) {
+func scheduleLocked(primary model.Ref) {
 
-	if run, running := treeSyncRuns[primaryHandle]; running {
+	if run, running := treeSyncRuns[primary.ID]; running {
 		run.again = true
 		return
 	}
 	run := &treeSyncRun{}
-	treeSyncRuns[primaryHandle] = run
+	treeSyncRuns[primary.ID] = run
 	go func() {
 		for {
-			runTreeSync(context.Background(), primaryHandle)
+			runTreeSync(context.Background(), primary)
 			treeSyncMu.Lock()
 			if !run.again {
-				delete(treeSyncRuns, primaryHandle)
+				delete(treeSyncRuns, primary.ID)
 				treeSyncMu.Unlock()
 				return
 			}
 			run.again = false
-			err := markSyncing(context.Background(), primaryHandle)
+			err := markSyncing(context.Background(), primary.ID)
 			treeSyncMu.Unlock()
 			if err != nil {
 				log.GetLogger().Error(fmt.Sprintf("Failed to store the organization sync state of primary "+
-					"organization '%s'.", primaryHandle), log.Error(err))
+					"organization '%s'.", primary.Handle), log.Error(err))
 			}
 		}
 	}()
 }
 
-func markSyncing(ctx context.Context, primaryHandle string) error {
-	return store.SetTreeSyncValues(ctx, primaryHandle, map[string]string{
+func markSyncing(ctx context.Context, primaryId string) error {
+	return store.SetTreeSyncValues(ctx, primaryId, map[string]string{
 		model.ConfigTreeSyncState:      model.TreeSyncSyncing,
 		model.ConfigTreeSyncStartedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 		model.ConfigTreeSyncFinishedAt: "",
@@ -185,7 +185,7 @@ func markSyncing(ctx context.Context, primaryHandle string) error {
 }
 
 // runTreeSync syncs the organization tree and stores the end state.
-func runTreeSync(ctx context.Context, primaryHandle string) {
+func runTreeSync(ctx context.Context, primary model.Ref) {
 
 	logger := log.GetLogger()
 	values := map[string]string{}
@@ -195,12 +195,12 @@ func runTreeSync(ctx context.Context, primaryHandle string) {
 				err = fmt.Errorf("the organization sync stopped: %v", r)
 			}
 		}()
-		return syncTree(ctx, primaryHandle)
+		return syncTree(ctx, primary.Handle)
 	}()
 	finished := time.Now().UTC().Format(time.RFC3339Nano)
 	values[model.ConfigTreeSyncFinishedAt] = finished
 	if err != nil {
-		logger.Error(fmt.Sprintf("The organization sync of primary organization '%s' failed.", primaryHandle),
+		logger.Error(fmt.Sprintf("The organization sync of primary organization '%s' failed.", primary.Handle),
 			log.Error(err))
 		values[model.ConfigTreeSyncState] = model.TreeSyncFailed
 		values[model.ConfigTreeSyncError] = err.Error()
@@ -211,16 +211,16 @@ func runTreeSync(ctx context.Context, primaryHandle string) {
 	}
 	treeSyncMu.Lock()
 	defer treeSyncMu.Unlock()
-	if config, err := adminConfigStore.GetAdminConfig(ctx, primaryHandle); err == nil &&
+	if config, err := adminConfigStore.GetAdminConfig(ctx, primary.ID); err == nil &&
 		(config == nil || !config.CDSEnabled) {
 		values = clearedTreeSyncValues()
-		if run, running := treeSyncRuns[primaryHandle]; running {
+		if run, running := treeSyncRuns[primary.ID]; running {
 			run.again = false
 		}
 	}
-	if err := store.SetTreeSyncValues(ctx, primaryHandle, values); err != nil {
+	if err := store.SetTreeSyncValues(ctx, primary.ID, values); err != nil {
 		logger.Error(fmt.Sprintf("Failed to store the organization sync state of primary organization '%s'.",
-			primaryHandle), log.Error(err))
+			primary.Handle), log.Error(err))
 	}
 }
 
@@ -356,19 +356,16 @@ func HandleSyncEvent(ctx context.Context, pathHandle string, event model.SyncEve
 				model.EventOrgCreated, model.EventOrgUpdated, model.EventOrgDeleted),
 		}, http.StatusBadRequest)
 	}
-	primaryHandle, err := enabledPrimaryHandle(ctx, pathHandle)
+	primary, err := enabledPrimary(ctx, pathHandle)
 	if err != nil {
 		return err
 	}
-	status, err := store.GetTreeSyncStatus(ctx, primaryHandle)
+	primaryHandle := primary.OrgHandle
+	status, err := store.GetTreeSyncStatus(ctx, primary.OrgId)
 	if err != nil {
 		return err
 	}
-	primary, err := store.GetOrganizationByHandle(ctx, primaryHandle)
-	if err != nil {
-		return err
-	}
-	if status.State == model.TreeSyncNotSynced || primary == nil {
+	if status.State == model.TreeSyncNotSynced {
 		log.GetLogger().Debug(fmt.Sprintf("Ignoring the organization event %s of '%s', because the organizations "+
 			"of primary organization '%s' are not synced.", event.Event, event.OrgId, primaryHandle))
 		return nil
@@ -423,56 +420,64 @@ func HandleSyncEvent(ctx context.Context, pathHandle string, event model.SyncEve
 	return nil
 }
 
-// enabledPrimaryHandle returns the handle of the primary organization when CDS is enabled for it.
-func enabledPrimaryHandle(ctx context.Context, orgHandle string) (string, error) {
+// enabledPrimary returns the primary organization when CDS is enabled for it.
+func enabledPrimary(ctx context.Context, orgHandle string) (*model.Organization, error) {
 
-	primaryHandle := orgHandle
 	org, err := store.GetOrganizationByHandle(ctx, orgHandle)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if org != nil && !org.IsPrimary() {
-		primary, err := store.GetOrganizationById(ctx, org.PrimaryOrgId)
+	if org == nil {
+		return nil, cdsNotEnabled()
+	}
+	primary := org
+	if !org.IsPrimary() {
+		primary, err = store.GetOrganizationById(ctx, org.PrimaryOrgId)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if primary != nil {
-			primaryHandle = primary.OrgHandle
+		if primary == nil {
+			return nil, cdsNotEnabled()
 		}
 	}
-	config, err := adminConfigStore.GetAdminConfig(ctx, primaryHandle)
+	config, err := adminConfigStore.GetAdminConfig(ctx, primary.OrgId)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if config == nil || !config.CDSEnabled {
-		return "", errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
-		}, http.StatusBadRequest)
+		return nil, cdsNotEnabled()
 	}
-	return primaryHandle, nil
+	return primary, nil
 }
 
-// PrimaryHandleOf returns the handle of the primary organization of the organization. The bool is
-// false when the organization is not stored or not active.
-func PrimaryHandleOf(ctx context.Context, orgHandle string) (string, bool) {
+func cdsNotEnabled() error {
 
-	org, err := store.GetOrganizationByHandle(ctx, orgHandle)
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.CDS_NOT_ENABLED.Code,
+		Message:     errors2.CDS_NOT_ENABLED.Message,
+		Description: errors2.CDS_NOT_ENABLED.Description,
+	}, http.StatusBadRequest)
+}
+
+// PrimaryOf returns the primary organization of the organization with the org ID. The bool is
+// false when the organization is not stored or not active.
+func PrimaryOf(ctx context.Context, orgId string) (model.Ref, bool) {
+
+	org, err := store.GetOrganizationById(ctx, orgId)
 	if err != nil || org == nil {
-		return "", false
+		return model.Ref{}, false
 	}
 	if org.IsPrimary() {
-		return org.OrgHandle, true
+		return org.Ref(), true
 	}
 	if org.Status != model.StatusActive {
-		return "", false
+		return model.Ref{}, false
 	}
 	primary, err := store.GetOrganizationById(ctx, org.PrimaryOrgId)
 	if err != nil || primary == nil {
-		return "", false
+		return model.Ref{}, false
 	}
-	return primary.OrgHandle, true
+	return primary.Ref(), true
 }
 
 // SubOrgHandleOf returns the handle of a sub organization in the tree of the primary organization.
@@ -514,6 +519,11 @@ func IsSubOrgHandle(ctx context.Context, orgHandle string) (bool, error) {
 // GetOrganizationByHandle returns the stored organization of the handle, or nil.
 func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Organization, error) {
 	return store.GetOrganizationByHandle(ctx, orgHandle)
+}
+
+// GetOrganizationById returns the stored organization with the ID, or nil.
+func GetOrganizationById(ctx context.Context, orgId string) (*model.Organization, error) {
+	return store.GetOrganizationById(ctx, orgId)
 }
 
 // GetOrganizationsByIds returns the stored organizations with the IDs.

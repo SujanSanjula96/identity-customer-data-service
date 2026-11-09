@@ -3,6 +3,8 @@ package integration
 import (
 	"context"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
@@ -19,17 +21,17 @@ import (
 
 func Test_UnificationRule(t *testing.T) {
 
-	SuperTenantOrg := fmt.Sprintf("carbon.super-%d", time.Now().UnixNano())
+	SuperTenantOrg := setup.TestOrg(t, fmt.Sprintf("carbon.super-%d", time.Now().UnixNano()))
 	profileSchemaService := schemaService.GetProfileSchemaService()
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(context.Context, string, string) (error, bool) { return nil, true })
+		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
 	defer restore()
 
 	t.Run("Pre-requisite: Add_schema_attribute", func(t *testing.T) {
 		schemaAttributes := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         SuperTenantOrg,
+				OrgId:         SuperTenantOrg.ID,
 				AttributeName: "identity_attributes.email",
 				AttributeId:   uuid.New().String(),
 				ValueType:     constants.StringDataType,
@@ -46,7 +48,7 @@ func Test_UnificationRule(t *testing.T) {
 	rule := model.UnificationRule{
 		RuleName:     "Email based",
 		RuleId:       uuid.New().String(),
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
 		IsActive:     true,
@@ -62,7 +64,7 @@ func Test_UnificationRule(t *testing.T) {
 	t.Run("Reject_complex_attribute_in_unification_rule", func(t *testing.T) {
 		//  Add a valid sub-attribute
 		subAttr := profileSchema.ProfileSchemaAttribute{
-			OrgId:         SuperTenantOrg,
+			OrgId:         SuperTenantOrg.ID,
 			AttributeId:   uuid.New().String(),
 			AttributeName: "traits.orders.payment.method",
 			ValueType:     constants.StringDataType,
@@ -74,7 +76,7 @@ func Test_UnificationRule(t *testing.T) {
 
 		//  Add parent complex attribute referencing sub-attribute
 		parentAttr := profileSchema.ProfileSchemaAttribute{
-			OrgId:         SuperTenantOrg,
+			OrgId:         SuperTenantOrg.ID,
 			AttributeId:   uuid.New().String(),
 			AttributeName: "traits.orders.payment",
 			ValueType:     constants.ComplexDataType,
@@ -94,7 +96,7 @@ func Test_UnificationRule(t *testing.T) {
 		rule := model.UnificationRule{
 			RuleName:     "Payment based",
 			RuleId:       uuid.New().String(),
-			OrgHandle:    SuperTenantOrg,
+			OrgHandle:    SuperTenantOrg.Handle,
 			PropertyName: "traits.orders.payment",
 			Priority:     2,
 			IsActive:     true,

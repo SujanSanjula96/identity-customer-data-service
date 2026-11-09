@@ -31,21 +31,23 @@ import (
 	consentModel "github.com/wso2/identity-customer-data-service/internal/consent/model"
 	consentService "github.com/wso2/identity-customer-data-service/internal/consent/service"
 	consentStore "github.com/wso2/identity-customer-data-service/internal/consent/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	profileSchemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	schemaService "github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
 func Test_ConsentFilter(t *testing.T) {
-	org := fmt.Sprintf("filter-org-%d", time.Now().UnixNano())
+	org := setup.TestOrg(t, fmt.Sprintf("filter-org-%d", time.Now().UnixNano()))
 	profileSvc := profileService.GetProfilesService()
 	consentSvc := consentService.GetConsentCategoryService()
 	schemaSvc := schemaService.GetProfileSchemaService()
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
-		func(context.Context, string, string) (error, bool) { return nil, true })
+		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
 	defer restore()
 
 	var profileId string
@@ -56,7 +58,7 @@ func Test_ConsentFilter(t *testing.T) {
 	t.Run("Setup_schema_attributes", func(t *testing.T) {
 		identityAttrs := []profileSchemaModel.ProfileSchemaAttribute{
 			{
-				OrgId:         org,
+				OrgId:         org.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "identity_attributes.email",
 				DisplayName:   "Email",
@@ -65,7 +67,7 @@ func Test_ConsentFilter(t *testing.T) {
 				Mutability:    constants.MutabilityReadWrite,
 			},
 			{
-				OrgId:         org,
+				OrgId:         org.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "identity_attributes.phone",
 				DisplayName:   "Phone",
@@ -79,7 +81,7 @@ func Test_ConsentFilter(t *testing.T) {
 
 		traitAttrs := []profileSchemaModel.ProfileSchemaAttribute{
 			{
-				OrgId:         org,
+				OrgId:         org.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "traits.interests",
 				DisplayName:   "Interests",
@@ -100,11 +102,11 @@ func Test_ConsentFilter(t *testing.T) {
 	t.Run("Setup_marketing_category", func(t *testing.T) {
 		cat := consentModel.ConsentCategory{
 			CategoryName: "Marketing",
-			OrgHandle:    org,
+			OrgHandle:    org.Handle,
 			Purpose:      "personalization",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}
-		created, err := consentSvc.AddConsentCategory(context.Background(), cat)
+		created, err := consentSvc.AddConsentCategory(context.Background(), org, cat)
 		require.NoError(t, err)
 		marketingCategoryId = created.CategoryIdentifier
 	})
@@ -174,11 +176,11 @@ func Test_ConsentFilter(t *testing.T) {
 		// Add a second optional category the profile has NOT consented to.
 		analyticsCat := consentModel.ConsentCategory{
 			CategoryName: "Analytics",
-			OrgHandle:    org,
+			OrgHandle:    org.Handle,
 			Purpose:      "profiling",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}
-		createdAnalytics, err := consentSvc.AddConsentCategory(context.Background(), analyticsCat)
+		createdAnalytics, err := consentSvc.AddConsentCategory(context.Background(), org, analyticsCat)
 		require.NoError(t, err)
 		analyticsCategoryId := createdAnalytics.CategoryIdentifier
 
@@ -199,7 +201,7 @@ func Test_ConsentFilter(t *testing.T) {
 	})
 
 	t.Run("Mandatory_category_cannot_be_consented_to_per_profile", func(t *testing.T) {
-		mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(context.Background(), org)
+		mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(context.Background(), org.ID)
 		require.NoError(t, err)
 		require.NotEmpty(t, mandatoryIds)
 

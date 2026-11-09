@@ -377,9 +377,9 @@ func clampScore(score float64) float64 {
 // simply not consulted and every value is treated as ordinary — scoring degrades to the
 // same decisions minus the rarity demotion, never to a wrong one.
 type ScoringContext struct {
-	OrgHandle      string
+	OrgId          string
 	Thresholds     model.Thresholds
-	ValueFrequency func(orgHandle, attributeName, keyValue string) (int, error)
+	ValueFrequency func(orgId, attributeName, keyValue string) (int, error)
 }
 
 // isCommonValue reports whether the value that produced this match is already shared by
@@ -394,7 +394,7 @@ func (ctx ScoringContext) isCommonValue(eval *model.RuleEvaluation) bool {
 		return false
 	}
 
-	count, err := ctx.ValueFrequency(ctx.OrgHandle, eval.PropertyName, key)
+	count, err := ctx.ValueFrequency(ctx.OrgId, eval.PropertyName, key)
 	if err != nil {
 		// A frequency we cannot read must not silently license an auto-merge, but it also
 		// must not block one — treat the value as ordinary and let the other gates decide.

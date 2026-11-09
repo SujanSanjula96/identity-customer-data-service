@@ -32,20 +32,15 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
-	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 // GetProfilesForOrgAfter returns up to limit profiles whose id sorts after afterProfileID.
 // Pass an empty afterProfileID to start. See IRGetProfilesForOrgAfter for why this is keyed
 // rather than offset-based.
-func GetProfilesForOrgAfter(ctx context.Context, orgHandle string, afterProfileID string, limit int) ([]model.ProfileData, error) {
+func GetProfilesForOrgAfter(ctx context.Context, orgId string, afterProfileID string, limit int) ([]model.ProfileData, error) {
 	logger := log.GetLogger()
 
 	// An organization that CDS does not know gets an empty key, which matches no row.
-	orgKey, _, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return nil, err
-	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -58,12 +53,12 @@ func GetProfilesForOrgAfter(ctx context.Context, orgHandle string, afterProfileI
 	defer dbClient.Close()
 
 	query := scripts.IRGetProfilesForOrgAfter
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, afterProfileID, limit)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, afterProfileID, limit)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,
 			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load profiles after '%s' for org: %s", afterProfileID, orgHandle),
+			Description: fmt.Sprintf("Failed to load profiles after '%s' for org: %s", afterProfileID, orgId),
 		}, err)
 	}
 
@@ -119,13 +114,8 @@ func scanProfileData(row map[string]interface{}) (model.ProfileData, error) {
 	return pd, nil
 }
 
-func InsertReviewTask(ctx context.Context, task model.ReviewTask) error {
+func InsertReviewTask(ctx context.Context, orgId string, task model.ReviewTask) error {
 	logger := log.GetLogger()
-
-	orgKey, err := orgkey.ForWrite(ctx, task.OrgHandle)
-	if err != nil {
-		return err
-	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -177,7 +167,7 @@ func InsertReviewTask(ctx context.Context, task model.ReviewTask) error {
 
 	query := scripts.IRInsertReviewTask
 	_, err = dbClient.ExecuteQueryContext(ctx, query,
-		task.ID, orgKey, task.IncomingProfileID, task.CandidateProfileID,
+		task.ID, orgId, task.IncomingProfileID, task.CandidateProfileID,
 		task.MatchScore, task.Status, string(breakdownJSON), explanationJSON(task.Explanation))
 	if err != nil {
 		logger.Error("Store: failed to insert review task", log.Error(err))
@@ -270,15 +260,7 @@ func GetReviewTaskByID(ctx context.Context, taskID string) (*model.ReviewTask, e
 	return &task, nil
 }
 
-func GetPendingReviewTasks(ctx context.Context, orgHandle string, pageSize int) ([]model.ReviewTask, int, error) {
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !known {
-		return []model.ReviewTask{}, 0, nil
-	}
+func GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) ([]model.ReviewTask, int, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -291,12 +273,12 @@ func GetPendingReviewTasks(ctx context.Context, orgHandle string, pageSize int) 
 	defer dbClient.Close()
 
 	countQuery := scripts.IRCountPendingReviewTasks
-	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgKey, constants.ReviewStatusPending)
+	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgId, constants.ReviewStatusPending)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
 			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
-			Description: fmt.Sprintf("Failed to count review tasks for org: %s", orgHandle),
+			Description: fmt.Sprintf("Failed to count review tasks for org: %s", orgId),
 		}, err)
 	}
 	totalCount := 0
@@ -312,12 +294,12 @@ func GetPendingReviewTasks(ctx context.Context, orgHandle string, pageSize int) 
 	}
 
 	query := scripts.IRGetPendingReviewTasks
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, constants.ReviewStatusPending, pageSize)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, constants.ReviewStatusPending, pageSize)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
 			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load review tasks for org: %s", orgHandle),
+			Description: fmt.Sprintf("Failed to load review tasks for org: %s", orgId),
 		}, err)
 	}
 
@@ -330,15 +312,7 @@ func GetPendingReviewTasks(ctx context.Context, orgHandle string, pageSize int) 
 	return tasks, totalCount, nil
 }
 
-func GetPendingReviewTasksByProfile(ctx context.Context, orgHandle, profileID string, pageSize int) ([]model.ReviewTask, int, error) {
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !known {
-		return []model.ReviewTask{}, 0, nil
-	}
+func GetPendingReviewTasksByProfile(ctx context.Context, orgId, profileID string, pageSize int) ([]model.ReviewTask, int, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -351,7 +325,7 @@ func GetPendingReviewTasksByProfile(ctx context.Context, orgHandle, profileID st
 	defer dbClient.Close()
 
 	countQuery := scripts.IRCountPendingReviewTasksByProfile
-	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgKey, constants.ReviewStatusPending, profileID)
+	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgId, constants.ReviewStatusPending, profileID)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
@@ -372,7 +346,7 @@ func GetPendingReviewTasksByProfile(ctx context.Context, orgHandle, profileID st
 	}
 
 	query := scripts.IRGetPendingReviewTasksByProfile
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, constants.ReviewStatusPending, profileID, pageSize)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, constants.ReviewStatusPending, profileID, pageSize)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
@@ -530,7 +504,7 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 // The pair is stored with the lower id first so one row means one pair, whichever direction
 // the review task happened to run in — the unique constraint is on the ordered columns, and
 // without normalising here the same pair could occupy two rows.
-func InsertRejectionPair(ctx context.Context, orgHandle, profileIDA, profileIDB, rejectedBy string,
+func InsertRejectionPair(ctx context.Context, orgId, profileIDA, profileIDB, rejectedBy string,
 	matchScore float64, breakdown map[string]float64) error {
 
 	logger := log.GetLogger()
@@ -538,11 +512,6 @@ func InsertRejectionPair(ctx context.Context, orgHandle, profileIDA, profileIDB,
 	first, second := profileIDA, profileIDB
 	if first > second {
 		first, second = second, first
-	}
-
-	orgKey, err := orgkey.ForWrite(ctx, orgHandle)
-	if err != nil {
-		return err
 	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -561,7 +530,7 @@ func InsertRejectionPair(ctx context.Context, orgHandle, profileIDA, profileIDB,
 	}
 
 	query := scripts.IRInsertRejectionPair
-	if _, err := dbClient.ExecuteQueryContext(ctx, query, uuid.New().String(), orgKey,
+	if _, err := dbClient.ExecuteQueryContext(ctx, query, uuid.New().String(), orgId,
 		first, second, matchScore, string(breakdownJSON), rejectedBy); err != nil {
 		logger.Error(fmt.Sprintf("Store: failed to record rejection for '%s' and '%s'",
 			first, second), log.Error(err))
@@ -577,16 +546,8 @@ func InsertRejectionPair(ctx context.Context, orgHandle, profileIDA, profileIDB,
 
 // DeleteRejectionPairsForProfile removes all rejection pairs involving the given profile so that
 // a re-evaluation triggered by a profile update can match previously rejected candidates.
-func DeleteRejectionPairsForProfile(ctx context.Context, orgHandle, profileID string) error {
+func DeleteRejectionPairsForProfile(ctx context.Context, orgId, profileID string) error {
 	logger := log.GetLogger()
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return err
-	}
-	if !known {
-		return nil
-	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -595,7 +556,7 @@ func DeleteRejectionPairsForProfile(ctx context.Context, orgHandle, profileID st
 	defer dbClient.Close()
 
 	query := scripts.IRDeleteRejectionPairsForProfile
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgKey, profileID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, profileID)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to delete rejection pairs for profile '%s'", profileID), log.Error(err))
 		return err
@@ -607,17 +568,9 @@ func DeleteRejectionPairsForProfile(ctx context.Context, orgHandle, profileID st
 // GetRejectedProfileIDs returns the set of profile IDs that have been rejected against the given profileID.
 // GetRejectionsForProfile returns every rejection involving the profile, keyed by the
 // profile on the other side of the pair, with the evidence each decision was made against.
-func GetRejectionsForProfile(ctx context.Context, orgHandle, profileID string) (map[string]model.Rejection, error) {
+func GetRejectionsForProfile(ctx context.Context, orgId, profileID string) (map[string]model.Rejection, error) {
 
 	logger := log.GetLogger()
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return nil, err
-	}
-	if !known {
-		return map[string]model.Rejection{}, nil
-	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -626,7 +579,7 @@ func GetRejectionsForProfile(ctx context.Context, orgHandle, profileID string) (
 	defer dbClient.Close()
 
 	query := scripts.IRGetRejectionsForProfile
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, profileID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, profileID)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to load rejections for '%s'", profileID), log.Error(err))
 		return nil, err
@@ -669,18 +622,10 @@ func GetRejectionsForProfile(ctx context.Context, orgHandle, profileID string) (
 // decision is silently orphaned and the same pair is proposed again through the master.
 // Rows that would name the master on both sides are left alone rather than made
 // self-referential.
-func RepointRejectionPairs(ctx context.Context, orgHandle, fromProfileID, toProfileID string) error {
+func RepointRejectionPairs(ctx context.Context, orgId, fromProfileID, toProfileID string) error {
 	logger := log.GetLogger()
 
 	if fromProfileID == "" || toProfileID == "" || fromProfileID == toProfileID {
-		return nil
-	}
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return err
-	}
-	if !known {
 		return nil
 	}
 
@@ -695,7 +640,7 @@ func RepointRejectionPairs(ctx context.Context, orgHandle, fromProfileID, toProf
 	defer dbClient.Close()
 
 	query := scripts.IRRepointRejectionPairs
-	if _, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, fromProfileID, toProfileID); err != nil {
+	if _, err := dbClient.ExecuteQueryContext(ctx, query, orgId, fromProfileID, toProfileID); err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to repoint rejection pairs from '%s' to '%s'",
 			fromProfileID, toProfileID), log.Error(err))
 		return err

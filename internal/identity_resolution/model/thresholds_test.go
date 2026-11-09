@@ -24,6 +24,7 @@ import (
 
 	adminModel "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	adminStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -64,16 +65,16 @@ func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T
 		ManualReviewThreshold:      0.6,
 		DeterministicMatchDecisive: false,
 	}
-	if err := adminStore.UpdateAdminConfig(ctx, primaryConfig, "primary"); err != nil {
+	if err := adminStore.UpdateAdminConfig(ctx, primaryConfig, "primary-id"); err != nil {
 		t.Fatalf("failed to store the configuration of the primary organization: %v", err)
 	}
 
-	got := LoadThresholds(ctx, "sub")
+	got := LoadThresholds(ctx, orgModel.Ref{ID: "sub-id", Handle: "sub"})
 	want := Thresholds{AutoMergeEnabled: false, AutoMerge: 0.95, ManualReview: 0.6, DeterministicMatchDecisive: false}
 	if got != want {
 		t.Errorf("sub organization: got %+v, want %+v", got, want)
 	}
-	if got := LoadThresholds(ctx, "primary"); got != want {
+	if got := LoadThresholds(ctx, orgModel.Ref{ID: "primary-id", Handle: "primary"}); got != want {
 		t.Errorf("primary organization: got %+v, want %+v", got, want)
 	}
 }

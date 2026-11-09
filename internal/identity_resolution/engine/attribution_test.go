@@ -132,7 +132,7 @@ func TestMergeAttributionNamesTheDecidingRule(t *testing.T) {
 				ManualReview:               0.75,
 				DeterministicMatchDecisive: tt.decisive,
 			}
-			ctx := ScoringContext{OrgHandle: "acme", Thresholds: thresholds}
+			ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
 			candidate := &model.ProfileData{ProfileID: "candidate", Attributes: tt.existing}
 
 			score, breakdown := ScoreCandidate(tt.incoming, candidate, tt.rules, ctx)

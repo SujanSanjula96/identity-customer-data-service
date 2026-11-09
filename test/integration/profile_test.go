@@ -22,6 +22,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
@@ -37,20 +39,20 @@ import (
 
 func Test_Profile(t *testing.T) {
 
-	SuperTenantOrg := fmt.Sprintf("carbon.super-%d", time.Now().UnixNano())
+	SuperTenantOrg := setup.TestOrg(t, fmt.Sprintf("carbon.super-%d", time.Now().UnixNano()))
 	profileSvc := profileService.GetProfilesService()
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
 	unificationSvc := unificationService.GetUnificationRuleService()
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(context.Context, string, string) (error, bool) { return nil, true })
+		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
 	defer restore()
 
 	t.Run("PreRequisite_AddProfileSchemaAttributes", func(t *testing.T) {
 
 		identityAttributes := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         SuperTenantOrg,
+				OrgId:         SuperTenantOrg.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "identity_attributes.email",
 				ValueType:     constants.StringDataType,
@@ -62,7 +64,7 @@ func Test_Profile(t *testing.T) {
 
 		traits := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         SuperTenantOrg,
+				OrgId:         SuperTenantOrg.ID,
 				AttributeId:   uuid.New().String(),
 				AttributeName: "traits.interests",
 				ValueType:     constants.StringDataType,
@@ -74,7 +76,7 @@ func Test_Profile(t *testing.T) {
 
 		appData := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:                 SuperTenantOrg,
+				OrgId:                 SuperTenantOrg.ID,
 				AttributeId:           uuid.New().String(),
 				AttributeName:         "application_data.device_id",
 				ValueType:             constants.StringDataType,
@@ -183,7 +185,7 @@ func Test_Profile(t *testing.T) {
 // waitForSingleMaster polls until the unification worker has merged the duplicate profiles an
 // organisation holds down to one master, so a test that lists profiles afterwards sees a
 // settled queue rather than whichever profile the merge had not reached yet.
-func waitForSingleMaster(t *testing.T, profileSvc profileService.ProfilesServiceInterface, org string) {
+func waitForSingleMaster(t *testing.T, profileSvc profileService.ProfilesServiceInterface, org orgModel.Ref) {
 	t.Helper()
 
 	deadline := time.Now().Add(10 * time.Second)
@@ -194,5 +196,5 @@ func waitForSingleMaster(t *testing.T, profileSvc profileService.ProfilesService
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("profiles in %s were not merged down to a single master within the deadline", org)
+	t.Fatalf("profiles in %s were not merged down to a single master within the deadline", org.Handle)
 }

@@ -21,6 +21,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ import (
 
 func insertCandidateFixture(t *testing.T, id, org, userID, status, attributes string, created time.Time) {
 	t.Helper()
-	args := []interface{}{id, writeOrgKey(t, org), userID, attributes, created}
+	args := []interface{}{id, resolveOrgId(t, org), userID, attributes, created}
 	if suiteDBType == database.TypeSQLite {
 		args = database.NormalizeSQLiteArgs(args)
 	}
@@ -54,10 +55,10 @@ func insertCandidateFixture(t *testing.T, id, org, userID, status, attributes st
 func findReferenceProfileCandidate(ctx context.Context, incoming profileModel.Profile,
 	property string, values []string) (string, error) {
 	if property == "" {
-		return profileStore.FindOldestReferenceProfileIDByUserID(ctx, incoming.OrgHandle, incoming.UserId,
+		return profileStore.FindOldestReferenceProfileIDByUserID(ctx, setup.TestOrgId(incoming.OrgHandle), incoming.UserId,
 			incoming.ProfileId)
 	}
-	return profileStore.FindOldestReferenceProfileIDByAttributeValues(ctx, incoming.OrgHandle, property, values,
+	return profileStore.FindOldestReferenceProfileIDByAttributeValues(ctx, setup.TestOrgId(incoming.OrgHandle), property, values,
 		incoming.ProfileId, incoming.UserId)
 }
 
@@ -192,7 +193,7 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 	for _, count := range []int{1000, 100000, 1000000} {
 		b.Run(fmt.Sprintf("masters_%d", count), func(b *testing.B) {
 			org := "unification-bench-" + uuid.NewString()
-			key := writeOrgKey(b, org)
+			key := resolveOrgId(b, org)
 			_, err := suiteDB.Exec(`INSERT INTO profiles
 				(profile_id, org_id, user_id, created_at, identity_attributes)
 				SELECT $1 || '-' || n, $3, 'user-' || n,
@@ -222,7 +223,7 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 						lookupIncoming.UserId = ""
 					}
 					query := scripts.FindOldestReferenceProfileIDByUserID
-					args := []interface{}{org, lookupIncoming.ProfileId, lookupIncoming.UserId}
+					args := []interface{}{key, lookupIncoming.ProfileId, lookupIncoming.UserId}
 					if tc.property != "" {
 						var matchArgs []interface{}
 						query, matchArgs, err = scripts.BuildFindOldestReferenceProfileIDByAttributeValuesQuery(

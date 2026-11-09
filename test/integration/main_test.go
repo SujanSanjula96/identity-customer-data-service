@@ -112,7 +112,7 @@ func TestMain(m *testing.M) {
 	provider.SetTestDB(db, dbType)
 	suiteDB, suiteDBType = db, dbType
 
-	setup.InstallTestOrgResolver()
+	setup.InstallTestIdentityProvider()
 
 	if err := workers.StartProfileWorker(); err != nil { // Start the real enrichment queue worker
 		fmt.Println("Failed to start profile worker:", err)

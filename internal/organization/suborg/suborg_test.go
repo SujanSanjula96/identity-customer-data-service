@@ -64,13 +64,13 @@ func setUp(t *testing.T) context.Context {
 func TestRejectWrite(t *testing.T) {
 
 	ctx := setUp(t)
-	if err := RejectWrite(ctx, "acme"); err != nil {
+	if err := RejectWrite(ctx, "primary-id"); err != nil {
 		t.Fatalf("a primary org must write, got %v", err)
 	}
 	if err := RejectWrite(ctx, "unknown"); err != nil {
 		t.Fatalf("an org that CDS does not know must write, got %v", err)
 	}
-	err := RejectWrite(ctx, "sub-handle")
+	err := RejectWrite(ctx, "sub-id")
 	clientErr, ok := err.(*errors.ClientError)
 	if !ok {
 		t.Fatalf("a sub org must get a client error, got %v", err)

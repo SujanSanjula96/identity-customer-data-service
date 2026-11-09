@@ -29,32 +29,33 @@ import (
 	appModel "github.com/wso2/identity-customer-data-service/internal/application/model"
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
 	appStore "github.com/wso2/identity-customer-data-service/internal/application/store"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
 func Test_ApplicationStore(t *testing.T) {
 
-	org := fmt.Sprintf("carbon.super-app-%d", time.Now().UnixNano())
-	otherOrg := fmt.Sprintf("other-app-%d", time.Now().UnixNano())
+	org := setup.TestOrg(t, fmt.Sprintf("carbon.super-app-%d", time.Now().UnixNano()))
+	otherOrg := setup.TestOrg(t, fmt.Sprintf("other-app-%d", time.Now().UnixNano()))
 	appService := appProvider.NewApplicationProvider().GetApplicationService()
 
 	appUUID := "40497337-e8bf-4d92-9545-711894ab2af3"
 	clientID := "PjR8xK2qClientId"
 
 	t.Run("Upsert_And_Resolve", func(t *testing.T) {
-		err := appStore.UpsertApplication(context.Background(), appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
 			AppID:     appUUID,
-			OrgHandle: org,
+			OrgHandle: org.Handle,
 			ClientID:  clientID,
 		})
 		require.NoError(t, err)
 
-		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org.ID, clientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, got)
 	})
 
 	t.Run("Resolve_Miss_Returns_Empty", func(t *testing.T) {
-		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, "unknown-client")
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org.ID, "unknown-client")
 		require.NoError(t, err)
 		require.Equal(t, "", got)
 
@@ -66,38 +67,38 @@ func Test_ApplicationStore(t *testing.T) {
 
 	t.Run("Org_Scoped", func(t *testing.T) {
 		otherUUID := "aaaa1111-e8bf-4d92-9545-bbbbbbbbbbbb"
-		err := appStore.UpsertApplication(context.Background(), appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), otherOrg.ID, appModel.Application{
 			AppID:     otherUUID,
-			OrgHandle: otherOrg,
+			OrgHandle: otherOrg.Handle,
 			ClientID:  clientID, // same clientId, different org
 		})
 		require.NoError(t, err)
 
-		gotOrg, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
+		gotOrg, err := appStore.GetAppIdentifierByClientID(context.Background(), org.ID, clientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, gotOrg)
 
-		gotOther, err := appStore.GetAppIdentifierByClientID(context.Background(), otherOrg, clientID)
+		gotOther, err := appStore.GetAppIdentifierByClientID(context.Background(), otherOrg.ID, clientID)
 		require.NoError(t, err)
 		require.Equal(t, otherUUID, gotOther)
 	})
 
 	t.Run("ClientId_Rotation_Updates_Mapping", func(t *testing.T) {
 		newClientID := "RotatedClientId"
-		err := appStore.UpsertApplication(context.Background(), appModel.Application{
+		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
 			AppID:     appUUID, // same app
-			OrgHandle: org,
+			OrgHandle: org.Handle,
 			ClientID:  newClientID, // rotated clientId
 		})
 		require.NoError(t, err)
 
 		// New clientId resolves to the app.
-		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org, newClientID)
+		got, err := appStore.GetAppIdentifierByClientID(context.Background(), org.ID, newClientID)
 		require.NoError(t, err)
 		require.Equal(t, appUUID, got)
 
 		// Old clientId no longer resolves (single row per app was updated in place).
-		old, err := appStore.GetAppIdentifierByClientID(context.Background(), org, clientID)
+		old, err := appStore.GetAppIdentifierByClientID(context.Background(), org.ID, clientID)
 		require.NoError(t, err)
 		require.Equal(t, "", old)
 	})
@@ -107,7 +108,7 @@ func Test_ApplicationStore(t *testing.T) {
 		samlB := "saml-2222-e8bf-4d92-9545-dddddddddddd"
 
 		// SAML-only apps have no clientId; two of them in the same org must both persist without colliding.
-		require.NoError(t, appStore.UpsertApplication(context.Background(), appModel.Application{AppID: samlA, OrgHandle: org}))
-		require.NoError(t, appStore.UpsertApplication(context.Background(), appModel.Application{AppID: samlB, OrgHandle: org}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlA, OrgHandle: org.Handle}))
+		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlB, OrgHandle: org.Handle}))
 	})
 }

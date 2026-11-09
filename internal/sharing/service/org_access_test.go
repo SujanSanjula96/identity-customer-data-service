@@ -65,7 +65,7 @@ func markSynced(t *testing.T, ctx context.Context, primary orgModel.Organization
 
 	t.Helper()
 	values := map[string]string{orgModel.ConfigTreeSyncedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := orgStore.SetTreeSyncValues(ctx, primary.OrgHandle, values); err != nil {
+	if err := orgStore.SetTreeSyncValues(ctx, primary.OrgId, values); err != nil {
 		t.Fatalf("failed to mark the tree synced: %v", err)
 	}
 }

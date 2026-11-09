@@ -22,12 +22,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"net/http"
 	"sync"
 	"time"
 
 	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -77,8 +79,12 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -171,7 +177,7 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	now := time.Now().UTC()
 	rule := model.UnificationRule{
 		RuleId:            uuid.New().String(),
-		OrgHandle:         orgHandle,
+		OrgHandle:         org.Handle,
 		RuleName:          ruleInRequest.RuleName,
 		PropertyName:      ruleInRequest.PropertyName,
 		Priority:          ruleInRequest.Priority,
@@ -186,12 +192,12 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	err = ruleService.AddUnificationRule(ctx, rule, orgHandle)
+	err = ruleService.AddUnificationRule(ctx, rule, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	addedRule, err := ruleService.GetUnificationRule(ctx, rule.RuleId, orgHandle)
+	addedRule, err := ruleService.GetUnificationRule(ctx, rule.RuleId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -200,7 +206,7 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 
 	// Trigger reindex if rule is active.
 	if addedRule.IsActive {
-		utils.SafeGo("unification rule index backfill", func() { worker.IndexNewAttribute(ctx, orgHandle, *addedRule) })
+		utils.SafeGo("unification rule index backfill", func() { worker.IndexNewAttribute(ctx, org, *addedRule) })
 	}
 
 	utils.RespondJSON(w, http.StatusCreated, addedRuleResponse, constants.UnificationRuleResource)
@@ -218,8 +224,12 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -228,7 +238,7 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 		utils.HandleError(w, clientError)
 		return
 	}
-	rules, err := ruleService.GetUnificationRules(ctx, orgHandle)
+	rules, err := ruleService.GetUnificationRules(ctx, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -251,8 +261,12 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -273,7 +287,7 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	rule, err := ruleService.GetUnificationRuleForOrg(ctx, ruleId, orgHandle)
+	rule, err := ruleService.GetUnificationRuleForOrg(ctx, ruleId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -296,8 +310,12 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -322,7 +340,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	ruleService := ruleProvider.GetUnificationRuleService()
 
 	// Fetch old rule to detect is_active changes. Only a rule that the organization owns can change.
-	oldRule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, orgHandle)
+	oldRule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -401,13 +419,13 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		}
 		updatedRule.MismatchStrength = strength
 	}
-	err = ruleService.PatchUnificationRule(ctx, ruleId, orgHandle, updatedRule)
+	err = ruleService.PatchUnificationRule(ctx, ruleId, org, updatedRule)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
-	newRule, err := ruleService.GetUnificationRule(ctx, ruleId, orgHandle)
+	newRule, err := ruleService.GetUnificationRule(ctx, ruleId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -416,10 +434,10 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	// Detect activation / deactivation and trigger reindex.
 	nowActive := newRule.IsActive
 	if !wasActive && nowActive {
-		utils.SafeGo("unification rule index backfill", func() { worker.IndexNewAttribute(ctx, orgHandle, *newRule) })
+		utils.SafeGo("unification rule index backfill", func() { worker.IndexNewAttribute(ctx, org, *newRule) })
 	}
 	if wasActive && !nowActive {
-		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, orgHandle, newRule.PropertyName) })
+		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, org, newRule.PropertyName) })
 	}
 
 	// Either of these changes the shape of the keys the rule writes, so what is already in
@@ -434,8 +452,8 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		oldRule.UnificationMethod != newRule.UnificationMethod
 	if wasActive && nowActive && keyShapeChanged {
 		utils.SafeGo("unification rule index rebuild", func() {
-			worker.RemoveAttributeIndex(ctx, orgHandle, newRule.PropertyName)
-			worker.IndexNewAttribute(ctx, orgHandle, *newRule)
+			worker.RemoveAttributeIndex(ctx, org, newRule.PropertyName)
+			worker.IndexNewAttribute(ctx, org, *newRule)
 		})
 	}
 
@@ -458,8 +476,12 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -471,7 +493,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
 	// Delete only a rule that the organization owns.
-	rule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, orgHandle)
+	rule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, org)
 	if err != nil {
 		if clientErr, ok := err.(*errors2.ClientError); ok && clientErr.StatusCode == http.StatusNotFound {
 			w.WriteHeader(http.StatusNoContent)
@@ -480,7 +502,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 		utils.HandleError(w, err)
 		return
 	}
-	err = ruleService.DeleteUnificationRule(ctx, ruleId, orgHandle)
+	err = ruleService.DeleteUnificationRule(ctx, ruleId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -488,7 +510,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 
 	// If the deleted rule was active, trigger cleanup of its blocking keys.
 	if rule != nil && rule.IsActive {
-		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, orgHandle, rule.PropertyName) })
+		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, org, rule.PropertyName) })
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -509,8 +531,8 @@ func (urh *UnificationRulesHandler) GetUnificationOptions(w http.ResponseWriter,
 }
 
 // isCDSEnabled checks if CDS is enabled for the given tenant
-func isCDSEnabled(ctx context.Context, orgHandle string) bool {
-	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgHandle)
+func isCDSEnabled(ctx context.Context, org orgModel.Ref) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, org)
 }
 
 // CreateSharingPolicy shares a rule of the organization.

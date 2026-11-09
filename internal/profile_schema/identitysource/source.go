@@ -23,29 +23,32 @@ package identitysource
 import (
 	"context"
 
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 )
 
-// HandleOf returns the handle of the organization that holds the identity attributes of the given
-// organization.
-func HandleOf(ctx context.Context, orgHandle string) string {
+// Of returns the organization that holds the identity attributes of the given organization.
+func Of(ctx context.Context, org orgModel.Ref) orgModel.Ref {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil || org.IsPrimary() {
-		return orgHandle
+	stored, err := orgStore.GetOrganizationById(ctx, org.ID)
+	if err != nil || stored == nil || stored.IsPrimary() {
+		return org
 	}
-	primary, err := orgStore.GetOrganizationById(ctx, org.PrimaryOrgId)
+	primary, err := orgStore.GetOrganizationById(ctx, stored.PrimaryOrgId)
 	if err != nil || primary == nil {
-		return orgHandle
+		return org
 	}
-	return idp.GetAdapter().IdentityAttributeSourceHandle(orgHandle, primary.OrgHandle)
+	if idp.GetAdapter().IdentityAttributeSourceHandle(org.Handle, primary.OrgHandle) != primary.OrgHandle {
+		return org
+	}
+	return orgModel.Ref{ID: primary.OrgId, Handle: primary.OrgHandle}
 }
 
 // IsInherited reports whether the organization inherits its identity attributes, and returns the
 // source organization.
-func IsInherited(ctx context.Context, orgHandle string) (string, bool) {
+func IsInherited(ctx context.Context, org orgModel.Ref) (orgModel.Ref, bool) {
 
-	source := HandleOf(ctx, orgHandle)
-	return source, source != orgHandle
+	source := Of(ctx, org)
+	return source, source.ID != org.ID
 }

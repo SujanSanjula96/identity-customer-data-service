@@ -21,6 +21,8 @@ package integration
 import (
 	"context"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"net/http"
 	"testing"
 	"time"
@@ -47,20 +49,20 @@ func Test_OrgScope_UnificationRuleStore(t *testing.T) {
 	ctx := context.Background()
 
 	suffix := time.Now().UnixNano()
-	ownerOrg := fmt.Sprintf("scope-rule-owner-%d", suffix)
-	otherOrg := fmt.Sprintf("scope-rule-other-%d", suffix)
+	ownerOrg := setup.TestOrg(t, fmt.Sprintf("scope-rule-owner-%d", suffix))
+	otherOrg := setup.TestOrg(t, fmt.Sprintf("scope-rule-other-%d", suffix))
 	ruleSvc := unificationService.GetUnificationRuleService()
 	schemaSvc := schemaService.GetProfileSchemaService()
 
 	_, err := schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{{
-		OrgId: ownerOrg, AttributeId: uuid.New().String(), AttributeName: "traits.loyalty_id",
+		OrgId: ownerOrg.ID, AttributeId: uuid.New().String(), AttributeName: "traits.loyalty_id",
 		ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 	}}, constants.Traits, ownerOrg)
 	require.NoError(t, err)
 
 	now := time.Now().UTC()
 	rule := unificationModel.UnificationRule{
-		RuleId: uuid.New().String(), OrgHandle: ownerOrg, RuleName: "Owner loyalty rule",
+		RuleId: uuid.New().String(), OrgHandle: ownerOrg.Handle, RuleName: "Owner loyalty rule",
 		PropertyName: "traits.loyalty_id", Priority: 1, IsActive: true, CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, ruleSvc.AddUnificationRule(ctx, rule, ownerOrg))
@@ -87,13 +89,13 @@ func Test_OrgScope_UnificationRuleStore(t *testing.T) {
 	})
 
 	t.Run("Store_calls_with_other_org_change_nothing", func(t *testing.T) {
-		found, err := unificationStore.GetUnificationRule(ctx, rule.RuleId, otherOrg)
+		found, err := unificationStore.GetUnificationRule(ctx, rule.RuleId, otherOrg.ID)
 		require.NoError(t, err)
 		assert.Nil(t, found)
-		require.NoError(t, unificationStore.PatchUnificationRule(ctx, rule.RuleId, otherOrg, changed))
-		require.NoError(t, unificationStore.DeleteUnificationRule(ctx, rule.RuleId, otherOrg))
+		require.NoError(t, unificationStore.PatchUnificationRule(ctx, rule.RuleId, otherOrg.ID, changed))
+		require.NoError(t, unificationStore.DeleteUnificationRule(ctx, rule.RuleId, otherOrg.ID))
 
-		stored, err := unificationStore.GetUnificationRule(ctx, rule.RuleId, ownerOrg)
+		stored, err := unificationStore.GetUnificationRule(ctx, rule.RuleId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, stored, "owner rule must survive a delete scoped to another org")
 		assert.Equal(t, "Owner loyalty rule", stored.RuleName)
@@ -113,23 +115,23 @@ func Test_OrgScope_ProfileStore(t *testing.T) {
 	ctx := context.Background()
 
 	suffix := time.Now().UnixNano()
-	ownerOrg := fmt.Sprintf("scope-profile-owner-%d", suffix)
-	otherOrg := fmt.Sprintf("scope-profile-other-%d", suffix)
+	ownerOrg := setup.TestOrg(t, fmt.Sprintf("scope-profile-owner-%d", suffix))
+	otherOrg := setup.TestOrg(t, fmt.Sprintf("scope-profile-other-%d", suffix))
 	ownerUserId := fmt.Sprintf("scope-owner-user-%d", suffix)
 	profiles := profileService.GetProfilesService()
 	consentSvc := consentService.GetConsentCategoryService()
 	schemaSvc := schemaService.GetProfileSchemaService()
 
-	for _, org := range []string{ownerOrg, otherOrg} {
+	for _, org := range []orgModel.Ref{ownerOrg, otherOrg} {
 		_, err := schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{{
-			OrgId: org, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
+			OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 		}}, constants.Traits, org)
 		require.NoError(t, err)
 		require.NoError(t, consentSvc.SeedDefaultConsentCategory(ctx, org))
 	}
-	ownerCategory, err := consentSvc.AddConsentCategory(ctx, consentModel.ConsentCategory{
-		CategoryName: "Owner Marketing", OrgHandle: ownerOrg, Purpose: "personalization",
+	ownerCategory, err := consentSvc.AddConsentCategory(ctx, ownerOrg, consentModel.ConsentCategory{
+		CategoryName: "Owner Marketing", OrgHandle: ownerOrg.Handle, Purpose: "personalization",
 	})
 	require.NoError(t, err)
 
@@ -144,30 +146,30 @@ func Test_OrgScope_ProfileStore(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("Lookups_with_other_org_find_nothing", func(t *testing.T) {
-		byId, err := profileStore.GetProfile(ctx, owner.ProfileId, otherOrg)
+		byId, err := profileStore.GetProfile(ctx, owner.ProfileId, otherOrg.ID)
 		require.NoError(t, err)
 		assert.Nil(t, byId)
 
-		byUser, err := profileStore.GetProfileWithUserId(ctx, ownerUserId, otherOrg)
+		byUser, err := profileStore.GetProfileWithUserId(ctx, ownerUserId, otherOrg.ID)
 		require.NoError(t, err)
 		assert.Nil(t, byUser)
 
-		byCookie, err := profileStore.GetProfileCookie(ctx, cookie.CookieId, otherOrg)
+		byCookie, err := profileStore.GetProfileCookie(ctx, cookie.CookieId, otherOrg.ID)
 		require.NoError(t, err)
 		assert.Nil(t, byCookie)
 	})
 
 	t.Run("Lookups_with_own_org_find_the_profile", func(t *testing.T) {
-		byId, err := profileStore.GetProfile(ctx, owner.ProfileId, ownerOrg)
+		byId, err := profileStore.GetProfile(ctx, owner.ProfileId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, byId)
 
-		byUser, err := profileStore.GetProfileWithUserId(ctx, ownerUserId, ownerOrg)
+		byUser, err := profileStore.GetProfileWithUserId(ctx, ownerUserId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, byUser)
 		assert.Equal(t, owner.ProfileId, byUser.ProfileId)
 
-		byCookie, err := profileStore.GetProfileCookie(ctx, cookie.CookieId, ownerOrg)
+		byCookie, err := profileStore.GetProfileCookie(ctx, cookie.CookieId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, byCookie)
 		assert.Equal(t, owner.ProfileId, byCookie.ProfileId)
@@ -197,7 +199,7 @@ func Test_OrgScope_ProfileStore(t *testing.T) {
 	t.Run("Service_delete_with_other_org_deletes_nothing", func(t *testing.T) {
 		require.NoError(t, profiles.DeleteProfile(ctx, owner.ProfileId, otherOrg))
 
-		stored, err := profileStore.GetProfile(ctx, owner.ProfileId, ownerOrg)
+		stored, err := profileStore.GetProfile(ctx, owner.ProfileId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, stored, "owner profile must survive a delete by another org")
 		assert.Equal(t, "owner-interest", stored.Traits["interests"])

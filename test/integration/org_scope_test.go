@@ -24,6 +24,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -69,6 +71,8 @@ type orgScopeFixture struct {
 	router     *http.ServeMux
 	ownerOrg   string
 	otherOrg   string
+	owner      orgModel.Ref
+	other      orgModel.Ref
 	ownerToken string
 	otherToken string
 
@@ -258,7 +262,7 @@ func Test_OrgScope_API(t *testing.T) {
 				"userId":    f.ownerUserId,
 				"orgHandle": f.otherOrg,
 			})
-			stored, err := profileStore.GetProfile(ctx, f.ownerProfileId, f.ownerOrg)
+			stored, err := profileStore.GetProfile(ctx, f.ownerProfileId, f.owner.ID)
 			require.NoError(t, err)
 			assert.NotNil(t, stored, "owner profile must still exist")
 		})
@@ -270,7 +274,7 @@ func Test_OrgScope_API(t *testing.T) {
 				"profileCookie": f.ownerCookie,
 				"orgHandle":     f.otherOrg,
 			})
-			anon, err := profileStore.GetProfile(ctx, f.ownerAnonId, f.ownerOrg)
+			anon, err := profileStore.GetProfile(ctx, f.ownerAnonId, f.owner.ID)
 			require.NoError(t, err)
 			require.NotNil(t, anon)
 			assert.Empty(t, anon.UserId, "owner anonymous profile must not be linked to a user of another org")
@@ -290,6 +294,9 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 		ownerInterests:    fmt.Sprintf("owner-interest-%d", suffix),
 		ownerAnonInterest: fmt.Sprintf("owner-anon-interest-%d", suffix),
 	}
+
+	f.owner = setup.TestOrg(t, f.ownerOrg)
+	f.other = setup.TestOrg(t, f.otherOrg)
 
 	scopes := orgScopeAllScopes(t)
 	restore := setUpOrgScopeAuth(t)
@@ -314,23 +321,23 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 	consentSvc := consentService.GetConsentCategoryService()
 	profiles := profileService.GetProfilesService()
 
-	for _, org := range []string{f.ownerOrg, f.otherOrg} {
+	for _, org := range []orgModel.Ref{f.owner, f.other} {
 		require.NoError(t, adminConfigStore.UpdateAdminConfig(ctx, adminConfigModel.AdminConfig{
-			OrgHandle:  org,
+			OrgHandle:  org.Handle,
 			CDSEnabled: true,
-		}, org))
+		}, org.ID))
 		_, err := schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{{
-			OrgId: org, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email",
+			OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 		}}, constants.IdentityAttributes, org)
 		require.NoError(t, err)
 		_, err = schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{
 			{
-				OrgId: org, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
+				OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
 				ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 			},
 			{
-				OrgId: org, AttributeId: uuid.New().String(), AttributeName: "traits.loyalty_id",
+				OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "traits.loyalty_id",
 				ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 			},
 		}, constants.Traits, org)
@@ -338,7 +345,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 		require.NoError(t, consentSvc.SeedDefaultConsentCategory(ctx, org))
 	}
 
-	ownerCategory, err := consentSvc.AddConsentCategory(ctx, consentModel.ConsentCategory{
+	ownerCategory, err := consentSvc.AddConsentCategory(ctx, f.owner, consentModel.ConsentCategory{
 		CategoryName: "Owner Marketing",
 		OrgHandle:    f.ownerOrg,
 		Purpose:      "personalization",
@@ -347,7 +354,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 	require.NoError(t, err)
 	f.ownerCategoryId = ownerCategory.CategoryIdentifier
 
-	otherCategory, err := consentSvc.AddConsentCategory(ctx, consentModel.ConsentCategory{
+	otherCategory, err := consentSvc.AddConsentCategory(ctx, f.other, consentModel.ConsentCategory{
 		CategoryName: "Other Marketing",
 		OrgHandle:    f.otherOrg,
 		Purpose:      "personalization",
@@ -360,15 +367,15 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 		UserId:             f.ownerUserId,
 		IdentityAttributes: map[string]interface{}{"email": "owner@example.com"},
 		Traits:             map[string]interface{}{"interests": f.ownerInterests},
-	}, f.ownerOrg)
+	}, f.owner)
 	require.NoError(t, err)
 	f.ownerProfileId = ownerProfile.ProfileId
-	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.ownerProfileId, f.ownerOrg,
+	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.ownerProfileId, f.owner,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: f.ownerCategoryId, IsConsented: true}}))
 
 	ownerAnon, err := profiles.CreateProfile(ctx, profileModel.ProfileRequest{
 		Traits: map[string]interface{}{"interests": f.ownerAnonInterest},
-	}, f.ownerOrg)
+	}, f.owner)
 	require.NoError(t, err)
 	f.ownerAnonId = ownerAnon.ProfileId
 	cookie, err := profiles.CreateProfileCookie(ctx, f.ownerAnonId)
@@ -377,10 +384,10 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 
 	otherProfile, err := profiles.CreateProfile(ctx, profileModel.ProfileRequest{
 		Traits: map[string]interface{}{"interests": "other-org-interest"},
-	}, f.otherOrg)
+	}, f.other)
 	require.NoError(t, err)
 	f.otherProfileId = otherProfile.ProfileId
-	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.otherProfileId, f.otherOrg,
+	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.otherProfileId, f.other,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: f.otherCategoryId, IsConsented: true}}))
 
 	now := time.Now().UTC()
@@ -395,7 +402,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 			IsActive:     true,
 			CreatedAt:    now,
 			UpdatedAt:    now,
-		}, f.ownerOrg))
+		}, f.owner))
 
 	return f
 }
@@ -412,18 +419,18 @@ func (f *orgScopeFixture) assertOwnerDataUnchanged(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &profile))
 	assert.Equal(t, f.ownerUserId, profile.UserId)
 
-	stored, err := profileStore.GetProfile(ctx, f.ownerProfileId, f.ownerOrg)
+	stored, err := profileStore.GetProfile(ctx, f.ownerProfileId, f.owner.ID)
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	assert.Equal(t, f.ownerInterests, stored.Traits["interests"])
 
-	anon, err := profileStore.GetProfile(ctx, f.ownerAnonId, f.ownerOrg)
+	anon, err := profileStore.GetProfile(ctx, f.ownerAnonId, f.owner.ID)
 	require.NoError(t, err)
 	require.NotNil(t, anon, "owner anonymous profile must still exist")
 	assert.Empty(t, anon.UserId)
 	assert.Equal(t, f.ownerAnonInterest, anon.Traits["interests"])
 
-	consents, err := profileStore.GetProfileConsents(ctx, f.ownerProfileId, f.ownerOrg)
+	consents, err := profileStore.GetProfileConsents(ctx, f.ownerProfileId, f.owner.ID)
 	require.NoError(t, err)
 	require.Len(t, consents, 1)
 	assert.Equal(t, f.ownerCategoryId, consents[0].CategoryIdentifier)

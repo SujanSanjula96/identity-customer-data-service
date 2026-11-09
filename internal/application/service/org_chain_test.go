@@ -59,18 +59,18 @@ func TestOrgChainIsNearestFirst(t *testing.T) {
 	}
 
 	cases := map[string][]string{
-		"t1":      {"t1", "r1", "acme"},
-		"r1":      {"r1", "acme"},
-		"acme":    {"acme"},
-		"unknown": {"unknown"},
+		"t1-id":      {"t1-id", "r1-id", "primary-id"},
+		"r1-id":      {"r1-id", "primary-id"},
+		"primary-id": {"primary-id"},
+		"unknown":    {"unknown"},
 	}
-	for handle, want := range cases {
-		got, err := orgChain(ctx, handle)
+	for orgId, want := range cases {
+		got, err := orgChain(ctx, orgId)
 		if err != nil {
-			t.Fatalf("orgChain(%s): %v", handle, err)
+			t.Fatalf("orgChain(%s): %v", orgId, err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("orgChain(%s): want %v, got %v", handle, want, got)
+			t.Errorf("orgChain(%s): want %v, got %v", orgId, want, got)
 		}
 	}
 }

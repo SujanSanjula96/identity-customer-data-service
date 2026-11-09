@@ -95,7 +95,7 @@ func TestExplanationSameNameDifferentEmail(t *testing.T) {
 		idRule("name", "identity_attributes.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 10),
 		idRule("mobile", "identity_attributes.mobile", constants.AttributeTypePhone, constants.UnificationMethodFuzzy, 2),
 	}
-	evaluation := evaluatePair(t, rules, ScoringContext{OrgHandle: "acme", Thresholds: defaultTestThresholds},
+	evaluation := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds},
 		map[string]interface{}{
 			"identity_attributes.email":  "mdelacroix@othermail.io",
 			"identity_attributes.name":   "Marcus Delacroix",
@@ -139,7 +139,7 @@ func TestExplanationNamesEveryReasonThatHolds(t *testing.T) {
 	if err := log.Init("error"); err != nil {
 		t.Fatalf("init logger: %v", err)
 	}
-	ctx := ScoringContext{OrgHandle: "acme", Thresholds: defaultTestThresholds}
+	ctx := ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds}
 
 	t.Run("a similar name on its own", func(t *testing.T) {
 		rules := []urModel.UnificationRule{
@@ -181,7 +181,7 @@ func TestExplanationNamesEveryReasonThatHolds(t *testing.T) {
 		rules := []urModel.UnificationRule{
 			idRule("email", "identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodFuzzy, 1),
 		}
-		common := ScoringContext{OrgHandle: "acme", Thresholds: defaultTestThresholds,
+		common := ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds,
 			ValueFrequency: func(string, string, string) (int, error) {
 				return constants.RarityCommonMinProfiles + 30, nil
 			}}
@@ -212,7 +212,7 @@ func TestExplanationOfAConclusiveMatch(t *testing.T) {
 	incoming := map[string]interface{}{"identity_attributes.name": "Jon Smith", "identity_attributes.email": "jon@acme.com"}
 	candidate := map[string]interface{}{"identity_attributes.name": "John Smith", "identity_attributes.email": "jon@acme.com"}
 
-	merged := evaluatePair(t, rules, ScoringContext{OrgHandle: "acme", Thresholds: defaultTestThresholds}, incoming, candidate)
+	merged := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds}, incoming, candidate)
 	if model.Decide(merged.Score, defaultTestThresholds) != constants.DecisionAutoMerge {
 		t.Fatalf("expected the exact email to merge the pair, score %.4f", merged.Score)
 	}
@@ -225,7 +225,7 @@ func TestExplanationOfAConclusiveMatch(t *testing.T) {
 
 	manual := defaultTestThresholds
 	manual.AutoMergeEnabled = false
-	held := evaluatePair(t, rules, ScoringContext{OrgHandle: "acme", Thresholds: manual}, incoming, candidate)
+	held := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: manual}, incoming, candidate)
 	if want := []string{model.ReasonAutoMergeDisabled}; !reflect.DeepEqual(reasonCodes(held), want) {
 		t.Errorf("reasons %v, want %v", reasonCodes(held), want)
 	}

@@ -24,6 +24,7 @@ import (
 
 	consentModel "github.com/wso2/identity-customer-data-service/internal/consent/model"
 	"github.com/wso2/identity-customer-data-service/internal/consent/provider"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
@@ -45,9 +46,13 @@ func (h *ConsentCategoryHandler) GetAllConsentCategories(w http.ResponseWriter, 
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	categories, err := service.GetAllConsentCategories(ctx, orgHandle)
+	categories, err := service.GetAllConsentCategories(ctx, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -82,11 +87,15 @@ func (h *ConsentCategoryHandler) AddConsentCategory(w http.ResponseWriter, r *ht
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	category := req.ToCategory(orgHandle, "")
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	category := req.ToCategory(org.Handle, "")
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	consentCat, err := service.AddConsentCategory(ctx, category)
+	consentCat, err := service.AddConsentCategory(ctx, org, category)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -119,9 +128,13 @@ func (h *ConsentCategoryHandler) GetConsentCategory(w http.ResponseWriter, r *ht
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	category, err := service.GetConsentCategory(ctx, categoryId, orgHandle)
+	category, err := service.GetConsentCategory(ctx, categoryId, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -164,11 +177,15 @@ func (h *ConsentCategoryHandler) UpdateConsentCategory(w http.ResponseWriter, r 
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	category := req.ToCategory(orgHandle, categoryId)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	category := req.ToCategory(org.Handle, categoryId)
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	if err := service.UpdateConsentCategory(ctx, category); err != nil {
+	if err := service.UpdateConsentCategory(ctx, org, category); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
@@ -199,9 +216,13 @@ func (h *ConsentCategoryHandler) DeleteConsentCategory(w http.ResponseWriter, r 
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	if err := service.DeleteConsentCategory(ctx, categoryId, orgHandle); err != nil {
+	if err := service.DeleteConsentCategory(ctx, categoryId, org); err != nil {
 		utils.HandleError(w, err)
 		return
 	}

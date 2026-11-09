@@ -29,6 +29,7 @@ import (
 	adminModel "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	adminStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
 	identityResolutionService "github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -36,6 +37,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 	unificationService "github.com/wso2/identity-customer-data-service/internal/unification_rules/service"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
 // Test_Complex_Unification_Scenarios tests complex profile unification scenarios
@@ -46,40 +48,40 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	EmailBased := "email_based"
 	UserIdBased := "user_id_based"
 	AppId := "test-app-complex-001"
-	SuperTenantOrg := fmt.Sprintf("carbon.super-complex-%d", time.Now().UnixNano())
+	SuperTenantOrg := setup.TestOrg(t, fmt.Sprintf("carbon.super-complex-%d", time.Now().UnixNano()))
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(context.Context, string, string) (error, bool) { return nil, true })
+		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
 	defer restore()
 
 	// Initialize Profile Schema Attributes
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
 
 	identityAttr := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.phone_number",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.phone_number",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.user_id",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.user_id",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.secondary_email",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.secondary_email",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
 	}
 
 	traits := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "traits.interests",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "traits.preferences",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "traits.preferences",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "traits.score",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "traits.score",
 			ValueType: constants.IntegerDataType, MergeStrategy: "overwrite", Mutability: constants.MutabilityReadWrite},
 	}
 
 	appData := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "application_data.device_id",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "application_data.device_id",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true, ApplicationIdentifier: AppId},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "application_data.session_count",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "application_data.session_count",
 			ValueType: constants.IntegerDataType, MergeStrategy: "overwrite", Mutability: constants.MutabilityReadWrite, ApplicationIdentifier: AppId},
 	}
 
@@ -98,7 +100,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	userIdRuleId := uuid.New().String()
 	userIdRule := model.UnificationRule{
 		RuleId:       userIdRuleId,
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		RuleName:     UserIdBased,
 		PropertyName: "identity_attributes.user_id",
 		Priority:     0,
@@ -111,7 +113,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	emailRuleId := uuid.New().String()
 	emailRule := model.UnificationRule{
 		RuleId:       emailRuleId,
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		RuleName:     EmailBased,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
@@ -124,7 +126,7 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	phoneRuleId := uuid.New().String()
 	phoneRule := model.UnificationRule{
 		RuleId:       phoneRuleId,
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		RuleName:     PhoneBased,
 		PropertyName: "identity_attributes.phone_number",
 		Priority:     2,
@@ -137,11 +139,11 @@ func Test_Complex_Unification_Scenarios(t *testing.T) {
 	// The score-based pipeline only auto-merges when AutoMergeEnabled is true on the
 	// org's admin config; otherwise high-score matches are routed to manual review.
 	require.NoError(t, adminStore.UpdateAdminConfig(context.Background(), adminModel.AdminConfig{
-		OrgHandle:             SuperTenantOrg,
+		OrgHandle:             SuperTenantOrg.Handle,
 		AutoMergeEnabled:      true,
 		AutoMergeThreshold:    constants.DefaultAutoMergeThreshold,
 		ManualReviewThreshold: constants.DefaultManualReviewThreshold,
-	}, SuperTenantOrg))
+	}, SuperTenantOrg.ID))
 
 	t.Run("Scenario10_MultipleCascadingMerges_FourTempProfiles", func(t *testing.T) {
 		// Scenario: Four temporary profiles cascade merge through shared attributes

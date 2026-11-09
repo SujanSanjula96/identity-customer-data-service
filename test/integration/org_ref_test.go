@@ -23,24 +23,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 )
 
-// writeOrgKey returns the org ID that a statement writes for the organization. It stores the
-// organization when it is not stored yet, as a store does.
-func writeOrgKey(t testing.TB, org string) string {
+// resolveOrgId returns the org ID of the organization, as a request handler resolves it. It stores the
+// organization when it is not stored yet.
+func resolveOrgId(t testing.TB, org string) string {
 
 	t.Helper()
-	key, err := orgkey.ForWrite(context.Background(), org)
+	ref, err := orgService.ResolveOrganization(context.Background(), org)
 	require.NoError(t, err)
-	return key
+	return ref.ID
 }
 
-// readOrgKey returns the org ID that a statement filters by.
-func readOrgKey(t testing.TB, org string) string {
+// lookupOrgId returns the org ID of the stored organization, or an empty string when it is not stored.
+func lookupOrgId(t testing.TB, org string) string {
 
 	t.Helper()
-	key, _, err := orgkey.ForRead(context.Background(), org)
+	ref, _, err := orgService.LookupOrganization(context.Background(), org)
 	require.NoError(t, err)
-	return key
+	return ref.ID
 }

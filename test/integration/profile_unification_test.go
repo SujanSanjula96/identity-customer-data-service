@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	adminModel "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	adminStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -36,6 +37,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 	unificationService "github.com/wso2/identity-customer-data-service/internal/unification_rules/service"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
 // Helper for unmarshalling JSON into ProfileRequest
@@ -68,38 +70,38 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	AppId := "test-app-001"
 	AppA_Id := "app-A"
 	AppB_Id := "app-B"
-	SuperTenantOrg := fmt.Sprintf("carbon.super-%d", time.Now().UnixNano())
+	SuperTenantOrg := setup.TestOrg(t, fmt.Sprintf("carbon.super-%d", time.Now().UnixNano()))
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
 		// bypass app verification with IDP
-		func(context.Context, string, string) (error, bool) { return nil, true })
+		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
 	defer restore()
 
 	// Initialize Profile Schema Attributes
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
 
 	identityAttr := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email", ValueType: constants.StringDataType, MergeStrategy: "combine",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email", ValueType: constants.StringDataType, MergeStrategy: "combine",
 			Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.phone_number", ValueType: constants.StringDataType,
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.phone_number", ValueType: constants.StringDataType,
 			MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite, MultiValued: true},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.user_id", ValueType: constants.StringDataType, MergeStrategy: "combine",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.user_id", ValueType: constants.StringDataType, MergeStrategy: "combine",
 			Mutability: constants.MutabilityReadWrite},
 	}
 
 	traits := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "traits.interests", ValueType: constants.StringDataType, MergeStrategy: "combine",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "traits.interests", ValueType: constants.StringDataType, MergeStrategy: "combine",
 			Mutability: constants.MutabilityReadWrite, MultiValued: true},
 	}
 
 	appData := []schemaModel.ProfileSchemaAttribute{
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(), AttributeName: "application_data.device_id", ValueType: constants.StringDataType, MergeStrategy: "combine",
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(), AttributeName: "application_data.device_id", ValueType: constants.StringDataType, MergeStrategy: "combine",
 			Mutability: constants.MutabilityReadWrite, MultiValued: true, ApplicationIdentifier: AppId},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(),
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(),
 			AttributeName: "application_data.ui_mode",
 			ValueType:     constants.StringDataType, MergeStrategy: "overwrite",
 			Mutability: constants.MutabilityReadWrite, ApplicationIdentifier: AppA_Id},
-		{OrgId: SuperTenantOrg, AttributeId: uuid.New().String(),
+		{OrgId: SuperTenantOrg.ID, AttributeId: uuid.New().String(),
 			AttributeName: "application_data.ui_mode",
 			ValueType:     constants.StringDataType, MergeStrategy: "overwrite",
 			Mutability: constants.MutabilityReadWrite, ApplicationIdentifier: AppB_Id},
@@ -120,7 +122,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	emailBasedRule := model.UnificationRule{
 		RuleName:     RuleNameEmailBased,
 		RuleId:       emailRuleId,
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
 		IsActive:     true,
@@ -133,7 +135,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	phoneBasedRule := model.UnificationRule{
 		RuleName:     RuleNamePhoneBased,
 		RuleId:       phoneRuleId,
-		OrgHandle:    SuperTenantOrg,
+		OrgHandle:    SuperTenantOrg.Handle,
 		PropertyName: "identity_attributes.phone_number",
 		Priority:     2,
 		IsActive:     true,
@@ -146,11 +148,11 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	// The score-based pipeline only auto-merges when AutoMergeEnabled is true on the
 	// org's admin config; otherwise high-score matches are routed to manual review.
 	require.NoError(t, adminStore.UpdateAdminConfig(context.Background(), adminModel.AdminConfig{
-		OrgHandle:             SuperTenantOrg,
+		OrgHandle:             SuperTenantOrg.Handle,
 		AutoMergeEnabled:      true,
 		AutoMergeThreshold:    constants.DefaultAutoMergeThreshold,
 		ManualReviewThreshold: constants.DefaultManualReviewThreshold,
-	}, SuperTenantOrg))
+	}, SuperTenantOrg.ID))
 
 	t.Run("Scenario1_TempProfiles_Email_Then_Phone_Unify", func(t *testing.T) {
 		p1 := mustUnmarshalProfile(`{"identity_attributes":{"email":["a@wso2.com"]},"traits":{"interests":["music"]}}`)
@@ -345,9 +347,9 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 
 	t.Run("Scenario9_CrossTenantProfiles_ShouldNotUnify", func(t *testing.T) {
 
-		OtherTenant := fmt.Sprintf("other.org-%d", time.Now().UnixNano())
+		OtherTenant := setup.TestOrg(t, fmt.Sprintf("other.org-%d", time.Now().UnixNano()))
 		identityAttr := []schemaModel.ProfileSchemaAttribute{
-			{OrgId: OtherTenant, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email", ValueType: constants.StringDataType, MergeStrategy: "combine",
+			{OrgId: OtherTenant.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email", ValueType: constants.StringDataType, MergeStrategy: "combine",
 				Mutability: constants.MutabilityReadWrite, MultiValued: true},
 		}
 		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttr, constants.IdentityAttributes, OtherTenant)
@@ -356,7 +358,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 		jsonData := []byte(`{
 	   "rule_name": "` + RuleNameEmailBased + `",
 		"rule_id": "` + emailRuleId + `",
-		"org_handle": "` + OtherTenant + `",
+		"org_handle": "` + OtherTenant.Handle + `",
 	   "property_name": "identity_attributes.email",
 	   "priority": 1,
 	   "is_active": true
@@ -453,7 +455,7 @@ func Test_Profile_Unification_Scenarios(t *testing.T) {
 	})
 }
 
-func cleanProfiles(profileSvc profileService.ProfilesServiceInterface, org string) {
+func cleanProfiles(profileSvc profileService.ProfilesServiceInterface, org orgModel.Ref) {
 
 	profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), org, 10, nil)
 	for _, p := range profiles {

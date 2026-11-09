@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -52,30 +53,30 @@ import (
 )
 
 type ProfilesServiceInterface interface {
-	DeleteProfile(ctx context.Context, profileId, orgHandle string) error
+	DeleteProfile(ctx context.Context, profileId string, org orgModel.Ref) error
 	GetAllProfilesCursor(ctx context.Context,
-		orgHandle string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
+		org orgModel.Ref, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
 	CreateProfile(ctx context.Context,
-		profile profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error)
+		profile profileModel.ProfileRequest, org orgModel.Ref) (*profileModel.ProfileResponse, error)
 	UpdateProfile(ctx context.Context,
-		profileId, orgHandle string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
-	GetProfile(ctx context.Context, profileId, orgHandle string) (*profileModel.ProfileResponse, error)
-	FindProfileByUserId(ctx context.Context, userId, orgHandle string) (*profileModel.ProfileResponse, error)
-	GetAllProfilesWithFilterCursor(ctx context.Context, orgHandle string, filters []string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
-	GetProfileConsents(ctx context.Context, profileId, orgHandle string) ([]profileModel.ConsentRecord, error)
+		profileId string, org orgModel.Ref, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
+	GetProfile(ctx context.Context, profileId string, org orgModel.Ref) (*profileModel.ProfileResponse, error)
+	FindProfileByUserId(ctx context.Context, userId string, org orgModel.Ref) (*profileModel.ProfileResponse, error)
+	GetAllProfilesWithFilterCursor(ctx context.Context, org orgModel.Ref, filters []string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
+	GetProfileConsents(ctx context.Context, profileId string, org orgModel.Ref) ([]profileModel.ConsentRecord, error)
 	UpdateProfileConsents(ctx context.Context,
-		profileId string, orgHandle string, consents []profileModel.ConsentRecord) error
+		profileId string, org orgModel.Ref, consents []profileModel.ConsentRecord) error
 	PatchProfile(ctx context.Context,
-		profileId, orgHandle string, data map[string]interface{}) (*profileModel.ProfileResponse, error)
+		profileId string, org orgModel.Ref, data map[string]interface{}) (*profileModel.ProfileResponse, error)
 	GetProfileCookieByProfileId(ctx context.Context, profileId string) (*profileModel.ProfileCookie, error)
-	GetProfileCookieById(ctx context.Context, cookie, orgHandle string) (*profileModel.ProfileCookie, error)
+	GetProfileCookieById(ctx context.Context, cookie string, org orgModel.Ref) (*profileModel.ProfileCookie, error)
 	CreateProfileCookie(ctx context.Context, profileId string) (*profileModel.ProfileCookie, error)
 	UpdateCookieStatusByCookieId(ctx context.Context, cookieId string, isActive bool) error
 	UpdateCookieStatusByProfileId(ctx context.Context, profileId string, isActive bool) error
 	DeleteCookieByProfileId(ctx context.Context, profileId string) error
 	GetProfilesWithFuzzyResolution(ctx context.Context,
-		orgHandle string, filters []string, threshold float64, limit int) ([]profileModel.FuzzyMatchResult, error)
-	GetProfilesHybrid(ctx context.Context, orgHandle string, fuzzyFilters []string,
+		org orgModel.Ref, filters []string, threshold float64, limit int) ([]profileModel.FuzzyMatchResult, error)
+	GetProfilesHybrid(ctx context.Context, org orgModel.Ref, fuzzyFilters []string,
 		deterministicFilters []string, threshold float64, limit int) ([]profileModel.FuzzyMatchResult, error)
 }
 
@@ -127,12 +128,12 @@ func WideAppDataMap(input map[string]map[string]interface{}) map[string]interfac
 
 // CreateProfile creates a new profile.
 func (ps *ProfilesService) CreateProfile(ctx context.Context,
-	profileRequest profileModel.ProfileRequest, orgHandle string) (*profileModel.ProfileResponse, error) {
+	profileRequest profileModel.ProfileRequest, org orgModel.Ref) (*profileModel.ProfileResponse, error) {
 
-	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, orgHandle)
+	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, org)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error fetching profile schema for organization: %s", orgHandle)
+		errMsg := fmt.Sprintf("Error fetching profile schema for organization: %s", org.Handle)
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.ADD_PROFILE.Code,
@@ -145,7 +146,7 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	var schema model.ProfileSchema
 	schemaBytes, _ := json.Marshal(rawSchema) // serialize
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-		errMsg := fmt.Sprintf("Invalid schema format for organization: %s while validating for profile creation.", orgHandle)
+		errMsg := fmt.Sprintf("Invalid schema format for organization: %s while validating for profile creation.", org.Handle)
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.ADD_PROFILE.Code,
@@ -169,7 +170,7 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	}
 	profile := profileModel.Profile{
 		ProfileId:          profileId,
-		OrgHandle:          orgHandle,
+		OrgHandle:          org.Handle,
 		UserId:             profileRequest.UserId,
 		ApplicationData:    appData,
 		Traits:             profileRequest.Traits,
@@ -180,14 +181,14 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 		},
 		CreatedAt: createdTime,
 		UpdatedAt: createdTime,
-		Location:  utils.BuildProfileLocation(orgHandle, profileId),
+		Location:  utils.BuildProfileLocation(org.Handle, profileId),
 	}
 
-	if err := profileStore.InsertProfile(ctx, profile); err != nil {
+	if err := profileStore.InsertProfile(ctx, org.ID, profile); err != nil {
 		logger.Debug(fmt.Sprintf("Error inserting profile: %s", profile.ProfileId), log.Error(err))
 		return nil, err
 	}
-	profileFetched, errWait := ps.GetProfile(ctx, profileId, orgHandle)
+	profileFetched, errWait := ps.GetProfile(ctx, profileId, org)
 	if errWait != nil || profileFetched == nil {
 		logger.Warn(fmt.Sprintf("Profile: %s not available after insertion: %v", profile.ProfileId, errWait))
 		return nil, errWait
@@ -199,17 +200,17 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 
 	if config.ProfileUnificationTrigger.TriggerType == constants.SyncProfileOnUpdate {
 		// Only enqueue if the profile has at least one attribute matching an active unification rule.
-		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgHandle)
+		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 		if rulesErr != nil {
 			logger.Warn("CreateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
-			profile.OrgHandle = orgHandle
+			profile.OrgHandle = org.Handle
 			queue.Enqueue(profile)
 		} else {
 			// A profile carrying a userId must always be evaluated: merging profiles that
 			// share a userId is a system invariant that holds with no rules configured, so
 			// gating on rule attributes alone would silently disable it.
 			if profile.UserId != "" || hasAttributeMatchingAnyRule(flattenProfileAttrs(profile), activeRules) {
-				profile.OrgHandle = orgHandle
+				profile.OrgHandle = org.Handle
 				queue.Enqueue(profile)
 			}
 		}
@@ -765,9 +766,9 @@ func isValidType(value interface{}, expected string, multiValued bool, subAttrs 
 
 // UpdateProfile creates or updates a profile
 func (ps *ProfilesService) UpdateProfile(ctx context.Context,
-	profileId, orgHandle string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
+	profileId string, org orgModel.Ref, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfile(ctx, profileId, orgHandle)
+	profile, err := profileStore.GetProfile(ctx, profileId, org.ID)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile for updatedProfile: %s", profileId)
@@ -789,7 +790,7 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		return nil, clientError
 	}
 
-	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, profile.OrgHandle)
+	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, org)
 	if err != nil {
 		return nil, err
 	}
@@ -835,7 +836,7 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		}
 	} else {
 		// If it is a child profile, we need to update the master profile
-		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, orgHandle)
+		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, org.ID)
 		if err != nil {
 			errMsg := fmt.Sprintf("Error fetching master profile for updatedProfile: %s", profile.ProfileId)
 			logger.Debug(errMsg, log.Error(err))
@@ -861,12 +862,12 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 		}
 	}
 
-	if err := profileStore.UpdateProfile(ctx, profileToUpDate); err != nil {
+	if err := profileStore.UpdateProfile(ctx, org.ID, profileToUpDate); err != nil {
 		logger.Error(fmt.Sprintf("Error updating profile: %s", profileToUpDate.ProfileId), log.Error(err))
 		return nil, err
 	}
 
-	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileId, orgHandle)
+	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileId, org)
 	if errWait != nil || profileFetched == nil {
 		return nil, errWait
 	}
@@ -875,10 +876,10 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 	queue := &workers.ProfileWorkerQueue{}
 	if config.ProfileUnificationTrigger.TriggerType == constants.SyncProfileOnUpdate {
 		// Only enqueue if the profile has at least one attribute matching an active unification rule.
-		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgHandle)
+		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 		if rulesErr != nil {
 			logger.Warn("UpdateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
-			profileToUpDate.OrgHandle = orgHandle
+			profileToUpDate.OrgHandle = org.Handle
 			queue.Enqueue(profileToUpDate)
 		} else {
 			before := flattenProfileAttrs(*profile)
@@ -893,7 +894,7 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 			// evaluation instead, so only a materially stronger match reopens it.
 
 			if shouldResolveAfterUpdate(*profile, profileToUpDate, matchedValuesChanged, activeRules) {
-				profileToUpDate.OrgHandle = orgHandle
+				profileToUpDate.OrgHandle = org.Handle
 				queue.Enqueue(profileToUpDate)
 			}
 		}
@@ -925,9 +926,9 @@ func ConvertAppDataToMap(appDataList []profileModel.ApplicationData) map[string]
 }
 
 // GetProfile retrieves a profile
-func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId, orgHandle string) (*profileModel.ProfileResponse, error) {
+func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId string, org orgModel.Ref) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfile(ctx, ProfileId, orgHandle)
+	profile, err := profileStore.GetProfile(ctx, ProfileId, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -975,7 +976,7 @@ func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId, orgHandle 
 		return profileResponse, nil
 	} else {
 		// fetching merged master profile
-		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, orgHandle)
+		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, org.ID)
 
 		if err != nil {
 			return nil, err
@@ -1013,16 +1014,16 @@ func (ps *ProfilesService) GetProfile(ctx context.Context, ProfileId, orgHandle 
 
 // GetProfileConsents retrieves a profile
 func (ps *ProfilesService) GetProfileConsents(ctx context.Context,
-	ProfileId, orgHandle string) ([]profileModel.ConsentRecord, error) {
+	ProfileId string, org orgModel.Ref) ([]profileModel.ConsentRecord, error) {
 
-	profile, err := profileStore.GetProfile(ctx, ProfileId, orgHandle)
+	profile, err := profileStore.GetProfile(ctx, ProfileId, org.ID)
 	if err != nil {
 		return nil, err
 	}
 	if profile == nil {
 		return nil, profileNotFoundError()
 	}
-	consentRecords, err := profileStore.GetProfileConsents(ctx, ProfileId, orgHandle)
+	consentRecords, err := profileStore.GetProfileConsents(ctx, ProfileId, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1040,10 +1041,10 @@ func (ps *ProfilesService) GetProfileConsents(ctx context.Context,
 
 // UpdateProfileConsents updates the consent records for a profile
 func (ps *ProfilesService) UpdateProfileConsents(ctx context.Context,
-	profileId string, orgHandle string, consents []profileModel.ConsentRecord) error {
+	profileId string, org orgModel.Ref, consents []profileModel.ConsentRecord) error {
 	logger := log.GetLogger()
 
-	profile, err := profileStore.GetProfile(ctx, profileId, orgHandle)
+	profile, err := profileStore.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		return err
 	}
@@ -1052,7 +1053,7 @@ func (ps *ProfilesService) UpdateProfileConsents(ctx context.Context,
 	}
 
 	// Reject any attempt to modify a mandatory consent category.
-	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, identitysource.HandleOf(ctx, orgHandle))
+	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, identitysource.Of(ctx, org).ID)
 	if err != nil {
 		return err
 	}
@@ -1071,7 +1072,7 @@ func (ps *ProfilesService) UpdateProfileConsents(ctx context.Context,
 	}
 
 	// Reject categories that are not defined in the org.
-	orgCategorySet, err := consentCategoryIdSet(ctx, orgHandle)
+	orgCategorySet, err := consentCategoryIdSet(ctx, org.ID)
 	if err != nil {
 		return err
 	}
@@ -1105,10 +1106,10 @@ func (ps *ProfilesService) UpdateProfileConsents(ctx context.Context,
 }
 
 // DeleteProfile removes a profile from MongoDB by `perma_id`
-func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId, orgHandle string) error {
+func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId string, org orgModel.Ref) error {
 
 	// Fetch the existing profile before deletion
-	profile, err := profileStore.GetProfile(ctx, ProfileId, orgHandle)
+	profile, err := profileStore.GetProfile(ctx, ProfileId, org.ID)
 	logger := log.GetLogger()
 	if err == nil && profile == nil {
 		logger.Debug(fmt.Sprintf("Profile with profile_id: %s that is requested for deletion is not found",
@@ -1118,11 +1119,11 @@ func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId, orgHand
 
 	// Drop the resolution index entries first. They are not reached by any cascade, so a
 	// profile left indexed keeps surfacing as a merge candidate after deletion.
-	if err := irStore.DeleteBlockingKeys(ctx, profile.OrgHandle, ProfileId); err != nil {
+	if err := irStore.DeleteBlockingKeys(ctx, org.ID, ProfileId); err != nil {
 		logger.Warn(fmt.Sprintf("DeleteProfile: failed to remove blocking keys for '%s'", ProfileId),
 			log.Error(err))
 	}
-	if err := irStore.DeleteRejectionPairsForProfile(ctx, profile.OrgHandle, ProfileId); err != nil {
+	if err := irStore.DeleteRejectionPairsForProfile(ctx, org.ID, ProfileId); err != nil {
 		logger.Warn(fmt.Sprintf("DeleteProfile: failed to remove rejection pairs for '%s'", ProfileId),
 			log.Error(err))
 	}
@@ -1203,7 +1204,7 @@ func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId, orgHand
 
 		logger.Info(fmt.Sprintf("Deleting child profile: %s with parent: %s", ProfileId,
 			profile.ProfileStatus.ReferenceProfileId))
-		parentProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, orgHandle)
+		parentProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileId, org.ID)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error while deleting the child profile: %s ", ProfileId)
 			logger.Debug(errorMsg, log.Error(err))
@@ -1283,12 +1284,12 @@ func (ps *ProfilesService) DeleteProfile(ctx context.Context, ProfileId, orgHand
 // GetAllProfilesCursor retrieves all master profiles with pagination using cursor.
 // Merged profiles are not included in list but provided in the reference
 func (ps *ProfilesService) GetAllProfilesCursor(ctx context.Context,
-	orgHandle string,
+	org orgModel.Ref,
 	limit int,
 	cursor *profileModel.ProfileCursor,
 ) ([]profileModel.ProfileResponse, bool, error) {
 
-	existingProfiles, hasMore, err := profileStore.GetAllProfiles(ctx, orgHandle, limit, cursor)
+	existingProfiles, hasMore, err := profileStore.GetAllProfiles(ctx, org.ID, limit, cursor)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1348,7 +1349,7 @@ func (ps *ProfilesService) GetAllProfilesCursor(ctx context.Context,
 // GetAllProfilesWithFilterCursor retrieves filtered master profiles with pagination using cursor.
 // Merged profiles are not included in list but provided in the reference
 func (ps *ProfilesService) GetAllProfilesWithFilterCursor(ctx context.Context,
-	orgHandle string,
+	org orgModel.Ref,
 	filters []string,
 	limit int,
 	cursor *profileModel.ProfileCursor,
@@ -1407,7 +1408,7 @@ func (ps *ProfilesService) GetAllProfilesWithFilterCursor(ctx context.Context,
 	}
 
 	// Fetch matching profiles WITH cursor + limit
-	filteredProfiles, hasMore, err := profileStore.GetAllProfilesWithFilter(ctx, orgHandle, rewrittenFilters, limit, cursor)
+	filteredProfiles, hasMore, err := profileStore.GetAllProfilesWithFilter(ctx, org.ID, rewrittenFilters, limit, cursor)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1492,9 +1493,9 @@ func parseTypedValueForFilters(valueType string, raw string) interface{} {
 
 // FindProfileByUserId retrieves a profile by user_id
 func (ps *ProfilesService) FindProfileByUserId(ctx context.Context,
-	userId, orgHandle string) (*profileModel.ProfileResponse, error) {
+	userId string, org orgModel.Ref) (*profileModel.ProfileResponse, error) {
 
-	profile, err := profileStore.GetProfileWithUserId(ctx, userId, orgHandle)
+	profile, err := profileStore.GetProfileWithUserId(ctx, userId, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1528,9 +1529,9 @@ func (ps *ProfilesService) FindProfileByUserId(ctx context.Context,
 
 // PatchProfile applies a partial update to an existing profile
 func (ps *ProfilesService) PatchProfile(ctx context.Context,
-	profileId, orgHandle string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
+	profileId string, org orgModel.Ref, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
 
-	existingProfile, err := profileStore.GetProfile(ctx, profileId, orgHandle)
+	existingProfile, err := profileStore.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1548,7 +1549,7 @@ func (ps *ProfilesService) PatchProfile(ctx context.Context,
 	// accumulated merged data that only exists on the master.
 	profileForBase := existingProfile
 	if existingProfile.ProfileStatus != nil && !existingProfile.ProfileStatus.IsReferenceProfile && existingProfile.ProfileStatus.ReferenceProfileId != "" {
-		masterProfile, err := profileStore.GetProfile(ctx, existingProfile.ProfileStatus.ReferenceProfileId, orgHandle)
+		masterProfile, err := profileStore.GetProfile(ctx, existingProfile.ProfileStatus.ReferenceProfileId, org.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -1622,7 +1623,7 @@ func (ps *ProfilesService) PatchProfile(ctx context.Context,
 	}
 
 	// Reuse the PUT logic to update the profile
-	return ps.UpdateProfile(ctx, profileId, orgHandle, updatedProfileReq)
+	return ps.UpdateProfile(ctx, profileId, org, updatedProfileReq)
 }
 
 func (ps *ProfilesService) GetProfileCookieByProfileId(ctx context.Context,
@@ -1652,9 +1653,9 @@ func (ps *ProfilesService) GetProfileCookieByProfileId(ctx context.Context,
 }
 
 func (ps *ProfilesService) GetProfileCookieById(ctx context.Context,
-	cookie, orgHandle string) (*profileModel.ProfileCookie, error) {
+	cookie string, org orgModel.Ref) (*profileModel.ProfileCookie, error) {
 
-	cookieObj, err := profileStore.GetProfileCookie(ctx, cookie, orgHandle)
+	cookieObj, err := profileStore.GetProfileCookie(ctx, cookie, org.ID)
 	logger := log.GetLogger()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error fetching profile cookie : %s", cookie)
@@ -1784,7 +1785,7 @@ func DeepMerge(dst, src map[string]interface{}) map[string]interface{} {
 // It returns profiles scored above the given threshold, sorted by score descending.
 func (ps *ProfilesService) GetProfilesWithFuzzyResolution(
 	ctx context.Context,
-	orgHandle string,
+	org orgModel.Ref,
 	filters []string,
 	threshold float64,
 	limit int,
@@ -1797,25 +1798,25 @@ func (ps *ProfilesService) GetProfilesWithFuzzyResolution(
 		return []profileModel.FuzzyMatchResult{}, nil
 	}
 
-	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgHandle)
+	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,
 			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load unification rules for org: %s", orgHandle),
+			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.Handle),
 		}, err)
 	}
 	rules := filterActiveRules(rawRules)
 	if len(rules) == 0 {
 		logger.Warn("Service: no active unification rules, fuzzy resolution returning empty",
-			log.String("orgHandle", orgHandle))
+			log.String("org.Handle", org.Handle))
 		return []profileModel.FuzzyMatchResult{}, nil
 	}
 
 	blockingKeys := engine.GenerateBlockingKeysFromRules(flatAttrs, rules)
-	candidateIDs := engine.FindCandidatesByIndex(blockingKeys, orgHandle, "",
-		func(org, attr string, values []string, exclude string, max int) ([]string, error) {
-			return irStore.FindCandidateIDsByKeys(ctx, org, attr, values, exclude, max)
+	candidateIDs := engine.FindCandidatesByIndex(blockingKeys, org.ID, "",
+		func(orgId, attr string, values []string, exclude string, max int) ([]string, error) {
+			return irStore.FindCandidateIDsByKeys(ctx, orgId, attr, values, exclude, max)
 		})
 	if len(candidateIDs) == 0 {
 		return []profileModel.FuzzyMatchResult{}, nil
@@ -1826,7 +1827,7 @@ func (ps *ProfilesService) GetProfilesWithFuzzyResolution(
 		return nil, err
 	}
 
-	results, err := scoreAndBuildFuzzyResults(ctx, candidateIDs, profileMap, flatAttrs, rules, threshold, limit, orgHandle)
+	results, err := scoreAndBuildFuzzyResults(ctx, candidateIDs, profileMap, flatAttrs, rules, threshold, limit, org)
 	if err != nil {
 		return nil, err
 	}
@@ -1840,7 +1841,7 @@ func (ps *ProfilesService) GetProfilesWithFuzzyResolution(
 // satisfies the deterministic conditions.
 func (ps *ProfilesService) GetProfilesHybrid(
 	ctx context.Context,
-	orgHandle string,
+	org orgModel.Ref,
 	fuzzyFilters []string,
 	deterministicFilters []string,
 	threshold float64,
@@ -1871,12 +1872,12 @@ func (ps *ProfilesService) GetProfilesHybrid(
 	}
 
 	// Step 2: Load unification rules.
-	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgHandle)
+	rawRules, err := urService.GetUnificationRuleService().GetUnificationRules(ctx, org)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.IR_SEARCH_FAILED.Code,
 			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load unification rules for org: %s", orgHandle),
+			Description: fmt.Sprintf("Failed to load unification rules for org: %s", org.Handle),
 		}, err)
 	}
 	rules := filterActiveRules(rawRules)
@@ -1887,9 +1888,9 @@ func (ps *ProfilesService) GetProfilesHybrid(
 
 	// Step 3: Get fuzzy candidates via blocking.
 	blockingKeys := engine.GenerateBlockingKeysFromRules(flatAttrs, rules)
-	fuzzyIDs := engine.FindCandidatesByIndex(blockingKeys, orgHandle, "",
-		func(org, attr string, values []string, exclude string, max int) ([]string, error) {
-			return irStore.FindCandidateIDsByKeys(ctx, org, attr, values, exclude, max)
+	fuzzyIDs := engine.FindCandidatesByIndex(blockingKeys, org.ID, "",
+		func(orgId, attr string, values []string, exclude string, max int) ([]string, error) {
+			return irStore.FindCandidateIDsByKeys(ctx, orgId, attr, values, exclude, max)
 		})
 	if len(fuzzyIDs) == 0 {
 		return []profileModel.FuzzyMatchResult{}, nil
@@ -1899,7 +1900,7 @@ func (ps *ProfilesService) GetProfilesHybrid(
 	// Step 4/5: the deterministic filter is applied to the fuzzy candidates rather than to
 	// the whole organisation, so the database performs the intersection and returns only
 	// what survives both paths.
-	candidateIDs, err := profileStore.GetProfileIDsWithFilters(ctx, orgHandle, deterministicFilters, fuzzyIDs)
+	candidateIDs, err := profileStore.GetProfileIDsWithFilters(ctx, org.ID, deterministicFilters, fuzzyIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1914,7 +1915,7 @@ func (ps *ProfilesService) GetProfilesHybrid(
 	}
 
 	// Step 7: Score, threshold, sort, and build results.
-	results, err := scoreAndBuildFuzzyResults(ctx, candidateIDs, profileMap, flatAttrs, rules, threshold, limit, orgHandle)
+	results, err := scoreAndBuildFuzzyResults(ctx, candidateIDs, profileMap, flatAttrs, rules, threshold, limit, org)
 	if err != nil {
 		return nil, err
 	}
@@ -2026,16 +2027,16 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 	rules []UnificationModel.UnificationRule,
 	threshold float64,
 	limit int,
-	orgHandle string,
+	org orgModel.Ref,
 ) ([]profileModel.FuzzyMatchResult, error) {
 	logger := log.GetLogger()
 
-	thresholds := irModel.LoadThresholds(ctx, orgHandle)
+	thresholds := irModel.LoadThresholds(ctx, org)
 	scoringCtx := engine.ScoringContext{
-		OrgHandle:  orgHandle,
+		OrgId:      org.ID,
 		Thresholds: thresholds,
-		ValueFrequency: func(org, attr, keyValue string) (int, error) {
-			return irStore.CountProfilesByBlockingKey(ctx, org, attr, keyValue)
+		ValueFrequency: func(orgId, attr, keyValue string) (int, error) {
+			return irStore.CountProfilesByBlockingKey(ctx, orgId, attr, keyValue)
 		},
 	}
 	if threshold <= 0 {
@@ -2082,7 +2083,7 @@ func scoreAndBuildFuzzyResults(ctx context.Context,
 		// GetProfile reports "no such profile" as (nil, nil), so the nil profile has to be
 		// checked separately from the error — a candidate can disappear between the
 		// blocking lookup and this read.
-		profile, err := profileStore.GetProfile(ctx, sm.candidateID, orgHandle)
+		profile, err := profileStore.GetProfile(ctx, sm.candidateID, org.ID)
 		if err != nil || profile == nil {
 			logger.Warn(fmt.Sprintf("scoreAndBuildFuzzyResults: could not load profile '%s', skipping", sm.candidateID))
 			continue

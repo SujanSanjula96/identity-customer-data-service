@@ -27,16 +27,10 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
-	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 // UpsertApplication persists the application information, refreshing the clientId on re-validation.
-func UpsertApplication(ctx context.Context, app model.Application) error {
-
-	orgKey, err := orgkey.ForWrite(ctx, app.OrgHandle)
-	if err != nil {
-		return err
-	}
+func UpsertApplication(ctx context.Context, orgId string, app model.Application) error {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -58,7 +52,7 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 	}
 
 	query := scripts.UpsertApplication
-	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgKey, clientID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgId, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
@@ -74,20 +68,12 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 }
 
 // GetAppIdentifierByClientID resolves an OAuth clientId to the app ID.
-func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error) {
-
-	orgKey, known, err := orgkey.ForRead(ctx, orgHandle)
-	if err != nil {
-		return "", err
-	}
-	if !known {
-		return "", nil
-	}
+func GetAppIdentifierByClientID(ctx context.Context, orgId, clientID string) (string, error) {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_APPLICATION_FAILED.Code,
@@ -98,9 +84,9 @@ func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string)
 	defer dbClient.Close()
 
 	query := scripts.GetAppIdentifierByClientID
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgKey, clientID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, clientID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_APPLICATION_FAILED.Code,

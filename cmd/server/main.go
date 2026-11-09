@@ -43,7 +43,6 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
-	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 )
 
 func initDatabaseFromConfig(cdsConfig *config.Config) error {
@@ -51,8 +50,6 @@ func initDatabaseFromConfig(cdsConfig *config.Config) error {
 	if err := provider.ValidateDataSource(cdsConfig.DataSource); err != nil {
 		return err
 	}
-
-	orgService.RegisterOrgKeyResolver()
 
 	if err := provider.EnsureDatabase(); err != nil {
 		return err
