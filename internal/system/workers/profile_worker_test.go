@@ -109,7 +109,7 @@ func TestUnificationUserIDPrecedesRulesAndPreservesApplicationData(t *testing.T)
 		_, err = db.Exec(`INSERT INTO application_data (profile_id, app_id, application_data) VALUES (?, ?, ?)`, row.profile, row.app, row.data)
 		require.NoError(t, err)
 	}
-	unifyProfiles(context.Background(), tenantOrg, incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var parent, reason string
 	require.NoError(t, db.QueryRow(`SELECT reference_profile_id, reference_reason FROM profile_reference WHERE profile_id='incoming'`).Scan(&parent, &reason))
 	require.Equal(t, "user-match", parent)
@@ -145,11 +145,11 @@ func TestRuleMatchingIsDelegatedToIdentityResolution(t *testing.T) {
 	t.Cleanup(func() { fuzzyResolveFunc = previous })
 
 	var delegated []string
-	RegisterFuzzyResolveFunc(func(_ context.Context, _ orgModel.Ref, p profileModel.Profile) {
+	RegisterFuzzyResolveFunc(func(_ context.Context, _ string, p profileModel.Profile) {
 		delegated = append(delegated, p.ProfileId)
 	})
 
-	unifyProfiles(context.Background(), tenantOrg, incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 
 	require.Equal(t, []string{"incoming"}, delegated,
 		"a profile with no user-ID match must be handed to identity resolution")
@@ -171,7 +171,7 @@ func TestUnificationChildStaysWithParent(t *testing.T) {
 	child, err := profileStore.GetProfileWithOptions(context.Background(), "incoming", tenantOrg.ID,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
-	unifyProfiles(context.Background(), tenantOrg, *child)
+	unifyProfiles(context.Background(), tenantOrg.ID, *child)
 	var parentID string
 	require.NoError(t, db.QueryRow(`SELECT reference_profile_id FROM profile_reference
 		WHERE profile_id='incoming'`).Scan(&parentID))
@@ -185,7 +185,7 @@ func TestUnificationWaitingProfileIsSkipped(t *testing.T) {
 	require.NoError(t, err)
 	incoming.ProfileStatus.IsReferenceProfile = false
 	incoming.ProfileStatus.IsWaitingOnUser = true
-	unifyProfiles(context.Background(), tenantOrg, incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var status string
 	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference
 		WHERE profile_id='incoming'`).Scan(&status))
@@ -206,11 +206,11 @@ func TestCandidateDiscoveryDoesNotRequireApplicationDataTable(t *testing.T) {
 		"identity_attributes.email", []string{"a"}, incoming.ProfileId, incoming.UserId)
 	require.NoError(t, err)
 	require.Equal(t, "master", id)
-	unifyProfiles(context.Background(), tenantOrg, incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	// A selected pair needs application data. A read failure must leave the
 	// relationship unchanged rather than merging an incomplete profile.
 	incoming.IdentityAttributes["email"] = "a"
-	unifyProfiles(context.Background(), tenantOrg, incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var status string
 	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference WHERE profile_id='incoming'`).Scan(&status))
 	require.Equal(t, "REFERENCE_PROFILE", status)

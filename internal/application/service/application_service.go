@@ -24,7 +24,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
 	"github.com/wso2/identity-customer-data-service/internal/application/store"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -33,8 +33,8 @@ import (
 
 // ApplicationServiceInterface defines the interface for the application service.
 type ApplicationServiceInterface interface {
-	ResolveAndRegisterApplication(ctx context.Context, appIdentifier string, org orgModel.Ref) (bool, error)
-	ResolveAppIdentifierByClientID(ctx context.Context, org orgModel.Ref, clientID string) (string, error)
+	ResolveAndRegisterApplication(ctx context.Context, appIdentifier string, orgId string) (bool, error)
+	ResolveAppIdentifierByClientID(ctx context.Context, orgId string, clientID string) (string, error)
 }
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
@@ -48,27 +48,31 @@ func GetApplicationService() ApplicationServiceInterface {
 
 // ResolveAndRegisterApplication validates the application in the identity server and persists its clientId.
 func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
-	appIdentifier string, org orgModel.Ref) (bool, error) {
+	appIdentifier string, orgId string) (bool, error) {
 
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
-	app, exists, err := identityClient.GetApplication(appIdentifier, org.Handle)
+	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgId)
+	if err != nil {
+		return false, err
+	}
+	app, exists, err := identityClient.GetApplication(appIdentifier, orgHandle)
 	if err != nil {
 		return false, err
 	}
 	if !exists {
 		logger.Debug(fmt.Sprintf("Application '%s' does not exist in the identity server for organization '%s'",
-			appIdentifier, org.ID))
+			appIdentifier, orgId))
 		return false, nil
 	}
 
 	// clientId is empty for SAML-only apps; the row is still persisted (with a NULL clientId) so the table
 	// holds an entry for every application.
-	if err := store.UpsertApplication(ctx, org.ID, model.Application{
+	if err := store.UpsertApplication(ctx, orgId, model.Application{
 		AppID:    appIdentifier,
-		OrgId:    org.ID,
+		OrgId:    orgId,
 		ClientID: app.ClientId,
 	}); err != nil {
 		return false, err
@@ -81,14 +85,14 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 // If a sub organization has no mapping for the client ID, the ancestor organizations are checked,
 // nearest first.
 func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context,
-	org orgModel.Ref, clientID string) (string, error) {
+	orgId string, clientID string) (string, error) {
 
-	orgIds, err := orgChain(ctx, org.ID)
+	orgIds, err := orgChain(ctx, orgId)
 	if err != nil {
 		return "", err
 	}
-	for _, orgId := range orgIds {
-		appID, err := store.GetAppIdentifierByClientID(ctx, orgId, clientID)
+	for _, chainOrgId := range orgIds {
+		appID, err := store.GetAppIdentifierByClientID(ctx, chainOrgId, clientID)
 		if err != nil || appID != "" {
 			return appID, err
 		}

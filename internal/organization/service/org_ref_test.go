@@ -217,3 +217,24 @@ func TestLookupOrganizationById(t *testing.T) {
 		t.Fatalf("expected the cached organization, got %+v, %v, %v", ref, found, err)
 	}
 }
+
+func TestGetOrganizationHandle(t *testing.T) {
+
+	_, testDB := setUpLookup(t, nil)
+	ctx := context.Background()
+	if err := setup.InsertTestOrganization(testDB.DB, "hooli-xyz-id", "hooli-xyz"); err != nil {
+		t.Fatal(err)
+	}
+
+	handle, err := GetOrganizationHandle(ctx, "hooli-xyz-id")
+	if err != nil || handle != "hooli-xyz" {
+		t.Fatalf("GetOrganizationHandle(hooli-xyz-id) = %q, %v", handle, err)
+	}
+
+	// An org ID with no row is a server error, because the flow resolved the org before.
+	_, err = GetOrganizationHandle(ctx, "missing-id")
+	var serverError *errors2.ServerError
+	if !errors.As(err, &serverError) {
+		t.Fatalf("expected a server error, got %v", err)
+	}
+}

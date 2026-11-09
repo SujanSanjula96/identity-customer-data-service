@@ -52,7 +52,7 @@ func (h *ConsentCategoryHandler) GetAllConsentCategories(w http.ResponseWriter, 
 		return
 	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	categories, err := service.GetAllConsentCategories(ctx, org)
+	categories, err := service.GetAllConsentCategories(ctx, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -95,7 +95,7 @@ func (h *ConsentCategoryHandler) AddConsentCategory(w http.ResponseWriter, r *ht
 	category := req.ToCategory(org.ID, "")
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	consentCat, err := service.AddConsentCategory(ctx, org, category)
+	consentCat, err := service.AddConsentCategory(ctx, org.ID, category)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -134,7 +134,7 @@ func (h *ConsentCategoryHandler) GetConsentCategory(w http.ResponseWriter, r *ht
 		return
 	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	category, err := service.GetConsentCategory(ctx, categoryId, org)
+	category, err := service.GetConsentCategory(ctx, categoryId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -185,7 +185,7 @@ func (h *ConsentCategoryHandler) UpdateConsentCategory(w http.ResponseWriter, r 
 	category := req.ToCategory(org.ID, categoryId)
 
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	if err := service.UpdateConsentCategory(ctx, org, category); err != nil {
+	if err := service.UpdateConsentCategory(ctx, org.ID, category); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
@@ -222,7 +222,7 @@ func (h *ConsentCategoryHandler) DeleteConsentCategory(w http.ResponseWriter, r 
 		return
 	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
-	if err := service.DeleteConsentCategory(ctx, categoryId, org); err != nil {
+	if err := service.DeleteConsentCategory(ctx, categoryId, org.ID); err != nil {
 		utils.HandleError(w, err)
 		return
 	}

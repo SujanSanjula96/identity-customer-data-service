@@ -113,21 +113,21 @@ func StartTreeSync(ctx context.Context, primary model.Ref) (*model.TreeSyncStatu
 }
 
 // ResetTreeSync clears the tree sync state of the primary organization.
-func ResetTreeSync(ctx context.Context, primary model.Ref) error {
+func ResetTreeSync(ctx context.Context, primaryId string) error {
 
 	treeSyncMu.Lock()
 	defer treeSyncMu.Unlock()
-	if run, running := treeSyncRuns[primary.ID]; running {
+	if run, running := treeSyncRuns[primaryId]; running {
 		run.again = false
 	}
-	status, err := store.GetTreeSyncStatus(ctx, primary.ID)
+	status, err := store.GetTreeSyncStatus(ctx, primaryId)
 	if err != nil {
 		return err
 	}
 	if status.State == model.TreeSyncNotSynced && status.LastSyncedAt == nil {
 		return nil
 	}
-	return store.SetTreeSyncValues(ctx, primary.ID, clearedTreeSyncValues())
+	return store.SetTreeSyncValues(ctx, primaryId, clearedTreeSyncValues())
 }
 
 // clearedTreeSyncValues returns the tree sync keys with empty values.

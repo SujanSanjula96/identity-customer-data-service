@@ -542,7 +542,7 @@ func TestResetTreeSyncNeedsANewSync(t *testing.T) {
 	waitIdle(t)
 
 	setCDSEnabled(t, ctx, false)
-	if err := ResetTreeSync(ctx, primaryRef); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatalf("ResetTreeSync failed: %v", err)
 	}
 	status, err := GetTreeSyncStatus(ctx, primaryId)
@@ -590,7 +590,7 @@ func TestASyncThatEndsAfterADisableStoresNoState(t *testing.T) {
 	// A trigger during the run asks for one more run, but the disable cancels it.
 	requestSyncAgain()
 	setCDSEnabled(t, ctx, false)
-	if err := ResetTreeSync(ctx, primaryRef); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatal(err)
 	}
 	close(fake.release)
@@ -612,7 +612,7 @@ func TestResetTreeSyncWithoutASyncWritesNothing(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree()}
 	ctx := setUp(t, fake)
-	if err := ResetTreeSync(ctx, primaryRef); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatal(err)
 	}
 	status, err := GetTreeSyncStatus(ctx, primaryId)

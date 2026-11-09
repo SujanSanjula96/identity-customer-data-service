@@ -81,10 +81,10 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	// raised for review rather than merged.
 	first := insertBareProfile(t, org, "", map[string]interface{}{
 		"name": "Marcus Delacroix", "email": "marcus.d@cdsfuzz.io"})
-	irWorker.ResolveProfileAsync(ctx, ref, first)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, first)
 	second := insertBareProfile(t, org, "", map[string]interface{}{
 		"name": "Marcus Delacroix", "email": "mdelacroix@othermail.io"})
-	irWorker.ResolveProfileAsync(ctx, ref, second)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 
 	pending, _, err := irStore.GetPendingReviewTasks(ctx, ref.ID, 10)
 	if err != nil {
@@ -109,12 +109,12 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	}
 
 	svc := irService.GetIdentityResolutionService()
-	if err := svc.ResolveReviewTask(ctx, ref, pending[0].ID, false, "admin", "different people"); err != nil {
+	if err := svc.ResolveReviewTask(ctx, ref.ID, pending[0].ID, false, "admin", "different people"); err != nil {
 		t.Fatalf("reject task: %v", err)
 	}
 
 	// Evaluating the pair again on the same evidence leaves the rejection standing.
-	irWorker.ResolveProfileAsync(ctx, ref, second)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 	if stillRejected, _, err := irStore.GetPendingReviewTasks(ctx, ref.ID, 10); err != nil {
 		t.Fatalf("list tasks: %v", err)
 	} else if len(stillRejected) != 0 {
@@ -127,7 +127,7 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	if err := profileStore.UpdateProfile(ctx, ref.ID, second); err != nil {
 		t.Fatalf("update profile: %v", err)
 	}
-	irWorker.ResolveProfileAsync(ctx, ref, second)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 
 	for _, p := range []string{first.ProfileId, second.ProfileId} {
 		stored, err := profileStore.GetProfile(ctx, p, ref.ID)

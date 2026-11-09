@@ -137,7 +137,7 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 			existing := insertBareProfile(t, org, "", shared)
 			incoming := insertBareProfile(t, org, "", shared)
 
-			master, mergeErr := workers.MergeMatchedProfiles(context.Background(), ref, existing, incoming, constants.MergeReasonAutoMerge)
+			master, mergeErr := workers.MergeMatchedProfiles(context.Background(), ref.ID, existing, incoming, constants.MergeReasonAutoMerge)
 			if mergeErr != nil {
 				t.Fatalf("merge: %v", mergeErr)
 			}
@@ -171,7 +171,7 @@ func Test_LegacyOrganisation_AutoMergeStaysEnabled(t *testing.T) {
 	org := newOrg("legacy-automerge")
 	insertLegacyAdminConfig(t, org)
 
-	thresholds := irModel.LoadThresholds(context.Background(), setup.TestOrg(t, org))
+	thresholds := irModel.LoadThresholds(context.Background(), setup.TestOrg(t, org).ID)
 	if !thresholds.AutoMergeEnabled {
 		t.Error("an organisation with no auto_merge_enabled row must keep merging automatically")
 	}

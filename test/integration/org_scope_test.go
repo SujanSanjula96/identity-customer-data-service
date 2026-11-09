@@ -329,7 +329,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 		_, err := schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{{
 			OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "identity_attributes.email",
 			ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
-		}}, constants.IdentityAttributes, org)
+		}}, constants.IdentityAttributes, org.ID)
 		require.NoError(t, err)
 		_, err = schemaSvc.AddProfileSchemaAttributesForScope(ctx, []profileSchemaModel.ProfileSchemaAttribute{
 			{
@@ -340,12 +340,12 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 				OrgId: org.ID, AttributeId: uuid.New().String(), AttributeName: "traits.loyalty_id",
 				ValueType: constants.StringDataType, MergeStrategy: "combine", Mutability: constants.MutabilityReadWrite,
 			},
-		}, constants.Traits, org)
+		}, constants.Traits, org.ID)
 		require.NoError(t, err)
-		require.NoError(t, consentSvc.SeedDefaultConsentCategory(ctx, org))
+		require.NoError(t, consentSvc.SeedDefaultConsentCategory(ctx, org.ID))
 	}
 
-	ownerCategory, err := consentSvc.AddConsentCategory(ctx, f.owner, consentModel.ConsentCategory{
+	ownerCategory, err := consentSvc.AddConsentCategory(ctx, f.owner.ID, consentModel.ConsentCategory{
 		CategoryName: "Owner Marketing",
 		OrgId:        f.owner.ID,
 		Purpose:      "personalization",
@@ -354,7 +354,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 	require.NoError(t, err)
 	f.ownerCategoryId = ownerCategory.CategoryIdentifier
 
-	otherCategory, err := consentSvc.AddConsentCategory(ctx, f.other, consentModel.ConsentCategory{
+	otherCategory, err := consentSvc.AddConsentCategory(ctx, f.other.ID, consentModel.ConsentCategory{
 		CategoryName: "Other Marketing",
 		OrgId:        f.other.ID,
 		Purpose:      "personalization",
@@ -367,15 +367,15 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 		UserId:             f.ownerUserId,
 		IdentityAttributes: map[string]interface{}{"email": "owner@example.com"},
 		Traits:             map[string]interface{}{"interests": f.ownerInterests},
-	}, f.owner)
+	}, f.owner.ID)
 	require.NoError(t, err)
 	f.ownerProfileId = ownerProfile.ProfileId
-	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.ownerProfileId, f.owner,
+	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.ownerProfileId, f.owner.ID,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: f.ownerCategoryId, IsConsented: true}}))
 
 	ownerAnon, err := profiles.CreateProfile(ctx, profileModel.ProfileRequest{
 		Traits: map[string]interface{}{"interests": f.ownerAnonInterest},
-	}, f.owner)
+	}, f.owner.ID)
 	require.NoError(t, err)
 	f.ownerAnonId = ownerAnon.ProfileId
 	cookie, err := profiles.CreateProfileCookie(ctx, f.ownerAnonId)
@@ -384,10 +384,10 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 
 	otherProfile, err := profiles.CreateProfile(ctx, profileModel.ProfileRequest{
 		Traits: map[string]interface{}{"interests": "other-org-interest"},
-	}, f.other)
+	}, f.other.ID)
 	require.NoError(t, err)
 	f.otherProfileId = otherProfile.ProfileId
-	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.otherProfileId, f.other,
+	require.NoError(t, profiles.UpdateProfileConsents(ctx, f.otherProfileId, f.other.ID,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: f.otherCategoryId, IsConsented: true}}))
 
 	now := time.Now().UTC()
@@ -402,7 +402,7 @@ func setUpOrgScopeFixture(t *testing.T) *orgScopeFixture {
 			IsActive:     true,
 			CreatedAt:    now,
 			UpdatedAt:    now,
-		}, f.owner))
+		}, f.owner.ID))
 
 	return f
 }

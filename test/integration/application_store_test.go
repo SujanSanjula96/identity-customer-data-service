@@ -60,7 +60,7 @@ func Test_ApplicationStore(t *testing.T) {
 		require.Equal(t, "", got)
 
 		// Service wrapper also returns empty on miss without surfacing an error.
-		resolved, err := appService.ResolveAppIdentifierByClientID(context.Background(), org, "unknown-client")
+		resolved, err := appService.ResolveAppIdentifierByClientID(context.Background(), org.ID, "unknown-client")
 		require.NoError(t, err)
 		require.Equal(t, "", resolved)
 	})

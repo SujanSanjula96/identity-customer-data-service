@@ -114,7 +114,7 @@ func Test_FuzzyMatchingSwitch(t *testing.T) {
 		insertFuzzyNameRule(t, org)
 		profile := insertBareProfile(t, org, "", map[string]interface{}{"name": fullName})
 
-		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org), profile)
+		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
 		if !findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId) {
 			t.Error("the exact key was not written")
@@ -133,7 +133,7 @@ func Test_FuzzyMatchingSwitch(t *testing.T) {
 		insertFuzzyNameRule(t, org)
 		profile := insertBareProfile(t, org, "", map[string]interface{}{"name": fullName})
 
-		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org), profile)
+		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
 		if !findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId) {
 			t.Error("the exact key must still be written; the rule is not disabled, only narrowed")
@@ -171,7 +171,7 @@ func Test_FuzzyMatchingSwitch_SearchPath(t *testing.T) {
 		fuzzyOn()
 		insertFuzzyNameRule(t, org)
 		profile := insertBareProfile(t, org, "", map[string]interface{}{"name": stored})
-		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org), profile)
+		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
 		phonetic, _ := algorithms.DoubleMetaphonePhrase(stored)
 		if !findableUnder(t, org, "traits.name", phonetic, profile.ProfileId) {
@@ -184,7 +184,7 @@ func Test_FuzzyMatchingSwitch_SearchPath(t *testing.T) {
 		t.Helper()
 
 		results, err := profileService.GetProfilesService().GetProfilesWithFuzzyResolution(
-			context.Background(), setup.TestOrg(t, org), []string{"traits.name eq " + typo}, 0.5, 10)
+			context.Background(), setup.TestOrg(t, org).ID, []string{"traits.name eq " + typo}, 0.5, 10)
 		if err != nil {
 			t.Fatalf("fuzzy search: %v", err)
 		}
@@ -245,7 +245,7 @@ func Test_FuzzyMatchingSwitch_Backfill(t *testing.T) {
 		if err != nil || len(rules) == 0 {
 			t.Fatalf("load rules for %s: %v", org, err)
 		}
-		irWorker.IndexNewAttribute(context.Background(), setup.TestOrg(t, org), rules[0])
+		irWorker.IndexNewAttribute(context.Background(), setup.TestOrg(t, org).ID, rules[0])
 
 		return findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId),
 			findableUnder(t, org, "traits.name", phonetic, profile.ProfileId)

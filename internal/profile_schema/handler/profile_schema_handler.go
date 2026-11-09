@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"net/http"
 	"strings"
 	"sync"
@@ -72,7 +71,7 @@ func (psh *ProfileSchemaHandler) AddProfileSchemaAttributesForScope(w http.Respo
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -149,7 +148,7 @@ func (psh *ProfileSchemaHandler) AddProfileSchemaAttributesForScope(w http.Respo
 
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
-	addedAttributes, err := schemaService.AddProfileSchemaAttributesForScope(ctx, schemaAttributes, scope, org)
+	addedAttributes, err := schemaService.AddProfileSchemaAttributesForScope(ctx, schemaAttributes, scope, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -176,7 +175,7 @@ func (psh *ProfileSchemaHandler) GetProfileSchema(w http.ResponseWriter, r *http
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -187,7 +186,7 @@ func (psh *ProfileSchemaHandler) GetProfileSchema(w http.ResponseWriter, r *http
 	}
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
-	profileSchema, err := schemaService.GetProfileSchema(ctx, org)
+	profileSchema, err := schemaService.GetProfileSchema(ctx, org.ID)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -213,7 +212,7 @@ func (psh *ProfileSchemaHandler) GetProfileSchemaAttributeById(w http.ResponseWr
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -235,7 +234,7 @@ func (psh *ProfileSchemaHandler) GetProfileSchemaAttributeById(w http.ResponseWr
 		return
 	}
 
-	attribute, err := schemaService.GetProfileSchemaAttributeById(ctx, org, attributeId)
+	attribute, err := schemaService.GetProfileSchemaAttributeById(ctx, org.ID, attributeId)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -260,7 +259,7 @@ func (psh *ProfileSchemaHandler) GetProfileSchemaAttributeForScope(w http.Respon
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -299,10 +298,10 @@ func (psh *ProfileSchemaHandler) GetProfileSchemaAttributeForScope(w http.Respon
 		}
 	}
 	if len(queryFilters) > 0 {
-		attributes, err = schemaService.GetProfileSchemaAttributesByScopeAndFilter(ctx, org, scope, filters)
+		attributes, err = schemaService.GetProfileSchemaAttributesByScopeAndFilter(ctx, org.ID, scope, filters)
 	} else {
 		if constants.AllowedAttributesScope[scope] {
-			attributes, err = schemaService.GetProfileSchemaAttributesByScope(ctx, org, scope)
+			attributes, err = schemaService.GetProfileSchemaAttributesByScope(ctx, org.ID, scope)
 		}
 	}
 
@@ -329,7 +328,7 @@ func (psh *ProfileSchemaHandler) PatchProfileSchemaAttributeById(w http.Response
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -364,13 +363,13 @@ func (psh *ProfileSchemaHandler) PatchProfileSchemaAttributeById(w http.Response
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	err = schemaService.UpdateProfileSchemaAttributeById(ctx, org, attributeId, updates, scope)
+	err = schemaService.UpdateProfileSchemaAttributeById(ctx, org.ID, attributeId, updates, scope)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
-	attribute, err := schemaService.GetProfileSchemaAttributeById(ctx, org, attributeId)
+	attribute, err := schemaService.GetProfileSchemaAttributeById(ctx, org.ID, attributeId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -395,7 +394,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchema(w http.ResponseWriter, r *h
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -406,7 +405,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchema(w http.ResponseWriter, r *h
 	}
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
-	err = schemaService.DeleteProfileSchema(ctx, org)
+	err = schemaService.DeleteProfileSchema(ctx, org.ID)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -433,7 +432,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchemaAttributeById(w http.Respons
 		utils.HandleError(w, err)
 		return
 	}
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -455,7 +454,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchemaAttributeById(w http.Respons
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err = schemaService.DeleteProfileSchemaAttributeById(ctx, org, attributeId)
+	err = schemaService.DeleteProfileSchemaAttributeById(ctx, org.ID, attributeId)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -480,7 +479,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchemaAttributeForScope(w http.Res
 		return
 	}
 
-	if !isCDSEnabled(ctx, org) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -511,7 +510,7 @@ func (psh *ProfileSchemaHandler) DeleteProfileSchemaAttributeForScope(w http.Res
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err = schemaService.DeleteProfileSchemaAttributesByScope(ctx, org, scope)
+	err = schemaService.DeleteProfileSchemaAttributesByScope(ctx, org.ID, scope)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -553,7 +552,7 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		utils.HandleError(w, err)
 		return
 	}
-	if !known || !isCDSEnabled(ctx, org) {
+	if !known || !isCDSEnabled(ctx, org.ID) {
 		// An organization that CDS does not know has no org ID.
 		orgLabel := orgHandle
 		if known {
@@ -570,12 +569,12 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if source, inherits := identitysource.IsInherited(ctx, org); inherits {
+	if source, inherits := identitysource.IsInherited(ctx, org.ID); inherits {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:    errors2.INHERITED_ATTRIBUTE_READ_ONLY.Code,
 			Message: errors2.INHERITED_ATTRIBUTE_READ_ONLY.Message,
 			Description: fmt.Sprintf("The organization '%s' inherits the identity attributes from '%s'. "+
-				"Sync the identity attributes of '%s'.", org.ID, source.ID, source.ID),
+				"Sync the identity attributes of '%s'.", org.ID, source, source),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -615,8 +614,8 @@ func (psh *ProfileSchemaHandler) SyncProfileSchema(w http.ResponseWriter, r *htt
 }
 
 // isCDSEnabled checks if CDS is enabled for the given organization
-func isCDSEnabled(ctx context.Context, org orgModel.Ref) bool {
-	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, org)
+func isCDSEnabled(ctx context.Context, orgId string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgId)
 }
 
 // CreateSharingPolicy shares an attribute of the organization.

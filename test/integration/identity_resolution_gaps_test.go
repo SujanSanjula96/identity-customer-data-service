@@ -75,7 +75,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "user-1", map[string]interface{}{"name": "Ann"})
 		incoming := insertBareProfile(t, org, "", map[string]interface{}{"name": "Ann"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -92,7 +92,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "", map[string]interface{}{"name": "Ben"})
 		incoming := insertBareProfile(t, org, "user-2", map[string]interface{}{"name": "Ben"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -111,7 +111,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "", map[string]interface{}{"name": "Cal"})
 		incoming := insertBareProfile(t, org, "", map[string]interface{}{"name": "Cal"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -129,7 +129,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "user-3", map[string]interface{}{"name": "Dee"})
 		incoming := insertBareProfile(t, org, "user-4", map[string]interface{}{"name": "Dee"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -201,7 +201,7 @@ func Test_ResolveReviewTask_RejectsForeignOrg(t *testing.T) {
 	}
 
 	svc := irService.GetIdentityResolutionService()
-	if err := svc.ResolveReviewTask(context.Background(), refA, pending[0].ID, true, "attacker", ""); err == nil {
+	if err := svc.ResolveReviewTask(context.Background(), refA.ID, pending[0].ID, true, "attacker", ""); err == nil {
 		t.Errorf("org %s resolved a task belonging to org %s", orgA, orgB)
 	}
 }
@@ -266,7 +266,7 @@ func Test_BlockingKeys_RemovedWhenProfileDeleted(t *testing.T) {
 	if err := irStore.UpsertBlockingKeys(context.Background(), profile.ProfileId, ref.ID, key); err != nil {
 		t.Fatalf("index profile: %v", err)
 	}
-	if err := profileService.GetProfilesService().DeleteProfile(context.Background(), profile.ProfileId, ref); err != nil {
+	if err := profileService.GetProfilesService().DeleteProfile(context.Background(), profile.ProfileId, ref.ID); err != nil {
 		t.Fatalf("delete profile: %v", err)
 	}
 

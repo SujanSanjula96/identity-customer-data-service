@@ -92,6 +92,25 @@ func LookupOrganizationById(ctx context.Context, orgId string) (ref model.Ref, f
 	return store.LookupOrganizationRefById(ctx, orgId)
 }
 
+// GetOrganizationHandle returns the org handle of the stored organization with the ID. A flow that
+// has the org ID calls it where it needs the handle, such as for an identity server call or a
+// profile location.
+func GetOrganizationHandle(ctx context.Context, orgId string) (string, error) {
+
+	ref, found, err := store.LookupOrganizationRefById(ctx, orgId)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
+			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+			Description: fmt.Sprintf("CDS has no organization with the ID '%s'.", orgId),
+		}, fmt.Errorf("no organization with the ID %s", orgId))
+	}
+	return ref.Handle, nil
+}
+
 func organizationNotFound(orgHandle string) error {
 
 	return errors2.NewClientError(errors2.ErrorMessage{

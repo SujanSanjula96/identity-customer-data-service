@@ -20,7 +20,6 @@ package service
 
 import (
 	"context"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"testing"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/model"
@@ -69,7 +68,7 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 		t.Fatalf("failed to store the configuration of the primary organization: %v", err)
 	}
 
-	got, err := AdminConfigService{}.GetAdminConfig(ctx, orgModel.Ref{ID: "sub-id", Handle: "sub"})
+	got, err := AdminConfigService{}.GetAdminConfig(ctx, "sub-id")
 	if err != nil {
 		t.Fatalf("GetAdminConfig: %v", err)
 	}

@@ -193,7 +193,7 @@ func primaryOf(w http.ResponseWriter, r *http.Request, operation string) (*model
 		utils.HandleError(w, err)
 		return nil, false
 	}
-	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref) {
+	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref.ID) {
 		utils.HandleError(w, notEnabled())
 		return nil, false
 	}

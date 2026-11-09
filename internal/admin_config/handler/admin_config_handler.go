@@ -56,7 +56,7 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 	}
 	adminConfigProvider := provider.NewAdminConfigProvider()
 	adminConfigService := adminConfigProvider.GetAdminConfigService()
-	config, err := adminConfigService.GetAdminConfig(ctx, org)
+	config, err := adminConfigService.GetAdminConfig(ctx, org.ID)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -104,7 +104,7 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 
 	adminConfigService := provider.NewAdminConfigProvider().GetAdminConfigService()
 
-	existingConfig, err := adminConfigService.GetAdminConfig(ctx, org)
+	existingConfig, err := adminConfigService.GetAdminConfig(ctx, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return

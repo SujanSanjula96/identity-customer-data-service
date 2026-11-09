@@ -65,7 +65,7 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 		utils.HandleError(w, err)
 		return nil, false
 	}
-	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref) {
+	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref.ID) {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,

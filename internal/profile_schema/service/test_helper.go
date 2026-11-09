@@ -2,12 +2,10 @@ package service
 
 import (
 	"context"
-
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 )
 
 func OverrideValidateApplicationIdentifierForTest(
-	fn func(context.Context, string, orgModel.Ref) (error, bool),
+	fn func(ctx context.Context, appIdentifier string, orgId string) (error, bool),
 ) (restore func()) {
 
 	prev := validateApplicationIdentifierFn

@@ -31,7 +31,6 @@ import (
 	consentModel "github.com/wso2/identity-customer-data-service/internal/consent/model"
 	consentService "github.com/wso2/identity-customer-data-service/internal/consent/service"
 	consentStore "github.com/wso2/identity-customer-data-service/internal/consent/store"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	profileSchemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -47,7 +46,7 @@ func Test_ConsentFilter(t *testing.T) {
 	schemaSvc := schemaService.GetProfileSchemaService()
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
-		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
+		func(context.Context, string, string) (error, bool) { return nil, true })
 	defer restore()
 
 	var profileId string
@@ -76,7 +75,7 @@ func Test_ConsentFilter(t *testing.T) {
 				Mutability:    constants.MutabilityReadWrite,
 			},
 		}
-		_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, org)
+		_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, org.ID)
 		require.NoError(t, err)
 
 		traitAttrs := []profileSchemaModel.ProfileSchemaAttribute{
@@ -90,12 +89,12 @@ func Test_ConsentFilter(t *testing.T) {
 				Mutability:    constants.MutabilityReadWrite,
 			},
 		}
-		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, org)
+		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, org.ID)
 		require.NoError(t, err)
 	})
 
 	t.Run("Setup_mandatory_category", func(t *testing.T) {
-		err := consentSvc.SeedDefaultConsentCategory(context.Background(), org)
+		err := consentSvc.SeedDefaultConsentCategory(context.Background(), org.ID)
 		require.NoError(t, err)
 	})
 
@@ -106,7 +105,7 @@ func Test_ConsentFilter(t *testing.T) {
 			Purpose:      "personalization",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}
-		created, err := consentSvc.AddConsentCategory(context.Background(), org, cat)
+		created, err := consentSvc.AddConsentCategory(context.Background(), org.ID, cat)
 		require.NoError(t, err)
 		marketingCategoryId = created.CategoryIdentifier
 	})
@@ -120,7 +119,7 @@ func Test_ConsentFilter(t *testing.T) {
 		}`), &req)
 		require.NoError(t, err)
 
-		profile, err := profileSvc.CreateProfile(context.Background(), req, org)
+		profile, err := profileSvc.CreateProfile(context.Background(), req, org.ID)
 		require.NoError(t, err)
 		profileId = profile.ProfileId
 	})
@@ -128,10 +127,10 @@ func Test_ConsentFilter(t *testing.T) {
 	// ── Filter cases ──────────────────────────────────────────────────────────
 
 	t.Run("No_consentCategoryId_returns_mandatory_identity_fields_only", func(t *testing.T) {
-		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org.ID)
 		require.NoError(t, err)
 
-		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, nil)
+		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org.ID, nil)
 		require.NoError(t, err)
 
 		assert.Contains(t, filtered.IdentityAttributes, "email", "mandatory email should be present")
@@ -140,15 +139,15 @@ func Test_ConsentFilter(t *testing.T) {
 	})
 
 	t.Run("Revoked_consent_returns_mandatory_fields_only", func(t *testing.T) {
-		err := profileSvc.UpdateProfileConsents(context.Background(), profileId, org, []profileModel.ConsentRecord{
+		err := profileSvc.UpdateProfileConsents(context.Background(), profileId, org.ID, []profileModel.ConsentRecord{
 			{CategoryIdentifier: marketingCategoryId, IsConsented: false},
 		})
 		require.NoError(t, err)
 
-		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org.ID)
 		require.NoError(t, err)
 
-		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, []string{marketingCategoryId})
+		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org.ID, []string{marketingCategoryId})
 		require.NoError(t, err)
 
 		assert.NotEmpty(t, filtered.IdentityAttributes)
@@ -156,15 +155,15 @@ func Test_ConsentFilter(t *testing.T) {
 	})
 
 	t.Run("Consented_returns_union_of_mandatory_and_category_fields", func(t *testing.T) {
-		err := profileSvc.UpdateProfileConsents(context.Background(), profileId, org, []profileModel.ConsentRecord{
+		err := profileSvc.UpdateProfileConsents(context.Background(), profileId, org.ID, []profileModel.ConsentRecord{
 			{CategoryIdentifier: marketingCategoryId, IsConsented: true},
 		})
 		require.NoError(t, err)
 
-		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org.ID)
 		require.NoError(t, err)
 
-		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org, []string{marketingCategoryId})
+		filtered, err := profileService.FilterProfileByConsent(context.Background(), *profile, profileId, org.ID, []string{marketingCategoryId})
 		require.NoError(t, err)
 
 		assert.Contains(t, filtered.IdentityAttributes, "email")
@@ -180,16 +179,16 @@ func Test_ConsentFilter(t *testing.T) {
 			Purpose:      "profiling",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "traits.interests"}},
 		}
-		createdAnalytics, err := consentSvc.AddConsentCategory(context.Background(), org, analyticsCat)
+		createdAnalytics, err := consentSvc.AddConsentCategory(context.Background(), org.ID, analyticsCat)
 		require.NoError(t, err)
 		analyticsCategoryId := createdAnalytics.CategoryIdentifier
 
 		// marketing = consented, analytics = no consent record → revoked
-		profile, err := profileSvc.GetProfile(context.Background(), profileId, org)
+		profile, err := profileSvc.GetProfile(context.Background(), profileId, org.ID)
 		require.NoError(t, err)
 
 		filtered, err := profileService.FilterProfileByConsent(context.Background(),
-			*profile, profileId, org,
+			*profile, profileId, org.ID,
 			[]string{marketingCategoryId, analyticsCategoryId},
 		)
 		require.NoError(t, err)
@@ -205,13 +204,13 @@ func Test_ConsentFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, mandatoryIds)
 
-		err = profileSvc.UpdateProfileConsents(context.Background(), profileId, org, []profileModel.ConsentRecord{
+		err = profileSvc.UpdateProfileConsents(context.Background(), profileId, org.ID, []profileModel.ConsentRecord{
 			{CategoryIdentifier: mandatoryIds[0], IsConsented: true},
 		})
 		assert.Error(t, err, "should not be able to modify consent for mandatory category")
 	})
 
 	t.Cleanup(func() {
-		_ = profileSvc.DeleteProfile(context.Background(), profileId, org)
+		_ = profileSvc.DeleteProfile(context.Background(), profileId, org.ID)
 	})
 }

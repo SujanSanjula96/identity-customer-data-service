@@ -27,7 +27,6 @@ import (
 	"github.com/google/uuid"
 	model "github.com/wso2/identity-customer-data-service/internal/consent/model"
 	"github.com/wso2/identity-customer-data-service/internal/consent/store"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"github.com/wso2/identity-customer-data-service/internal/organization/suborg"
 	schemaService "github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -36,12 +35,12 @@ import (
 
 // ConsentCategoryServiceInterface defines the service interface.
 type ConsentCategoryServiceInterface interface {
-	GetAllConsentCategories(ctx context.Context, org orgModel.Ref) ([]model.ConsentCategory, error)
-	GetConsentCategory(ctx context.Context, id string, org orgModel.Ref) (*model.ConsentCategory, error)
-	AddConsentCategory(ctx context.Context, org orgModel.Ref, category model.ConsentCategory) (*model.ConsentCategory, error)
-	UpdateConsentCategory(ctx context.Context, org orgModel.Ref, category model.ConsentCategory) error
-	DeleteConsentCategory(ctx context.Context, id string, org orgModel.Ref) error
-	SeedDefaultConsentCategory(ctx context.Context, org orgModel.Ref) error
+	GetAllConsentCategories(ctx context.Context, orgId string) ([]model.ConsentCategory, error)
+	GetConsentCategory(ctx context.Context, id string, orgId string) (*model.ConsentCategory, error)
+	AddConsentCategory(ctx context.Context, orgId string, category model.ConsentCategory) (*model.ConsentCategory, error)
+	UpdateConsentCategory(ctx context.Context, orgId string, category model.ConsentCategory) error
+	DeleteConsentCategory(ctx context.Context, id string, orgId string) error
+	SeedDefaultConsentCategory(ctx context.Context, orgId string) error
 }
 
 // ConsentCategoryService is the default implementation.
@@ -54,9 +53,9 @@ func GetConsentCategoryService() ConsentCategoryServiceInterface {
 
 // GetAllConsentCategories retrieves all categories of the org.
 func (cs *ConsentCategoryService) GetAllConsentCategories(ctx context.Context,
-	org orgModel.Ref) ([]model.ConsentCategory, error) {
+	orgId string) ([]model.ConsentCategory, error) {
 
-	consentCat, err := store.GetAllConsentCategories(ctx, org.ID)
+	consentCat, err := store.GetAllConsentCategories(ctx, orgId)
 
 	if err != nil {
 		return nil, err
@@ -69,9 +68,9 @@ func (cs *ConsentCategoryService) GetAllConsentCategories(ctx context.Context,
 }
 
 // GetConsentCategory retrieves a category by ID.
-func (cs *ConsentCategoryService) GetConsentCategory(ctx context.Context, id string, org orgModel.Ref) (*model.ConsentCategory, error) {
+func (cs *ConsentCategoryService) GetConsentCategory(ctx context.Context, id string, orgId string) (*model.ConsentCategory, error) {
 
-	consentCat, err := store.GetConsentCategoryByID(ctx, id, org.ID)
+	consentCat, err := store.GetConsentCategoryByID(ctx, id, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -90,10 +89,10 @@ func consentCategoryNotFoundError(id string) error {
 }
 
 // AddConsentCategory adds a new category.
-func (cs *ConsentCategoryService) AddConsentCategory(ctx context.Context, org orgModel.Ref,
+func (cs *ConsentCategoryService) AddConsentCategory(ctx context.Context, orgId string,
 	category model.ConsentCategory) (*model.ConsentCategory, error) {
 
-	if err := suborg.RejectWrite(ctx, org.ID); err != nil {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return nil, err
 	}
 	err, isValid := cs.validateConsentCat(category)
@@ -102,7 +101,7 @@ func (cs *ConsentCategoryService) AddConsentCategory(ctx context.Context, org or
 		return nil, err
 	}
 
-	existingCat, err := store.GetConsentCategoryByName(ctx, category.CategoryName, org.ID)
+	existingCat, err := store.GetConsentCategoryByName(ctx, category.CategoryName, orgId)
 
 	if err != nil {
 		return nil, err
@@ -119,13 +118,13 @@ func (cs *ConsentCategoryService) AddConsentCategory(ctx context.Context, org or
 	// category_identifier is always server-generated; ignore any caller-supplied value.
 	category.CategoryIdentifier = uuid.New().String()
 
-	resolved, err := resolveAttributeScopes(ctx, org, category.Attributes)
+	resolved, err := resolveAttributeScopes(ctx, orgId, category.Attributes)
 	if err != nil {
 		return nil, err
 	}
 	category.Attributes = resolved
 
-	err = store.AddConsentCategory(ctx, org.ID, category)
+	err = store.AddConsentCategory(ctx, orgId, category)
 	if err != nil {
 		return nil, err
 	}
@@ -166,11 +165,11 @@ func (cs *ConsentCategoryService) validateConsentCat(category model.ConsentCateg
 // Scope (converted to API scope) and AttributeId. Returns an error if any attribute_name is
 // not found in the org's schema. For applicationData scope, app_id must also be provided.
 func resolveAttributeScopes(ctx context.Context,
-	org orgModel.Ref, attrs []model.ConsentAttribute) ([]model.ConsentAttribute, error) {
+	orgId string, attrs []model.ConsentAttribute) ([]model.ConsentAttribute, error) {
 	svc := schemaService.GetProfileSchemaService()
 	resolved := make([]model.ConsentAttribute, 0, len(attrs))
 	for _, attr := range attrs {
-		schemaAttr, err := svc.GetProfileSchemaAttributeByName(ctx, attr.AttributeName, org)
+		schemaAttr, err := svc.GetProfileSchemaAttributeByName(ctx, attr.AttributeName, orgId)
 		if err != nil || schemaAttr == nil {
 			return nil, errors2.NewClientError(errors2.ErrorMessage{
 				Code:        errors2.CONSENT_CAT_VALIDATION.Code,
@@ -219,9 +218,9 @@ func inferScope(attributeName string) string {
 }
 
 // UpdateConsentCategory updates an existing category.
-func (cs *ConsentCategoryService) UpdateConsentCategory(ctx context.Context, org orgModel.Ref, category model.ConsentCategory) error {
+func (cs *ConsentCategoryService) UpdateConsentCategory(ctx context.Context, orgId string, category model.ConsentCategory) error {
 
-	if err := suborg.RejectWrite(ctx, org.ID); err != nil {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return err
 	}
 	if category.CategoryIdentifier == "" {
@@ -236,22 +235,22 @@ func (cs *ConsentCategoryService) UpdateConsentCategory(ctx context.Context, org
 		return err
 	}
 
-	if err := ensureCategoryModifiable(ctx, category.CategoryIdentifier, org.ID); err != nil {
+	if err := ensureCategoryModifiable(ctx, category.CategoryIdentifier, orgId); err != nil {
 		return err
 	}
 
-	resolved, err := resolveAttributeScopes(ctx, org, category.Attributes)
+	resolved, err := resolveAttributeScopes(ctx, orgId, category.Attributes)
 	if err != nil {
 		return err
 	}
 	category.Attributes = resolved
 
-	return store.UpdateConsentCategory(ctx, org.ID, category)
+	return store.UpdateConsentCategory(ctx, orgId, category)
 }
 
 // DeleteConsentCategory deletes an existing category.
-func (cs *ConsentCategoryService) DeleteConsentCategory(ctx context.Context, categoryId string, org orgModel.Ref) error {
-	if err := suborg.RejectWrite(ctx, org.ID); err != nil {
+func (cs *ConsentCategoryService) DeleteConsentCategory(ctx context.Context, categoryId string, orgId string) error {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return err
 	}
 	if categoryId == "" {
@@ -261,7 +260,7 @@ func (cs *ConsentCategoryService) DeleteConsentCategory(ctx context.Context, cat
 			Description: "Consent category Id is required for update.",
 		}, http.StatusBadRequest)
 	}
-	cat, err := store.GetConsentCategoryByID(ctx, categoryId, org.ID)
+	cat, err := store.GetConsentCategoryByID(ctx, categoryId, orgId)
 	if err != nil {
 		return err
 	}
@@ -271,7 +270,7 @@ func (cs *ConsentCategoryService) DeleteConsentCategory(ctx context.Context, cat
 	if cat.IsMandatory {
 		return mandatoryCategoryError(categoryId)
 	}
-	return store.DeleteConsentCategory(ctx, categoryId, org.ID)
+	return store.DeleteConsentCategory(ctx, categoryId, orgId)
 }
 
 // ensureCategoryModifiable rejects mutations on a category that does not exist,
@@ -299,6 +298,6 @@ func mandatoryCategoryError(categoryId string) error {
 }
 
 // SeedDefaultConsentCategory seeds the mandatory identity data consent category for the org.
-func (cs *ConsentCategoryService) SeedDefaultConsentCategory(ctx context.Context, org orgModel.Ref) error {
-	return store.SeedDefaultIdentityDataCategory(ctx, org.ID)
+func (cs *ConsentCategoryService) SeedDefaultConsentCategory(ctx context.Context, orgId string) error {
+	return store.SeedDefaultIdentityDataCategory(ctx, orgId)
 }

@@ -45,7 +45,7 @@ func Test_Consent(t *testing.T) {
 	schemaSvc := schemaService.GetProfileSchemaService()
 
 	restore := schemaService.OverrideValidateApplicationIdentifierForTest(
-		func(context.Context, string, orgModel.Ref) (error, bool) { return nil, true })
+		func(context.Context, string, string) (error, bool) { return nil, true })
 	defer restore()
 
 	const testAppId = "app-client-001"
@@ -63,7 +63,7 @@ func Test_Consent(t *testing.T) {
 				Mutability:    constants.MutabilityReadWrite,
 			},
 		}
-		_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, org)
+		_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, org.ID)
 		require.NoError(t, err)
 
 		traitAttrs := []profileSchemaModel.ProfileSchemaAttribute{
@@ -77,7 +77,7 @@ func Test_Consent(t *testing.T) {
 				Mutability:    constants.MutabilityReadWrite,
 			},
 		}
-		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, org)
+		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, org.ID)
 		require.NoError(t, err)
 
 		appAttrs := []profileSchemaModel.ProfileSchemaAttribute{
@@ -92,13 +92,13 @@ func Test_Consent(t *testing.T) {
 				ApplicationIdentifier: testAppId,
 			},
 		}
-		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), appAttrs, constants.ApplicationData, org)
+		_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), appAttrs, constants.ApplicationData, org.ID)
 		require.NoError(t, err)
 	})
 
 	// Seed mandatory "Identity Data" category for the org.
 	t.Run("PreRequisite_SeedMandatoryCategory", func(t *testing.T) {
-		err := svc.SeedDefaultConsentCategory(context.Background(), org)
+		err := svc.SeedDefaultConsentCategory(context.Background(), org.ID)
 		require.NoError(t, err)
 
 		mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(context.Background(), org.ID)
@@ -119,7 +119,7 @@ func Test_Consent(t *testing.T) {
 				{AttributeName: "traits.age"},
 			},
 		}
-		created, err := svc.AddConsentCategory(context.Background(), org, category)
+		created, err := svc.AddConsentCategory(context.Background(), org.ID, category)
 		require.NoError(t, err)
 		assert.Equal(t, "Marketing", created.CategoryName)
 		assert.NotEmpty(t, created.CategoryIdentifier)
@@ -137,13 +137,13 @@ func Test_Consent(t *testing.T) {
 	})
 
 	t.Run("Get_all_consent_categories", func(t *testing.T) {
-		cats, err := svc.GetAllConsentCategories(context.Background(), org)
+		cats, err := svc.GetAllConsentCategories(context.Background(), org.ID)
 		require.NoError(t, err)
 		assert.NotEmpty(t, cats)
 	})
 
 	t.Run("Get_single_category", func(t *testing.T) {
-		fetched, err := svc.GetConsentCategory(context.Background(), categoryId, org)
+		fetched, err := svc.GetConsentCategory(context.Background(), categoryId, org.ID)
 		require.NoError(t, err)
 		require.NotNil(t, fetched)
 		assert.Equal(t, "Marketing", fetched.CategoryName)
@@ -156,7 +156,7 @@ func Test_Consent(t *testing.T) {
 			OrgId:        org.ID,
 			Purpose:      "profiling",
 		}
-		_, err := svc.AddConsentCategory(context.Background(), org, dup)
+		_, err := svc.AddConsentCategory(context.Background(), org.ID, dup)
 		assert.Error(t, err, "should reject a category with an already-used name")
 	})
 
@@ -166,7 +166,7 @@ func Test_Consent(t *testing.T) {
 			OrgId:        org.ID,
 			Purpose:      "unknown",
 		}
-		_, err := svc.AddConsentCategory(context.Background(), org, bad)
+		_, err := svc.AddConsentCategory(context.Background(), org.ID, bad)
 		assert.Error(t, err)
 	})
 
@@ -177,7 +177,7 @@ func Test_Consent(t *testing.T) {
 			Purpose:      "profiling",
 			Attributes:   []consentModel.ConsentAttribute{{AttributeName: "identity_attributes.nonexistent"}},
 		}
-		_, err := svc.AddConsentCategory(context.Background(), org, bad)
+		_, err := svc.AddConsentCategory(context.Background(), org.ID, bad)
 		assert.Error(t, err)
 	})
 
@@ -189,10 +189,10 @@ func Test_Consent(t *testing.T) {
 			Purpose:            "personalization",
 			Attributes:         []consentModel.ConsentAttribute{{AttributeName: "traits.age"}},
 		}
-		err := svc.UpdateConsentCategory(context.Background(), org, updated)
+		err := svc.UpdateConsentCategory(context.Background(), org.ID, updated)
 		require.NoError(t, err)
 
-		fetched, err := svc.GetConsentCategory(context.Background(), categoryId, org)
+		fetched, err := svc.GetConsentCategory(context.Background(), categoryId, org.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "Marketing Updated", fetched.CategoryName)
 		assert.Len(t, fetched.Attributes, 1)
@@ -203,7 +203,7 @@ func Test_Consent(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, mandatoryIds)
 
-		err = svc.UpdateConsentCategory(context.Background(), org, consentModel.ConsentCategory{
+		err = svc.UpdateConsentCategory(context.Background(), org.ID, consentModel.ConsentCategory{
 			CategoryIdentifier: mandatoryIds[0],
 			CategoryName:       "Tampered",
 			OrgId:              org.ID,
@@ -217,7 +217,7 @@ func Test_Consent(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, mandatoryIds)
 
-		err = svc.DeleteConsentCategory(context.Background(), mandatoryIds[0], org)
+		err = svc.DeleteConsentCategory(context.Background(), mandatoryIds[0], org.ID)
 		assert.Error(t, err, "should reject deletion of mandatory category")
 	})
 
@@ -230,13 +230,13 @@ func Test_Consent(t *testing.T) {
 				{AttributeName: "application_data.events.event_name", ApplicationIdentifier: testAppId},
 			},
 		}
-		created, err := svc.AddConsentCategory(context.Background(), org, cat)
+		created, err := svc.AddConsentCategory(context.Background(), org.ID, cat)
 		require.NoError(t, err)
 		require.NotNil(t, created)
 		assert.Len(t, created.Attributes, 1)
 		assert.Equal(t, testAppId, created.Attributes[0].ApplicationIdentifier)
 		// Cleanup
-		_ = svc.DeleteConsentCategory(context.Background(), created.CategoryIdentifier, org)
+		_ = svc.DeleteConsentCategory(context.Background(), created.CategoryIdentifier, org.ID)
 	})
 
 	t.Run("Reject_applicationData_attribute_with_missing_application_identifier", func(t *testing.T) {
@@ -248,7 +248,7 @@ func Test_Consent(t *testing.T) {
 				{AttributeName: "application_data.events.event_name"}, // ApplicationIdentifier deliberately empty
 			},
 		}
-		_, err := svc.AddConsentCategory(context.Background(), org, cat)
+		_, err := svc.AddConsentCategory(context.Background(), org.ID, cat)
 		assert.Error(t, err, "should reject applicationData attribute with no application_identifier")
 	})
 
@@ -261,15 +261,15 @@ func Test_Consent(t *testing.T) {
 				{AttributeName: "application_data.events.event_name", ApplicationIdentifier: "wrong-app-id"},
 			},
 		}
-		_, err := svc.AddConsentCategory(context.Background(), org, cat)
+		_, err := svc.AddConsentCategory(context.Background(), org.ID, cat)
 		assert.Error(t, err, "should reject application_identifier that does not match schema application_identifier")
 	})
 
 	t.Run("Delete_consent_category", func(t *testing.T) {
-		err := svc.DeleteConsentCategory(context.Background(), categoryId, org)
+		err := svc.DeleteConsentCategory(context.Background(), categoryId, org.ID)
 		require.NoError(t, err)
 
-		deleted, _ := svc.GetConsentCategory(context.Background(), categoryId, org)
+		deleted, _ := svc.GetConsentCategory(context.Background(), categoryId, org.ID)
 		assert.Nil(t, deleted, "category should be gone after deletion")
 	})
 }
@@ -282,10 +282,10 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 	svc := consentService.GetConsentCategoryService()
 
 	for _, org := range []orgModel.Ref{ownerOrg, otherOrg} {
-		require.NoError(t, svc.SeedDefaultConsentCategory(ctx, org))
+		require.NoError(t, svc.SeedDefaultConsentCategory(ctx, org.ID))
 	}
 
-	ownerCat, err := svc.AddConsentCategory(ctx, ownerOrg, consentModel.ConsentCategory{
+	ownerCat, err := svc.AddConsentCategory(ctx, ownerOrg.ID, consentModel.ConsentCategory{
 		CategoryName: "Owner Marketing",
 		OrgId:        ownerOrg.ID,
 		Purpose:      "personalization",
@@ -294,7 +294,7 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 	ownerId := ownerCat.CategoryIdentifier
 
 	t.Run("List_returns_only_own_org_categories", func(t *testing.T) {
-		cats, err := svc.GetAllConsentCategories(ctx, otherOrg)
+		cats, err := svc.GetAllConsentCategories(ctx, otherOrg.ID)
 		require.NoError(t, err)
 		for _, c := range cats {
 			assert.Equal(t, otherOrg.ID, c.OrgId)
@@ -303,13 +303,13 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 	})
 
 	t.Run("Get_other_org_category_returns_not_found", func(t *testing.T) {
-		cat, err := svc.GetConsentCategory(ctx, ownerId, otherOrg)
+		cat, err := svc.GetConsentCategory(ctx, ownerId, otherOrg.ID)
 		assert.Nil(t, cat)
 		assertConsentCategoryNotFound(t, err)
 	})
 
 	t.Run("Update_other_org_category_returns_not_found", func(t *testing.T) {
-		err := svc.UpdateConsentCategory(ctx, otherOrg, consentModel.ConsentCategory{
+		err := svc.UpdateConsentCategory(ctx, otherOrg.ID, consentModel.ConsentCategory{
 			CategoryIdentifier: ownerId,
 			CategoryName:       "Renamed By Other Org",
 			OrgId:              otherOrg.ID,
@@ -319,9 +319,9 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 	})
 
 	t.Run("Delete_other_org_category_deletes_nothing", func(t *testing.T) {
-		require.NoError(t, svc.DeleteConsentCategory(ctx, ownerId, otherOrg))
+		require.NoError(t, svc.DeleteConsentCategory(ctx, ownerId, otherOrg.ID))
 
-		cat, err := svc.GetConsentCategory(ctx, ownerId, ownerOrg)
+		cat, err := svc.GetConsentCategory(ctx, ownerId, ownerOrg.ID)
 		require.NoError(t, err)
 		assert.NotNil(t, cat, "owner category must survive a delete by another org")
 	})
@@ -331,13 +331,13 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, mandatoryIds)
 
-		cat, err := svc.GetConsentCategory(ctx, mandatoryIds[0], otherOrg)
+		cat, err := svc.GetConsentCategory(ctx, mandatoryIds[0], otherOrg.ID)
 		assert.Nil(t, cat)
 		assertConsentCategoryNotFound(t, err)
 	})
 
 	t.Run("Owner_category_is_unchanged", func(t *testing.T) {
-		cat, err := svc.GetConsentCategory(ctx, ownerId, ownerOrg)
+		cat, err := svc.GetConsentCategory(ctx, ownerId, ownerOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, cat)
 		assert.Equal(t, "Owner Marketing", cat.CategoryName)
@@ -346,7 +346,7 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 
 	t.Run("Update_unknown_category_returns_not_found", func(t *testing.T) {
 		unknownId := uuid.New().String()
-		err := svc.UpdateConsentCategory(ctx, ownerOrg, consentModel.ConsentCategory{
+		err := svc.UpdateConsentCategory(ctx, ownerOrg.ID, consentModel.ConsentCategory{
 			CategoryIdentifier: unknownId,
 			CategoryName:       "Ghost",
 			OrgId:              ownerOrg.ID,
@@ -356,7 +356,7 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 	})
 
 	t.Run("Delete_unknown_category_succeeds", func(t *testing.T) {
-		require.NoError(t, svc.DeleteConsentCategory(ctx, uuid.New().String(), ownerOrg))
+		require.NoError(t, svc.DeleteConsentCategory(ctx, uuid.New().String(), ownerOrg.ID))
 	})
 
 	t.Run("Store_delete_with_wrong_org_deletes_nothing", func(t *testing.T) {
@@ -367,7 +367,7 @@ func Test_Consent_OrgIsolation(t *testing.T) {
 		assert.NotNil(t, cat, "owner category must survive a delete scoped to another org")
 	})
 
-	_ = svc.DeleteConsentCategory(ctx, ownerId, ownerOrg)
+	_ = svc.DeleteConsentCategory(ctx, ownerId, ownerOrg.ID)
 }
 
 func assertConsentCategoryNotFound(t *testing.T, err error) {

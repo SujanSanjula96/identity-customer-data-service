@@ -21,7 +21,6 @@ package service
 import (
 	"context"
 	"fmt"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"strings"
 
 	consentModel "github.com/wso2/identity-customer-data-service/internal/consent/model"
@@ -37,7 +36,7 @@ import (
 // Mandatory categories (e.g. identity-data) are always merged into the allowed set
 // regardless of whether the caller listed them in consentCategoryIds.
 // If consentCategoryIds is empty, only mandatory identity fields are returned.
-func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse, profileId string, org orgModel.Ref,
+func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse, profileId string, orgId string,
 	consentIds []string) (model.ProfileResponse, error) {
 
 	filtered := model.ProfileResponse{
@@ -50,7 +49,7 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 
 	// Ignore requested categories that are not defined in the org.
 	if len(consentIds) > 0 {
-		orgCategorySet, err := consentCategoryIdSet(ctx, org.ID)
+		orgCategorySet, err := consentCategoryIdSet(ctx, orgId)
 		if err != nil {
 			return filtered, err
 		}
@@ -66,8 +65,8 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 	// Always include mandatory categories in the allowed set regardless of what
 	// the caller requested.  This ensures identity attributes are never stripped.
 	// Mandatory categories belong to the organization that holds the identity attributes.
-	source := identitysource.Of(ctx, org)
-	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, source.ID)
+	source := identitysource.Of(ctx, orgId)
+	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, source)
 	if err != nil {
 		return filtered, err
 	}
@@ -90,7 +89,7 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 	}
 
 	// Fetch attributes for categories the profile has actively consented to (mandatory categories always included).
-	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileId(ctx, profileId, source.ID, merged)
+	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileId(ctx, profileId, source, merged)
 	if err != nil {
 		return filtered, err
 	}

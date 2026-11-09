@@ -21,7 +21,6 @@ package service
 import (
 	"context"
 	"fmt"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
@@ -38,12 +37,12 @@ import (
 )
 
 type IdentityResolutionServiceInterface interface {
-	GetPendingReviewTasks(ctx context.Context, org orgModel.Ref, pageSize int) (*model.ReviewTaskListResponse, error)
+	GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) (*model.ReviewTaskListResponse, error)
 
-	GetPendingReviewTasksByProfile(ctx context.Context, org orgModel.Ref, profileID string,
+	GetPendingReviewTasksByProfile(ctx context.Context, orgId string, profileID string,
 		pageSize int) (*model.ReviewTaskListResponse, error)
 
-	ResolveReviewTask(ctx context.Context, org orgModel.Ref, taskID string, approved bool,
+	ResolveReviewTask(ctx context.Context, orgId string, taskID string, approved bool,
 		resolvedBy string, notes string) error
 }
 
@@ -53,8 +52,8 @@ func GetIdentityResolutionService() IdentityResolutionServiceInterface {
 	return &IdentityResolutionService{}
 }
 
-func (s *IdentityResolutionService) GetPendingReviewTasks(ctx context.Context, org orgModel.Ref, pageSize int) (*model.ReviewTaskListResponse, error) {
-	tasks, totalCount, err := irStore.GetPendingReviewTasks(ctx, org.ID, pageSize)
+func (s *IdentityResolutionService) GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) (*model.ReviewTaskListResponse, error) {
+	tasks, totalCount, err := irStore.GetPendingReviewTasks(ctx, orgId, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +67,9 @@ func (s *IdentityResolutionService) GetPendingReviewTasks(ctx context.Context, o
 	}, nil
 }
 
-func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(ctx context.Context, org orgModel.Ref, profileID string, pageSize int) (*model.ReviewTaskListResponse, error) {
+func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(ctx context.Context, orgId string, profileID string, pageSize int) (*model.ReviewTaskListResponse, error) {
 
-	tasks, totalCount, err := irStore.GetPendingReviewTasksByProfile(ctx, org.ID, profileID, pageSize)
+	tasks, totalCount, err := irStore.GetPendingReviewTasksByProfile(ctx, orgId, profileID, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +83,7 @@ func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(ctx context.C
 	}, nil
 }
 
-func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org orgModel.Ref, taskID string,
+func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId string, taskID string,
 	approved bool, resolvedBy string, notes string) error {
 	logger := log.GetLogger()
 
@@ -107,9 +106,9 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 	// The task is fetched by ID alone, so ownership has to be checked here. Reported as
 	// not-found rather than forbidden: confirming that someone else's task ID exists is
 	// itself a leak.
-	if task.OrgId != org.ID {
+	if task.OrgId != orgId {
 		logger.Warn(fmt.Sprintf("Service: org '%s' attempted to resolve task '%s' owned by org '%s'",
-			org.ID, taskID, task.OrgId))
+			orgId, taskID, task.OrgId))
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.IR_REVIEW_TASK_NOT_FOUND.Code,
 			Message:     errors2.IR_REVIEW_TASK_NOT_FOUND.Message,
@@ -129,7 +128,7 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 		// Store the rejection pair before marking the task rejected.
 		// Keep the evidence the administrator decided against, so a later, materially
 		// stronger match can be reconsidered while ordinary edits leave the decision alone.
-		if err := irStore.InsertRejectionPair(ctx, org.ID, task.IncomingProfileID,
+		if err := irStore.InsertRejectionPair(ctx, orgId, task.IncomingProfileID,
 			task.CandidateProfileID, resolvedBy, task.MatchScore, task.ScoreBreakdown); err != nil {
 			logger.Error(fmt.Sprintf("Service: failed to store rejection pair for task %s", taskID), log.Error(err))
 			return err
@@ -140,7 +139,7 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 		return nil
 	}
 
-	incomingProfile, err := profileStore.GetProfile(ctx, task.IncomingProfileID, org.ID)
+	incomingProfile, err := profileStore.GetProfile(ctx, task.IncomingProfileID, orgId)
 	if err != nil {
 		logger.Error("Service: failed to load incoming profile for review merge", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -157,7 +156,7 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 		}, http.StatusNotFound)
 	}
 
-	candidate, err := profileStore.GetProfile(ctx, task.CandidateProfileID, org.ID)
+	candidate, err := profileStore.GetProfile(ctx, task.CandidateProfileID, orgId)
 	if err != nil {
 		logger.Error("Service: failed to load candidate profile for review merge", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -175,11 +174,11 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 	}
 
 	// Redirect to master if either profile is a child (may have been merged since the task was created).
-	incomingProfile, err = redirectToMasterIfChild(ctx, org.ID, incomingProfile, logger)
+	incomingProfile, err = redirectToMasterIfChild(ctx, orgId, incomingProfile, logger)
 	if err != nil {
 		return err
 	}
-	candidate, err = redirectToMasterIfChild(ctx, org.ID, candidate, logger)
+	candidate, err = redirectToMasterIfChild(ctx, orgId, candidate, logger)
 	if err != nil {
 		return err
 	}
@@ -208,17 +207,17 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 	// Not coerced by the server's fuzzy setting, unlike the evaluation path: these rules are
 	// read to name the rule that drove a match already made, and reading a fuzzy rule as
 	// exact here would attribute the merge to a different rule than the one responsible.
-	if rawRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, org); rulesErr == nil {
+	if rawRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgId); rulesErr == nil {
 		rules := urModel.ActiveSortedByPriority(rawRules, constants.AttributeTypePrimitiveExact,
 			constants.UnificationMethodDeterministic, constants.DefaultMatchStrength,
 			constants.DefaultMismatchStrength)
-		thresholds := model.LoadThresholds(ctx, org)
+		thresholds := model.LoadThresholds(ctx, orgId)
 		if ruleName, found := urModel.PrimaryRuleName(task.ScoreBreakdown, rules, thresholds.ManualReview, thresholds.DeterministicMatchDecisive); found {
 			mergeReason = ruleName
 		}
 	}
 
-	survivingMaster, mergeErr := workers.MergeMatchedProfiles(ctx, org, *candidate, *incomingProfile, mergeReason)
+	survivingMaster, mergeErr := workers.MergeMatchedProfiles(ctx, orgId, *candidate, *incomingProfile, mergeReason)
 	if mergeErr != nil {
 		logger.Error(fmt.Sprintf("Service: review merge failed for task %s — '%s' and '%s'",
 			taskID, incomingProfile.ProfileId, candidate.ProfileId), log.Error(mergeErr))
@@ -248,14 +247,14 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, org o
 
 	// Re-enqueue the affected profiles so they are re-evaluated against the new master.
 	for _, incomingID := range cancelledIncomingIDs {
-		affected, loadErr := profileStore.GetProfile(ctx, incomingID, org.ID)
+		affected, loadErr := profileStore.GetProfile(ctx, incomingID, orgId)
 		if loadErr != nil || affected == nil {
 			logger.Warn(fmt.Sprintf("Service: skipping re-evaluation for '%s' — profile not found or error", incomingID))
 			continue
 		}
 
 		if affected.ProfileStatus != nil && affected.ProfileStatus.ReferenceProfileId != "" {
-			master, masterErr := profileStore.GetProfile(ctx, affected.ProfileStatus.ReferenceProfileId, org.ID)
+			master, masterErr := profileStore.GetProfile(ctx, affected.ProfileStatus.ReferenceProfileId, orgId)
 			if masterErr == nil && master != nil {
 				workers.EnqueueProfileForProcessing(*master)
 			}
