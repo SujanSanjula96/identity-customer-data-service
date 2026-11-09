@@ -41,16 +41,16 @@ import (
 )
 
 type UnificationRuleServiceInterface interface {
-	AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgHandle string) error
-	GetUnificationRules(ctx context.Context, orgHandle string) ([]model.UnificationRule, error)
-	GetUnificationRule(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error)
+	AddUnificationRule(ctx context.Context, rule model.UnificationRule, orgId string) error
+	GetUnificationRules(ctx context.Context, orgId string) ([]model.UnificationRule, error)
+	GetUnificationRule(ctx context.Context, ruleId string, orgId string) (*model.UnificationRule, error)
 	// GetUnificationRuleForOrg returns the rule when the organization owns it or when it is an
 	// active shared rule in the organization.
-	GetUnificationRuleForOrg(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error)
+	GetUnificationRuleForOrg(ctx context.Context, ruleId string, orgId string) (*model.UnificationRule, error)
 	// GetOwnedUnificationRule returns the rule when the organization owns it.
-	GetOwnedUnificationRule(ctx context.Context, ruleId, orgHandle string) (*model.UnificationRule, error)
-	PatchUnificationRule(ctx context.Context, ruleId, orgHandle string, updatedRule model.UnificationRule) error
-	DeleteUnificationRule(ctx context.Context, ruleId, orgHandle string) error
+	GetOwnedUnificationRule(ctx context.Context, ruleId string, orgId string) (*model.UnificationRule, error)
+	PatchUnificationRule(ctx context.Context, ruleId string, orgId string, updatedRule model.UnificationRule) error
+	DeleteUnificationRule(ctx context.Context, ruleId string, orgId string) error
 	CreateSharingPolicy(ctx context.Context, initiator orgModel.Organization, ruleId string,
 		req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error)
 	ListSharingPolicies(ctx context.Context, initiator orgModel.Organization,
@@ -75,9 +75,9 @@ func GetUnificationRuleService() UnificationRuleServiceInterface {
 
 // AddUnificationRule Adds a new unification rule.
 func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
-	rule model.UnificationRule, orgHandle string) error {
+	rule model.UnificationRule, orgId string) error {
 
-	if err := suborg.RejectWrite(ctx, orgHandle); err != nil {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return err
 	}
 	logger := log.GetLogger()
@@ -98,7 +98,7 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 		}, http.StatusBadRequest)
 	}
 
-	schemaAttribute, err := findEffectiveAttribute(ctx, rule.PropertyName, orgHandle)
+	schemaAttribute, err := findEffectiveAttribute(ctx, rule.PropertyName, orgId)
 
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while checking for the property: %s", rule.PropertyName)
@@ -128,19 +128,19 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 	}
 
 	// A local rule cannot use a property that an active shared rule of the organization uses.
-	sharedRules, err := activeSharedRulesOfHandle(ctx, orgHandle)
+	sharedRules, err := activeSharedRulesOf(ctx, orgId)
 	if err != nil {
 		return err
 	}
 	for _, shared := range sharedRules {
 		if shared.PropertyName == rule.PropertyName {
 			return sharingService.ConflictError(fmt.Sprintf("The unification rule '%s' on property '%s' is shared "+
-				"with this organization by '%s'.", shared.RuleName, rule.PropertyName, shared.OrgHandle))
+				"with this organization by a parent organization.", shared.RuleName, rule.PropertyName))
 		}
 	}
 
 	// Check if a similar unification rule already exists
-	existingRules, err := store.GetUnificationRules(ctx, orgHandle)
+	existingRules, err := store.GetUnificationRules(ctx, orgId)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 		}
 	}
 	rule.PropertyId = schemaAttribute.AttributeId
-	if err := store.AddUnificationRule(ctx, rule, orgHandle); err != nil {
+	if err := store.AddUnificationRule(ctx, rule, orgId); err != nil {
 		return err
 	}
 	return nil
@@ -170,25 +170,25 @@ func (urs *UnificationRuleService) AddUnificationRule(ctx context.Context,
 // GetUnificationRules returns the rules of the organization in evaluation order: the active shared
 // rules first, then the owned rules by priority.
 func (urs *UnificationRuleService) GetUnificationRules(ctx context.Context,
-	orgHandle string) ([]model.UnificationRule, error) {
+	orgId string) ([]model.UnificationRule, error) {
 
-	owned, err := store.GetUnificationRules(ctx, orgHandle)
+	owned, err := store.GetUnificationRules(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
-	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	stored, err := orgService.GetOrganizationById(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
-	if org == nil {
+	if stored == nil {
 		return owned, nil
 	}
 
-	shared, err := activeSharedRules(ctx, *org)
+	shared, err := activeSharedRules(ctx, *stored)
 	if err != nil {
 		return nil, err
 	}
-	effectiveNames, err := effectiveAttributeNames(ctx, orgHandle)
+	effectiveNames, err := effectiveAttributeNames(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +196,6 @@ func (urs *UnificationRuleService) GetUnificationRules(ctx context.Context,
 	result := make([]model.UnificationRule, 0, len(shared)+len(owned))
 	for _, rule := range shared {
 		rule.Origin = shareModel.OriginShared
-		rule.OwnerOrgHandle = rule.OrgHandle
 		rule.State = shareModel.StateActive
 		result = append(result, rule)
 	}
@@ -219,23 +218,23 @@ func (urs *UnificationRuleService) GetUnificationRules(ctx context.Context,
 // GetUnificationRuleForOrg returns the rule when the organization owns it or when it is an active
 // shared rule in the organization.
 func (urs *UnificationRuleService) GetUnificationRuleForOrg(ctx context.Context,
-	ruleId, orgHandle string) (*model.UnificationRule, error) {
+	ruleId string, orgId string) (*model.UnificationRule, error) {
 
-	rule, err := store.GetUnificationRule(ctx, ruleId, orgHandle)
+	rule, err := store.GetUnificationRule(ctx, ruleId, orgId)
 	if err != nil {
 		return nil, err
 	}
 	if rule != nil {
 		return rule, nil
 	}
-	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	stored, err := orgService.GetOrganizationById(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
-	if org == nil {
+	if stored == nil {
 		return nil, unificationRuleNotFoundError(ruleId)
 	}
-	shared, err := getSharedRules(ctx, *org)
+	shared, err := getSharedRules(ctx, *stored)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +242,6 @@ func (urs *UnificationRuleService) GetUnificationRuleForOrg(ctx context.Context,
 		if s.Rule.RuleId == ruleId && s.State == shareModel.StateActive {
 			sharedRule := s.Rule
 			sharedRule.Origin = shareModel.OriginShared
-			sharedRule.OwnerOrgHandle = sharedRule.OrgHandle
 			sharedRule.State = s.State
 			return &sharedRule, nil
 		}
@@ -253,9 +251,9 @@ func (urs *UnificationRuleService) GetUnificationRuleForOrg(ctx context.Context,
 
 // GetOwnedUnificationRule returns the rule when the organization owns it.
 func (urs *UnificationRuleService) GetOwnedUnificationRule(ctx context.Context,
-	ruleId, orgHandle string) (*model.UnificationRule, error) {
+	ruleId string, orgId string) (*model.UnificationRule, error) {
 
-	rule, err := urs.GetUnificationRuleForOrg(ctx, ruleId, orgHandle)
+	rule, err := urs.GetUnificationRuleForOrg(ctx, ruleId, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -267,9 +265,9 @@ func (urs *UnificationRuleService) GetOwnedUnificationRule(ctx context.Context,
 
 // GetUnificationRule Fetches a specific resolution rule.
 func (urs *UnificationRuleService) GetUnificationRule(ctx context.Context,
-	ruleId, orgHandle string) (*model.UnificationRule, error) {
+	ruleId string, orgId string) (*model.UnificationRule, error) {
 
-	unificationRule, err := store.GetUnificationRule(ctx, ruleId, orgHandle)
+	unificationRule, err := store.GetUnificationRule(ctx, ruleId, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +287,9 @@ func unificationRuleNotFoundError(ruleId string) error {
 
 // PatchUnificationRule Applies a partial update on a specific resolution rule.
 func (urs *UnificationRuleService) PatchUnificationRule(ctx context.Context,
-	ruleId, orgHandle string, updatedRule model.UnificationRule) error {
+	ruleId string, orgId string, updatedRule model.UnificationRule) error {
 
-	if err := suborg.RejectWrite(ctx, orgHandle); err != nil {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return err
 	}
 	if updatedRule.PropertyName == "user_id" {
@@ -303,7 +301,7 @@ func (urs *UnificationRuleService) PatchUnificationRule(ctx context.Context,
 	}
 
 	// Validate that the rule exists in the org, and that the priority is not already in use
-	existingRules, err := store.GetUnificationRules(ctx, orgHandle)
+	existingRules, err := store.GetUnificationRules(ctx, orgId)
 	if err != nil {
 		return err
 	}
@@ -319,20 +317,20 @@ func (urs *UnificationRuleService) PatchUnificationRule(ctx context.Context,
 			}, http.StatusBadRequest)
 		}
 	}
-	return store.PatchUnificationRule(ctx, ruleId, orgHandle, updatedRule)
+	return store.PatchUnificationRule(ctx, ruleId, orgId, updatedRule)
 }
 
 // DeleteUnificationRule deletes a unification rule of the organization and its sharing policies.
-func (urs *UnificationRuleService) DeleteUnificationRule(ctx context.Context, ruleId, orgHandle string) error {
+func (urs *UnificationRuleService) DeleteUnificationRule(ctx context.Context, ruleId string, orgId string) error {
 
-	if err := suborg.RejectWrite(ctx, orgHandle); err != nil {
+	if err := suborg.RejectWrite(ctx, orgId); err != nil {
 		return err
 	}
-	rule, err := store.GetUnificationRule(ctx, ruleId, orgHandle)
+	rule, err := store.GetUnificationRule(ctx, ruleId, orgId)
 	if err != nil || rule == nil {
 		return err
 	}
-	if err := store.DeleteUnificationRule(ctx, ruleId, orgHandle); err != nil {
+	if err := store.DeleteUnificationRule(ctx, ruleId, orgId); err != nil {
 		return err
 	}
 	return sharingService.DeletePoliciesOfResource(ctx, model.SharingResourceType, ruleId)
@@ -340,10 +338,10 @@ func (urs *UnificationRuleService) DeleteUnificationRule(ctx context.Context, ru
 
 // findEffectiveAttribute returns the attribute with the name from the effective schema of the
 // organization.
-func findEffectiveAttribute(ctx context.Context, attributeName,
-	orgHandle string) (*schemaModel.ProfileSchemaAttribute, error) {
+func findEffectiveAttribute(ctx context.Context, attributeName string,
+	orgId string) (*schemaModel.ProfileSchemaAttribute, error) {
 
-	attrs, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, orgHandle)
+	attrs, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -356,9 +354,9 @@ func findEffectiveAttribute(ctx context.Context, attributeName,
 	return nil, nil
 }
 
-func effectiveAttributeNames(ctx context.Context, orgHandle string) (map[string]bool, error) {
+func effectiveAttributeNames(ctx context.Context, orgId string) (map[string]bool, error) {
 
-	attrs, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, orgHandle)
+	attrs, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
@@ -377,14 +375,14 @@ type sharedRule struct {
 	State      string
 }
 
-// activeSharedRulesOfHandle returns the active shared rules of the organization of the handle.
-func activeSharedRulesOfHandle(ctx context.Context, orgHandle string) ([]model.UnificationRule, error) {
+// activeSharedRulesOf returns the active shared rules of the organization.
+func activeSharedRulesOf(ctx context.Context, orgId string) ([]model.UnificationRule, error) {
 
-	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil {
+	stored, err := orgService.GetOrganizationById(ctx, orgId)
+	if err != nil || stored == nil {
 		return nil, err
 	}
-	return activeSharedRules(ctx, *org)
+	return activeSharedRules(ctx, *stored)
 }
 
 // activeSharedRules returns the active shared rules of the organization in evaluation order. The
@@ -430,11 +428,11 @@ func getSharedRules(ctx context.Context, org orgModel.Organization) ([]sharedRul
 	if err != nil {
 		return nil, err
 	}
-	owned, err := store.GetUnificationRules(ctx, org.OrgHandle)
+	owned, err := store.GetUnificationRules(ctx, org.OrgId)
 	if err != nil {
 		return nil, err
 	}
-	visible, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, org.OrgHandle)
+	visible, err := schemaService.GetEffectiveProfileSchemaAttributes(ctx, org.OrgId)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +473,7 @@ func resolveSharedRuleStates(shared []shareModel.SharedResource, rules, owned []
 	var result []sharedRule
 	for _, r := range ordered {
 		rule, ok := byId[r.ResourceId]
-		if !ok || rule.OrgHandle != r.OwnerOrgHandle {
+		if !ok || rule.OrgId != r.OwnerOrgId {
 			continue
 		}
 		state := shareModel.StateActive
@@ -520,7 +518,7 @@ func (urs *UnificationRuleService) CreateSharingPolicy(ctx context.Context,
 	initiator orgModel.Organization, ruleId string,
 	req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error) {
 
-	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgHandle)
+	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgId)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +529,7 @@ func (urs *UnificationRuleService) CreateSharingPolicy(ctx context.Context,
 func (urs *UnificationRuleService) ListSharingPolicies(ctx context.Context,
 	initiator orgModel.Organization, ruleId string) (*shareModel.PolicyList, error) {
 
-	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgHandle)
+	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgId)
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +540,7 @@ func (urs *UnificationRuleService) ListSharingPolicies(ctx context.Context,
 func (urs *UnificationRuleService) GetSharingPolicy(ctx context.Context,
 	initiator orgModel.Organization, ruleId, policyId string) (*shareModel.PolicyResponse, error) {
 
-	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgHandle)
+	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgId)
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +552,7 @@ func (urs *UnificationRuleService) UpdateSharingPolicy(ctx context.Context,
 	initiator orgModel.Organization, ruleId, policyId string,
 	req shareModel.PolicyRequest) (*shareModel.PolicyResponse, error) {
 
-	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgHandle)
+	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgId)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +563,7 @@ func (urs *UnificationRuleService) UpdateSharingPolicy(ctx context.Context,
 func (urs *UnificationRuleService) DeleteSharingPolicy(ctx context.Context,
 	initiator orgModel.Organization, ruleId, policyId string) error {
 
-	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgHandle)
+	rule, err := urs.GetOwnedUnificationRule(ctx, ruleId, initiator.OrgId)
 	if err != nil {
 		return err
 	}

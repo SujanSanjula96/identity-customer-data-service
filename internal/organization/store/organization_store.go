@@ -25,14 +25,24 @@ import (
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
+
+// refCacheTTL bounds how long a pod uses the org ID of a handle after the row changes on another pod.
+const refCacheTTL = 5 * time.Minute
+
+// refs caches LookupOrganizationRef by org handle. It holds only stored organizations, so that a row
+// that another pod stores is found on the next lookup.
+var refs = cache.NewCache(refCacheTTL)
+
+// refsById caches LookupOrganizationRefById by org ID, as refs does by org handle.
+var refsById = cache.NewCache(refCacheTTL)
 
 func serverError(description string, err error) error {
 	return errors2.NewServerError(errors2.ErrorMessage{
@@ -60,7 +70,8 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 	if err != nil {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
 	}
-	orgkey.Invalidate(org.OrgHandle)
+	refs.Delete(org.OrgHandle)
+	refsById.Delete(org.OrgId)
 	return nil
 }
 
@@ -82,11 +93,40 @@ func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Orga
 	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
 }
 
-// LookupOrganizationByHandle returns the organization, or nil when it is not stored. Unlike
-// GetOrganizationByHandle it reads the table when organization management is disabled: the org key
-// of every deployment comes from it.
-func LookupOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Organization, error) {
-	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
+// LookupOrganizationRef returns the org ID and the org handle of the stored organization. found is
+// false when the handle has no row. Unlike GetOrganizationByHandle it reads the table when organization
+// management is disabled: the org ID of every deployment comes from it. The result is cached.
+func LookupOrganizationRef(ctx context.Context, orgHandle string) (ref model.Ref, found bool, err error) {
+
+	if value, ok := refs.Get(orgHandle); ok {
+		if ref, ok := value.(model.Ref); ok {
+			return ref, true, nil
+		}
+	}
+	org, err := getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
+	if err != nil || org == nil {
+		return model.Ref{}, false, err
+	}
+	refs.Set(orgHandle, org.Ref())
+	return org.Ref(), true, nil
+}
+
+// LookupOrganizationRefById returns the org ID and the org handle of the stored organization with the
+// ID. found is false when the ID has no row. As LookupOrganizationRef does, it reads the table when
+// organization management is disabled. The result is cached.
+func LookupOrganizationRefById(ctx context.Context, orgId string) (ref model.Ref, found bool, err error) {
+
+	if value, ok := refsById.Get(orgId); ok {
+		if ref, ok := value.(model.Ref); ok {
+			return ref, true, nil
+		}
+	}
+	org, err := getOne(ctx, scripts.GetOrganizationById, orgId)
+	if err != nil || org == nil {
+		return model.Ref{}, false, err
+	}
+	refsById.Set(orgId, org.Ref())
+	return org.Ref(), true, nil
 }
 
 // GetOrganizationsByPrimaryOrg returns all organizations of an organization tree.
@@ -205,15 +245,7 @@ func UpdateOrganizationStatus(ctx context.Context, orgId, status string) error {
 }
 
 // GetTreeSyncStatus returns the tree sync state of the primary organization.
-func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSyncStatus, error) {
-
-	orgKey, known, err := orgkey.ForRead(ctx, primaryHandle)
-	if err != nil {
-		return nil, err
-	}
-	if !known {
-		return &model.TreeSyncStatus{State: model.TreeSyncNotSynced}, nil
-	}
+func GetTreeSyncStatus(ctx context.Context, orgId string) (*model.TreeSyncStatus, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -221,9 +253,9 @@ func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSy
 	}
 	defer dbClient.Close()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, orgKey)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, orgId)
 	if err != nil {
-		return nil, serverError(fmt.Sprintf("Failed to read the organization sync state of: %s", primaryHandle), err)
+		return nil, serverError(fmt.Sprintf("Failed to read the organization sync state of: %s", orgId), err)
 	}
 	status := &model.TreeSyncStatus{State: model.TreeSyncNotSynced}
 	for _, row := range results {
@@ -248,12 +280,7 @@ func GetTreeSyncStatus(ctx context.Context, primaryHandle string) (*model.TreeSy
 
 // SetTreeSyncValues writes the tree sync keys of the primary organization in one transaction. An
 // empty value clears the key.
-func SetTreeSyncValues(ctx context.Context, primaryHandle string, values map[string]string) error {
-
-	orgKey, err := orgkey.ForWrite(ctx, primaryHandle)
-	if err != nil {
-		return err
-	}
+func SetTreeSyncValues(ctx context.Context, orgId string, values map[string]string) error {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -263,16 +290,16 @@ func SetTreeSyncValues(ctx context.Context, primaryHandle string, values map[str
 
 	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
-		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", primaryHandle), err)
+		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
 	}
 	for key, value := range values {
-		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, orgKey, key, value); err != nil {
+		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, orgId, key, value); err != nil {
 			_ = tx.Rollback()
-			return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", primaryHandle), err)
+			return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", primaryHandle), err)
+		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
 	}
 	return nil
 }

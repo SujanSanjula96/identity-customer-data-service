@@ -46,7 +46,6 @@ func TestValidateFilterFieldsRejectsUnsafeFields(t *testing.T) {
 
 	for _, field := range []string{
 		"traits.x'||(SELECT pg_sleep(5))||'",
-		"traits.{{org}}",
 		"application_data.app.key'--",
 		"traits.a;b",
 	} {

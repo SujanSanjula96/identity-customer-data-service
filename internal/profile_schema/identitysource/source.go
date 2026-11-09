@@ -27,25 +27,27 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
 )
 
-// HandleOf returns the handle of the organization that holds the identity attributes of the given
-// organization.
-func HandleOf(ctx context.Context, orgHandle string) string {
+// Of returns the ID of the organization that holds the identity attributes of the given organization.
+func Of(ctx context.Context, orgId string) string {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
-	if err != nil || org == nil || org.IsPrimary() {
-		return orgHandle
+	stored, err := orgStore.GetOrganizationById(ctx, orgId)
+	if err != nil || stored == nil || stored.IsPrimary() {
+		return orgId
 	}
-	primary, err := orgStore.GetOrganizationById(ctx, org.PrimaryOrgId)
+	primary, err := orgStore.GetOrganizationById(ctx, stored.PrimaryOrgId)
 	if err != nil || primary == nil {
-		return orgHandle
+		return orgId
 	}
-	return idp.GetAdapter().IdentityAttributeSourceHandle(orgHandle, primary.OrgHandle)
+	if idp.GetAdapter().IdentityAttributeSourceHandle(stored.OrgHandle, primary.OrgHandle) != primary.OrgHandle {
+		return orgId
+	}
+	return primary.OrgId
 }
 
-// IsInherited reports whether the organization inherits its identity attributes, and returns the
-// source organization.
-func IsInherited(ctx context.Context, orgHandle string) (string, bool) {
+// IsInherited reports whether the organization inherits its identity attributes, and returns the ID
+// of the source organization.
+func IsInherited(ctx context.Context, orgId string) (string, bool) {
 
-	source := HandleOf(ctx, orgHandle)
-	return source, source != orgHandle
+	source := Of(ctx, orgId)
+	return source, source != orgId
 }

@@ -56,7 +56,7 @@ func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T
 	}
 	ctx := context.Background()
 	primaryConfig := adminModel.AdminConfig{
-		OrgHandle:                  "primary",
+		OrgId:                      "primary",
 		CDSEnabled:                 true,
 		SystemApplications:         []string{},
 		AutoMergeEnabled:           false,
@@ -64,16 +64,16 @@ func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T
 		ManualReviewThreshold:      0.6,
 		DeterministicMatchDecisive: false,
 	}
-	if err := adminStore.UpdateAdminConfig(ctx, primaryConfig, "primary"); err != nil {
+	if err := adminStore.UpdateAdminConfig(ctx, primaryConfig, "primary-id"); err != nil {
 		t.Fatalf("failed to store the configuration of the primary organization: %v", err)
 	}
 
-	got := LoadThresholds(ctx, "sub")
+	got := LoadThresholds(ctx, "sub-id")
 	want := Thresholds{AutoMergeEnabled: false, AutoMerge: 0.95, ManualReview: 0.6, DeterministicMatchDecisive: false}
 	if got != want {
 		t.Errorf("sub organization: got %+v, want %+v", got, want)
 	}
-	if got := LoadThresholds(ctx, "primary"); got != want {
+	if got := LoadThresholds(ctx, "primary-id"); got != want {
 		t.Errorf("primary organization: got %+v, want %+v", got, want)
 	}
 }

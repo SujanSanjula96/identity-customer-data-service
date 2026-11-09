@@ -35,8 +35,8 @@ type ProfileSchemaAttribute struct {
 	SubAttributes         []SubAttribute   `json:"sub_attributes,omitempty" bson:"sub_attributes,omitempty"`     // If the datatype is object
 	SCIMDialect           string           `json:"scim_dialect,omitempty" bson:"scim_dialect,omitempty"`         // Need to skip this in the response
 	// Set only on reads of the effective schema.
-	Origin         string `json:"origin,omitempty" bson:"-"`           // OWNED, SHARED, or INHERITED
-	OwnerOrgHandle string `json:"owner_org_handle,omitempty" bson:"-"` // The owner org of a shared or inherited attribute
+	Origin     string `json:"origin,omitempty" bson:"-"` // OWNED, SHARED, or INHERITED
+	OwnerOrgId string `json:"-" bson:"-"`                // The owner org of a shared attribute, for the owner check
 }
 
 type SubAttribute struct {

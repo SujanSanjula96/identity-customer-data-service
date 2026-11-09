@@ -78,7 +78,7 @@ func (h *OrganizationHandler) StartTreeSync(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	status, err := service.StartTreeSync(r.Context(), primary.OrgHandle)
+	status, err := service.StartTreeSync(r.Context(), primary.Ref())
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -93,7 +93,7 @@ func (h *OrganizationHandler) GetTreeSync(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	status, err := service.GetTreeSyncStatus(r.Context(), primary.OrgHandle)
+	status, err := service.GetTreeSyncStatus(r.Context(), primary.OrgId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -188,12 +188,16 @@ func primaryOf(w http.ResponseWriter, r *http.Request, operation string) (*model
 		utils.HandleError(w, err)
 		return nil, false
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), orgHandle) {
+	ref, err := service.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return nil, false
+	}
+	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref.ID) {
 		utils.HandleError(w, notEnabled())
 		return nil, false
 	}
-	org, err := service.GetOrStoreOrganization(r.Context(), orgHandle)
+	org, err := service.GetOrStoreOrganization(r.Context(), ref.Handle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return nil, false

@@ -25,6 +25,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
@@ -71,25 +72,26 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 		testDB.Terminate()
 	})
 	ctx := context.Background()
+	acme := orgModel.Ref{ID: "acme-id", Handle: "acme"}
 	if err := store.UpdateAdminConfig(ctx, model.AdminConfig{
-		OrgHandle:          "acme",
+		OrgId:              "acme",
 		SystemApplications: []string{},
-	}, "acme"); err != nil {
+	}, acme.ID); err != nil {
 		t.Fatalf("failed to store the configuration: %v", err)
 	}
-	if err := store.UpdateInitialSchemaSyncConfig(ctx, true, "acme"); err != nil {
+	if err := store.UpdateInitialSchemaSyncConfig(ctx, true, acme.ID); err != nil {
 		t.Fatalf("failed to mark the schema sync done: %v", err)
 	}
 
 	err = AdminConfigService{}.UpdateAdminConfig(ctx, model.AdminConfig{
-		OrgHandle:          "acme",
+		OrgId:              "acme",
 		CDSEnabled:         true,
 		SystemApplications: []string{},
-	}, "acme")
+	}, acme)
 	if err == nil {
 		t.Fatal("UpdateAdminConfig: expected the error of the identity provider, got nil")
 	}
-	stored, err := store.GetAdminConfig(ctx, "acme")
+	stored, err := store.GetAdminConfig(ctx, acme.ID)
 	if err != nil {
 		t.Fatalf("GetAdminConfig: %v", err)
 	}

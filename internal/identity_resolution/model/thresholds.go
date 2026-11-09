@@ -45,16 +45,16 @@ func DefaultThresholds() Thresholds {
 	}
 }
 
-func LoadThresholds(ctx context.Context, orgHandle string) Thresholds {
+func LoadThresholds(ctx context.Context, orgId string) Thresholds {
 	logger := log.GetLogger()
 	defaults := DefaultThresholds()
 
 	// A sub organization uses the settings of its primary organization.
-	configHandle := orgHandle
-	if primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle); known {
-		configHandle = primaryHandle
+	configOrgId := orgId
+	if primary, known := orgService.PrimaryOf(ctx, orgId); known {
+		configOrgId = primary.ID
 	}
-	adminCfg, err := adminStore.GetAdminConfig(ctx, configHandle)
+	adminCfg, err := adminStore.GetAdminConfig(ctx, configOrgId)
 	if err != nil || adminCfg == nil {
 		logger.Warn("LoadThresholds: failed to load admin config, using defaults")
 		return defaults

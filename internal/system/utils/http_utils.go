@@ -32,7 +32,6 @@ import (
 	customerrors "github.com/wso2/identity-customer-data-service/internal/system/errors" // Alias for the custom errors
 	error2 "github.com/wso2/identity-customer-data-service/internal/system/errors"       // Importing custom error types
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
-	"github.com/wso2/identity-customer-data-service/internal/system/orgkey"
 )
 
 // HandleError sends an HTTP error response based on the provided error
@@ -158,8 +157,6 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 			}
 			ctx = context.WithValue(ctx, constants.TenantContextKey, subOrgHandle)
 			ctx = context.WithValue(ctx, constants.OrgIdContextKey, orgId)
-			// The path names the org ID, so the stores need no lookup for the org key.
-			ctx = orgkey.WithRef(ctx, orgkey.Ref{ID: orgId, Handle: subOrgHandle})
 			remainingPath = "/" + segments[1]
 			basePath += "/o/" + orgId
 		} else if IsSubOrgHandle != nil {

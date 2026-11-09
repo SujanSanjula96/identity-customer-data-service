@@ -528,20 +528,20 @@ func NewSchemaSyncQueue(addr, username, password, destination string, tlsCfg con
 func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 	data, err := json.Marshal(sync)
 	if err != nil {
-		return fmt.Errorf("activemq: failed to marshal schema sync for tenant %s: %w", sync.OrgId, err)
+		return fmt.Errorf("activemq: failed to marshal schema sync for tenant %s: %w", sync.OrgHandle, err)
 	}
 
 	if err := q.mc.getConn().Send(q.destination, contentTypeJSON, data); err != nil {
 		log.GetLogger().Error(fmt.Sprintf(
 			"activemq: send failed for schema sync tenant %s, will reconnect and retry: %v",
-			sync.OrgId, err))
+			sync.OrgHandle, err))
 
 		if reconnErr := q.mc.reconnectWithBackoff("schema sync enqueue", 1); reconnErr != nil {
-			return fmt.Errorf("activemq: send failed for schema sync tenant %s: %w", sync.OrgId, reconnErr)
+			return fmt.Errorf("activemq: send failed for schema sync tenant %s: %w", sync.OrgHandle, reconnErr)
 		}
 
 		if retryErr := q.mc.getConn().Send(q.destination, contentTypeJSON, data); retryErr != nil {
-			return fmt.Errorf("activemq: retry send failed for schema sync tenant %s: %w", sync.OrgId, retryErr)
+			return fmt.Errorf("activemq: retry send failed for schema sync tenant %s: %w", sync.OrgHandle, retryErr)
 		}
 	}
 	return nil

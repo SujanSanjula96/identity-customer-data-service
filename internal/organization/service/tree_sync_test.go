@@ -42,6 +42,9 @@ const (
 	primaryId     = "primary-id"
 )
 
+// primaryRef is the primary organization of the tests.
+var primaryRef = model.Ref{ID: primaryId, Handle: primaryHandle}
+
 // fakeIdP is an identity provider with a fixed tree. onList runs during ListDescendants.
 type fakeIdP struct {
 	mu        sync.Mutex
@@ -153,7 +156,7 @@ func waitState(t *testing.T, ctx context.Context, want string) *model.TreeSyncSt
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := GetTreeSyncStatus(ctx, primaryHandle)
+		status, err := GetTreeSyncStatus(ctx, primaryId)
 		if err != nil {
 			t.Fatalf("failed to read the sync state: %v", err)
 		}
@@ -225,14 +228,14 @@ func TestStartTreeSyncStoresTheTreeInTheBackground(t *testing.T) {
 	fake := &fakeIdP{orgs: tree(), release: make(chan struct{})}
 	ctx := setUp(t, fake)
 
-	status, err := StartTreeSync(ctx, primaryHandle)
+	status, err := StartTreeSync(ctx, primaryRef)
 	if err != nil {
 		t.Fatalf("StartTreeSync failed: %v", err)
 	}
 	if status.State != model.TreeSyncSyncing || status.StartedAt == nil {
 		t.Fatalf("expected SYNCING with a start time, got %+v", status)
 	}
-	if _, err := StartTreeSync(ctx, primaryHandle); clientErrorCode(err) != errors2.TREE_SYNC_RUNNING.Code {
+	if _, err := StartTreeSync(ctx, primaryRef); clientErrorCode(err) != errors2.TREE_SYNC_RUNNING.Code {
 		t.Fatalf("expected TREE_SYNC_RUNNING while a sync runs, got %v", err)
 	}
 	close(fake.release)
@@ -249,7 +252,7 @@ func TestStartTreeSyncStoresTheTreeInTheBackground(t *testing.T) {
 
 	// A new sync can start after a sync completes.
 	waitIdle(t)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatalf("a re-sync failed: %v", err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
@@ -259,7 +262,7 @@ func TestFailedSyncKeepsTheStoredOrgs(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree()}
 	ctx := setUp(t, fake)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	synced := waitState(t, ctx, model.TreeSyncSynced)
@@ -269,7 +272,7 @@ func TestFailedSyncKeepsTheStoredOrgs(t *testing.T) {
 	fake.orgs = nil
 	fake.listErr = errors.New("page 3 failed")
 	fake.mu.Unlock()
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	status := waitState(t, ctx, model.TreeSyncFailed)
@@ -376,7 +379,7 @@ func TestEventsApplyAfterTheFirstSync(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree()}
 	ctx := setUp(t, fake)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
@@ -418,7 +421,7 @@ func TestEventsApplyAfterTheFirstSync(t *testing.T) {
 	}
 
 	// The next tree sync adds the organization.
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
@@ -430,7 +433,7 @@ func TestEventsApplyAfterTheFirstSync(t *testing.T) {
 func TestDeleteEventAppliesOnlyToSubOrgsOfThePathTree(t *testing.T) {
 
 	ctx := setUp(t, &fakeIdP{orgs: tree()})
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
@@ -468,14 +471,14 @@ func requestSyncAgain() {
 
 	treeSyncMu.Lock()
 	defer treeSyncMu.Unlock()
-	scheduleLocked(primaryHandle)
+	scheduleLocked(primaryRef)
 }
 
 func TestATriggerDuringASyncRunsItAgain(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree(), release: make(chan struct{})}
 	ctx := setUp(t, fake)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	// Two triggers during the run ask for one more run.
@@ -506,8 +509,8 @@ func TestUnknownOrgsAreNotLookedUp(t *testing.T) {
 	if isSub, err := IsSubOrgHandle(ctx, "region1"); err != nil || isSub {
 		t.Fatal("an unknown handle is not a sub org")
 	}
-	if _, known := PrimaryHandleOf(ctx, "region1"); known {
-		t.Fatal("an unknown handle has no primary org")
+	if _, known := PrimaryOf(ctx, "region1"); known {
+		t.Fatal("an unknown org ID has no primary org")
 	}
 	if list, get := fake.calls(); list != 0 || get != 0 {
 		t.Fatalf("expected no IdP calls, got %d lists and %d reads", list, get)
@@ -518,12 +521,12 @@ func TestUnknownOrgsAreNotLookedUp(t *testing.T) {
 func setCDSEnabled(t *testing.T, ctx context.Context, enabled bool) {
 
 	t.Helper()
-	config, err := adminConfigStore.GetAdminConfig(ctx, primaryHandle)
+	config, err := adminConfigStore.GetAdminConfig(ctx, primaryId)
 	if err != nil || config == nil {
 		t.Fatalf("failed to read the config: %v", err)
 	}
 	config.CDSEnabled = enabled
-	if err := adminConfigStore.UpdateAdminConfig(ctx, *config, primaryHandle); err != nil {
+	if err := adminConfigStore.UpdateAdminConfig(ctx, *config, primaryId); err != nil {
 		t.Fatalf("failed to update the config: %v", err)
 	}
 }
@@ -532,17 +535,17 @@ func TestResetTreeSyncNeedsANewSync(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree()}
 	ctx := setUp(t, fake)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
 	waitIdle(t)
 
 	setCDSEnabled(t, ctx, false)
-	if err := ResetTreeSync(ctx, primaryHandle); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatalf("ResetTreeSync failed: %v", err)
 	}
-	status, err := GetTreeSyncStatus(ctx, primaryHandle)
+	status, err := GetTreeSyncStatus(ctx, primaryId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +571,7 @@ func TestResetTreeSyncNeedsANewSync(t *testing.T) {
 	if got := orgStatus(t, ctx, "region3"); got != "" {
 		t.Fatalf("expected the event to be ignored before the sync, got %q", got)
 	}
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, ctx, model.TreeSyncSynced)
@@ -581,19 +584,19 @@ func TestASyncThatEndsAfterADisableStoresNoState(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree(), release: make(chan struct{})}
 	ctx := setUp(t, fake)
-	if _, err := StartTreeSync(ctx, primaryHandle); err != nil {
+	if _, err := StartTreeSync(ctx, primaryRef); err != nil {
 		t.Fatal(err)
 	}
 	// A trigger during the run asks for one more run, but the disable cancels it.
 	requestSyncAgain()
 	setCDSEnabled(t, ctx, false)
-	if err := ResetTreeSync(ctx, primaryHandle); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatal(err)
 	}
 	close(fake.release)
 	waitIdle(t)
 
-	status, err := GetTreeSyncStatus(ctx, primaryHandle)
+	status, err := GetTreeSyncStatus(ctx, primaryId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,10 +612,10 @@ func TestResetTreeSyncWithoutASyncWritesNothing(t *testing.T) {
 
 	fake := &fakeIdP{orgs: tree()}
 	ctx := setUp(t, fake)
-	if err := ResetTreeSync(ctx, primaryHandle); err != nil {
+	if err := ResetTreeSync(ctx, primaryRef.ID); err != nil {
 		t.Fatal(err)
 	}
-	status, err := GetTreeSyncStatus(ctx, primaryHandle)
+	status, err := GetTreeSyncStatus(ctx, primaryId)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,9 +21,6 @@ package setup
 import (
 	"fmt"
 	"strings"
-
-	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	"github.com/wso2/identity-customer-data-service/internal/system/database/model"
 )
 
 // Preparing a statement validates its grammar and the tables and columns it
@@ -43,27 +40,19 @@ func QueryPlaceholders(n int) string {
 
 // CompleteStatement returns the statement as a store executes it, since a
 // template cannot be prepared. name is its name in scripts.AllQueries.
-//
-// The text that this function adds can name the org column. It is rendered for the
-// org_id_migration phase of dbType, as the statement itself is.
-func CompleteStatement(name, statement, dbType string) string {
-
-	return model.RenderOrgTokens(completeStatement(name, statement), database.OrgPhaseFor(dbType))
-}
-
-func completeStatement(name, statement string) string {
+func CompleteStatement(name, statement string) string {
 
 	switch name {
 	case "FindOldestReferenceProfileIDByAttributeValues":
 		return fmt.Sprintf(statement, "p.identity_attributes")
 	case "InsertIdentityClaimsForProfileSchema":
-		return statement + orgFirstPlaceholders(13)
+		return statement + QueryPlaceholders(13)
 	case "InsertProfileSchemaAttributesForScope":
-		return statement + orgFirstPlaceholders(12)
+		return statement + QueryPlaceholders(12)
 	case "UpdateProfileSchemaAttributeFields":
-		return statement + "attribute_name = $1 WHERE {{org}} = $2 AND attribute_id = $3"
+		return statement + "attribute_name = $1 WHERE org_id = $2 AND attribute_id = $3"
 	case "UpsertIdentityClaimsForProfileSchema":
-		return fmt.Sprintf(statement, orgFirstPlaceholders(13))
+		return fmt.Sprintf(statement, QueryPlaceholders(13))
 	case "InsertSharePolicyTargets":
 		return fmt.Sprintf(statement, QueryPlaceholders(3))
 	case "DeleteStaleIdentityClaimsForProfileSchema", "GetSharePoliciesByOwners":
@@ -77,18 +66,10 @@ func completeStatement(name, statement string) string {
 		// An IN list plus the positions of the exclude and limit arguments.
 		return fmt.Sprintf(statement, "$1", 2, 3)
 	case "IRInsertBlockingKeys":
-		// The second value is the org key, as the blocking key store builds the row.
-		return fmt.Sprintf(statement, "($1, {{org_val $2}}, $3, $4)")
+		return fmt.Sprintf(statement, "($1, $2, $3, $4)")
 	case "GetProfileIDsWithFiltersBase":
-		return statement + " WHERE p.{{org}} = $1"
+		return statement + " WHERE p.org_id = $1"
 	default:
 		return statement
 	}
-}
-
-// orgFirstPlaceholders returns a VALUES row of n placeholders whose first value is the org key, as
-// the stores build it for the statements that insert profile schema attributes.
-func orgFirstPlaceholders(n int) string {
-
-	return "({{org_val $1}}" + strings.TrimPrefix(QueryPlaceholders(n), "($1")
 }

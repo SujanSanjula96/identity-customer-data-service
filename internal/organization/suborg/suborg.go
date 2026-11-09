@@ -28,10 +28,10 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 )
 
-// RejectWrite returns WriteNotAllowed when the handle belongs to a sub organization.
-func RejectWrite(ctx context.Context, orgHandle string) error {
+// RejectWrite returns WriteNotAllowed when the org ID belongs to a sub organization.
+func RejectWrite(ctx context.Context, orgId string) error {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
+	org, err := orgStore.GetOrganizationById(ctx, orgId)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/store"
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
 	consentService "github.com/wso2/identity-customer-data-service/internal/consent/service"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/organization/suborg"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
@@ -40,12 +41,12 @@ import (
 
 // AdminConfigServiceInterface defines the service interface.
 type AdminConfigServiceInterface interface {
-	GetAdminConfig(ctx context.Context, orgHandle string) (model.AdminConfig, error)
-	IsCDSEnabled(ctx context.Context, orgHandle string) bool
-	IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool
-	IsSystemApplication(ctx context.Context, orgHandle, appId string) (bool, error)
-	UpdateAdminConfig(ctx context.Context, category model.AdminConfig, orgHandle string) error
-	UpdateInitialSchemaSync(ctx context.Context, state bool, orgHandle string) error
+	GetAdminConfig(ctx context.Context, orgId string) (model.AdminConfig, error)
+	IsCDSEnabled(ctx context.Context, orgId string) bool
+	IsInitialSchemaSyncDone(ctx context.Context, orgId string) bool
+	IsSystemApplication(ctx context.Context, orgId string, appId string) (bool, error)
+	UpdateAdminConfig(ctx context.Context, category model.AdminConfig, org orgModel.Ref) error
+	UpdateInitialSchemaSync(ctx context.Context, state bool, orgId string) error
 }
 
 // AdminConfigService is the default implementation.
@@ -53,32 +54,32 @@ type AdminConfigService struct{}
 
 // IsCDSEnabled reports whether CDS is enabled for the organization. A sub organization is enabled
 // when its primary organization is enabled and the organization access includes it.
-func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgHandle string) bool {
-	config, err := store.GetAdminConfig(ctx, orgHandle)
+func (a AdminConfigService) IsCDSEnabled(ctx context.Context, orgId string) bool {
+	config, err := store.GetAdminConfig(ctx, orgId)
 	if err == nil && config != nil && config.CDSEnabled {
 		return true
 	}
-	primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle)
-	if !known || primaryHandle == orgHandle {
+	primary, known := orgService.PrimaryOf(ctx, orgId)
+	if !known || primary.ID == orgId {
 		return false
 	}
-	primaryConfig, err := store.GetAdminConfig(ctx, primaryHandle)
+	primaryConfig, err := store.GetAdminConfig(ctx, primary.ID)
 	if err != nil || primaryConfig == nil || !primaryConfig.CDSEnabled {
 		return false
 	}
-	return sharingService.IsSubOrgEnabled(ctx, orgHandle)
+	return sharingService.IsSubOrgEnabled(ctx, orgId)
 }
 
-func (a AdminConfigService) IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool {
-	config, err := store.GetAdminConfig(ctx, orgHandle)
+func (a AdminConfigService) IsInitialSchemaSyncDone(ctx context.Context, orgId string) bool {
+	config, err := store.GetAdminConfig(ctx, orgId)
 	if err != nil || config == nil {
 		return false
 	}
 	return config.InitialSchemaSyncDone
 }
 
-func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgHandle, appId string) (bool, error) {
-	config, err := store.GetAdminConfig(ctx, orgHandle)
+func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgId string, appId string) (bool, error) {
+	config, err := store.GetAdminConfig(ctx, orgId)
 	if err != nil {
 		return false, err
 	}
@@ -93,28 +94,29 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgHandle, 
 	return false, nil
 }
 
-func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgHandle string) (model.AdminConfig, error) {
+func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgId string) (model.AdminConfig, error) {
 
 	defaultConfig := model.AdminConfig{
-		OrgHandle:             orgHandle,
+		OrgId:                 orgId,
 		CDSEnabled:            false,
 		InitialSchemaSyncDone: false,
 		SystemApplications:    []string{},
 	}
-	config, err := store.GetAdminConfig(ctx, orgHandle)
+	config, err := store.GetAdminConfig(ctx, orgId)
 	if err != nil {
 		return defaultConfig, err
 	}
 	if config == nil {
 		config = &defaultConfig
 	}
+	config.OrgId = orgId
 	// A sub organization uses the enablement of its primary organization.
 	if !config.CDSEnabled {
-		config.CDSEnabled = a.IsCDSEnabled(ctx, orgHandle)
+		config.CDSEnabled = a.IsCDSEnabled(ctx, orgId)
 	}
 	// A sub organization uses the identity resolution settings of its primary organization.
-	if primaryHandle, known := orgService.PrimaryHandleOf(ctx, orgHandle); known && primaryHandle != orgHandle {
-		primaryConfig, err := store.GetAdminConfig(ctx, primaryHandle)
+	if primary, known := orgService.PrimaryOf(ctx, orgId); known && primary.ID != orgId {
+		primaryConfig, err := store.GetAdminConfig(ctx, primary.ID)
 		if err != nil {
 			return defaultConfig, err
 		}
@@ -214,9 +216,9 @@ func validateThresholds(autoMerge, manualReview float64) error {
 }
 
 func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
-	updatedConfig model.AdminConfig, orgHandle string) error {
+	updatedConfig model.AdminConfig, org orgModel.Ref) error {
 	// A sub organization cannot change the configuration.
-	if err := suborg.RejectWrite(ctx, orgHandle); err != nil {
+	if err := suborg.RejectWrite(ctx, org.ID); err != nil {
 		return err
 	}
 
@@ -226,8 +228,8 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		return err
 	}
 
-	isCDSEnabledInitialState := a.IsCDSEnabled(ctx, orgHandle)
-	isInitialSchemaSyncDoneInitialState := a.IsInitialSchemaSyncDone(ctx, orgHandle)
+	isCDSEnabledInitialState := a.IsCDSEnabled(ctx, org.ID)
+	isInitialSchemaSyncDoneInitialState := a.IsInitialSchemaSyncDone(ctx, org.ID)
 
 	// Schema sync status should not be changed via this method.
 	updatedConfig.InitialSchemaSyncDone = isInitialSchemaSyncDoneInitialState
@@ -235,7 +237,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	// Enabling CDS stores the primary organization. It runs before any other change, so that a
 	// failure leaves CDS disabled.
 	if sysconfig.OrganizationManagementEnabled() && !isCDSEnabledInitialState && updatedConfig.CDSEnabled {
-		if _, err := orgService.EnsurePrimary(ctx, orgHandle); err != nil {
+		if _, err := orgService.EnsurePrimary(ctx, org.Handle); err != nil {
 			return err
 		}
 	}
@@ -243,24 +245,24 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	schemaService := service.GetProfileSchemaService()
 	if !isCDSEnabledInitialState && !isInitialSchemaSyncDoneInitialState && updatedConfig.CDSEnabled {
 		// CDS is being enabled for the first time. Trigger initial schema sync.
-		err := schemaService.SyncProfileSchema(ctx, orgHandle)
+		err := schemaService.SyncProfileSchema(ctx, org.ID)
 		if err != nil {
-			logger.Error(fmt.Sprintf("UpdateAdminConfig: schema sync failed for org=%s", orgHandle), log.Error(err))
+			logger.Error(fmt.Sprintf("UpdateAdminConfig: schema sync failed for org=%s", org.ID), log.Error(err))
 			return err
 		}
 		// Seed the mandatory "Identity Data" consent category after schema is ready.
-		if err := consentService.GetConsentCategoryService().SeedDefaultConsentCategory(ctx, orgHandle); err != nil {
+		if err := consentService.GetConsentCategoryService().SeedDefaultConsentCategory(ctx, org.ID); err != nil {
 			return err
 		}
 		updatedConfig.InitialSchemaSyncDone = true
-		logger.Debug(fmt.Sprintf("UpdateAdminConfig: CDS enabled for org=%s", orgHandle))
+		logger.Debug(fmt.Sprintf("UpdateAdminConfig: CDS enabled for org=%s", org.ID))
 	}
 
 	// In app_id mode, register each system application so its clientId->app_id mapping exists for the GET path.
 	if sysconfig.GetCDSRuntime().Config.UsesAppIDIdentifier() {
 		appService := appProvider.NewApplicationProvider().GetApplicationService()
 		for _, appID := range updatedConfig.SystemApplications {
-			exists, err := appService.ResolveAndRegisterApplication(ctx, appID, orgHandle)
+			exists, err := appService.ResolveAndRegisterApplication(ctx, appID, org.ID)
 			if err != nil {
 				return err
 			}
@@ -274,7 +276,7 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		}
 	}
 
-	if err := store.UpdateAdminConfig(ctx, updatedConfig, orgHandle); err != nil {
+	if err := store.UpdateAdminConfig(ctx, updatedConfig, org.ID); err != nil {
 		return err
 	}
 	if !sysconfig.OrganizationManagementEnabled() {
@@ -283,16 +285,16 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 
 	// Disabling CDS resets the organization tree sync.
 	if isCDSEnabledInitialState && !updatedConfig.CDSEnabled {
-		if err := orgService.ResetTreeSync(ctx, orgHandle); err != nil {
+		if err := orgService.ResetTreeSync(ctx, org.ID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (a AdminConfigService) UpdateInitialSchemaSync(ctx context.Context, state bool, orgHandle string) error {
+func (a AdminConfigService) UpdateInitialSchemaSync(ctx context.Context, state bool, orgId string) error {
 
-	return store.UpdateInitialSchemaSyncConfig(ctx, state, orgHandle)
+	return store.UpdateInitialSchemaSyncConfig(ctx, state, orgId)
 }
 
 // GetAdminConfigService returns a new instance.

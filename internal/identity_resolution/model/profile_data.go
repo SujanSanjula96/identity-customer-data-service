@@ -55,7 +55,6 @@ type BlockingKey struct {
 type ProfileData struct {
 	ProfileID          string
 	UserID             string
-	OrgHandle          string
 	ReferenceProfileID string // non-empty if this profile is a child (merged into another)
 	Attributes         map[string]interface{}
 }
