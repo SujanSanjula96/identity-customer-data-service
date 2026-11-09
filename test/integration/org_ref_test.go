@@ -35,12 +35,3 @@ func resolveOrgId(t testing.TB, org string) string {
 	require.NoError(t, err)
 	return ref.ID
 }
-
-// lookupOrgId returns the org ID of the stored organization, or an empty string when it is not stored.
-func lookupOrgId(t testing.TB, org string) string {
-
-	t.Helper()
-	ref, _, err := orgService.LookupOrganization(context.Background(), org)
-	require.NoError(t, err)
-	return ref.ID
-}
