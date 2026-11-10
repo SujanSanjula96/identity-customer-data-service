@@ -30,6 +30,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/reqctx"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
@@ -59,6 +60,11 @@ func AuthnWithAdminCredentials(r *http.Request) error {
 		}, http.StatusUnauthorized)
 	}
 
+	// The deployment credentials identify a trusted back-channel caller, not a person.
+	reqctx.From(r.Context()).SetActor(reqctx.Actor{
+		Type: reqctx.ActorService,
+		ID:   strings.TrimSpace(config.GetCDSRuntime().Config.AuthServer.AdminUsername),
+	})
 	return nil
 }
 
@@ -133,7 +139,34 @@ func authenticate(r *http.Request) (map[string]interface{}, error) {
 		}, http.StatusUnauthorized)
 		return nil, clientError
 	}
+	reqctx.From(r.Context()).SetActor(actorOf(claims))
 	return claims, nil
+}
+
+// actorOf derives the actor of a request from the claims of its token. The actor is an
+// application when the token was issued to the client itself, and a user otherwise. The log
+// streams use the actor, so that every record of a request names the same principal.
+func actorOf(claims map[string]interface{}) reqctx.Actor {
+
+	subject, _ := claims[constants.SUBClaim].(string)
+	clientID, _ := claims[constants.ClientIdClaim].(string)
+	if clientID == "" {
+		clientID, _ = claims[constants.AZPClaim].(string)
+	}
+	if subject == "" {
+		// An introspection response can name the user by username only. A username is personal
+		// data, so the logs get a masked value.
+		if username, _ := claims[constants.UsernameClaim].(string); username != "" {
+			subject = log.Mask(username)
+		}
+	}
+
+	tokenType, _ := claims[constants.AuthorizedUserTypeClaim].(string)
+	if strings.EqualFold(tokenType, constants.AuthorizedUserTypeApplication) ||
+		subject == "" || subject == clientID {
+		return reqctx.Actor{Type: reqctx.ActorApplication, ID: clientID, ClientID: clientID}
+	}
+	return reqctx.Actor{Type: reqctx.ActorUser, ID: subject, ClientID: clientID}
 }
 
 // authorize checks the scopes of the claims against the operation.

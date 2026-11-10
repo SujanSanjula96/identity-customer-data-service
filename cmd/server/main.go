@@ -74,28 +74,30 @@ func main() {
 
 	envFiles, err := filepath.Glob("config/*.env")
 	if err != nil || len(envFiles) == 0 {
-		fmt.Println("No .env files found in config directory. ", err)
+		log.GetLogger().Info("No .env files found in config directory.", log.Error(err))
 	}
 	_ = godotenv.Load(envFiles...)
 
 	// Load the configuration file
 	cdsConfig, err := config.LoadConfig(cdsHome, configFile)
 	if err != nil {
-		fmt.Println("Failed to load cdsConfig. ", err)
+		log.GetLogger().Error("Failed to load the configuration.", log.Error(err))
 		os.Exit(1)
 	}
 
 	// Initialize runtime configurations
 	if err := config.InitializeCDSRuntime(cdsHome, cdsConfig); err != nil {
-		fmt.Println("Failed to initialize cds runtime.", err)
+		log.GetLogger().Error("Failed to initialize the CDS runtime.", log.Error(err))
 		os.Exit(1)
 	}
 
-	// Initialize logger
-	if err := log.Init(cdsConfig.Log.LogLevel); err != nil {
-		fmt.Println("Failed to initialize logger.", err)
+	// Initialize the application log, the access log, and the audit log.
+	logStreams, err := setupLogging(cdsHome, cdsConfig.Log)
+	if err != nil {
+		log.GetLogger().Error("Failed to initialize logging.", log.Error(err))
 		os.Exit(1)
 	}
+	defer logStreams.close()
 
 	// Create the adapter of the identity provider.
 	adapter, err := idp.NewAdapter(cdsConfig.IdP.Type)
@@ -124,7 +126,7 @@ func main() {
 
 	// Initialize Profile worker
 	if err := workers.StartProfileWorker(); err != nil {
-		fmt.Println("Failed to start profile worker.", err)
+		log.GetLogger().Error("Failed to start the profile worker.", log.Error(err))
 		os.Exit(1)
 	}
 	workers.RegisterFuzzyResolveFunc(irWorker.ResolveProfileAsync)
@@ -132,7 +134,7 @@ func main() {
 
 	// Initialize Schema Sync worker
 	if err := workers.StartSchemaSyncWorker(); err != nil {
-		fmt.Println("Failed to start schema sync worker.", err)
+		log.GetLogger().Error("Failed to start the schema sync worker.", log.Error(err))
 		os.Exit(1)
 	}
 
@@ -142,7 +144,7 @@ func main() {
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cdsConfig.Addr.Host, cdsConfig.Addr.Port)
-	mux := newCORSMiddleware(initMultiplexer())
+	mux := logStreams.wrap(newCORSMiddleware(initMultiplexer()))
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("WSO2 CDS starting securely on: https://%s", serverAddr))
@@ -186,6 +188,7 @@ func main() {
 		WriteTimeout:      15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		ErrorLog:          newServerErrorLog(),
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
@@ -272,20 +275,20 @@ func resolveCDSHome() string {
 
 	// Determine the directory
 	if *cdsHomeFlag != "" {
-		fmt.Printf("Using %s from command line argument\n", *cdsHomeFlag)
+		log.GetLogger().Info("Using the CDS home from the command line argument.", log.String("cds_home", *cdsHomeFlag))
 		return *cdsHomeFlag
 	}
 
 	// Fallback to environment variable
 	if envHome := os.Getenv("CDS_HOME"); envHome != "" {
-		fmt.Printf("Using CDS_HOME from environment: %s\n", envHome)
+		log.GetLogger().Info("Using the CDS home from the CDS_HOME environment variable.", log.String("cds_home", envHome))
 		return envHome
 	}
 
 	// Fallback to working directory
 	dir, err := os.Getwd()
 	if err != nil {
-		fmt.Println("Failed to get current working directory", err)
+		log.GetLogger().Error("Failed to get the current working directory.", log.Error(err))
 		os.Exit(1)
 	}
 	return dir

@@ -27,6 +27,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/organization/service"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
 	sharingService "github.com/wso2/identity-customer-data-service/internal/sharing/service"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
@@ -118,6 +119,7 @@ func (h *OrganizationHandler) CreateOrgAccess(w http.ResponseWriter, r *http.Req
 		utils.HandleError(w, err)
 		return
 	}
+	audit.SetTargetID(r.Context(), resp.Id)
 	utils.RespondJSON(w, http.StatusCreated, resp, orgAccessResource)
 }
 

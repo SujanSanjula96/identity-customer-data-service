@@ -23,8 +23,51 @@ type AddrConfig struct {
 	Host string `yaml:"host"`
 }
 
+// LogConfig configures the three log streams of CDS: the application log, the access log, and the
+// audit log. With only log_level set, all streams write text records to the console.
 type LogConfig struct {
+	// LogLevel is the minimum level of the application log: DEBUG, INFO, WARN, or ERROR.
 	LogLevel string `yaml:"log_level"`
+	// Format is the record format of the application log and the access log: "text" (default) or
+	// "json". The audit log is always JSON.
+	Format string `yaml:"format"`
+	// Console writes all streams to standard output. The default is true.
+	Console *bool `yaml:"console"`
+	// File writes each stream to its own rotating file.
+	File LogFileConfig `yaml:"file"`
+	// Access configures the access log.
+	Access AccessLogConfig `yaml:"access"`
+	// Audit configures the audit log.
+	Audit AuditLogConfig `yaml:"audit"`
+}
+
+// LogFileConfig configures the log files. Each stream has its own file in Dir: cds.log,
+// http_access.log, and audit.log.
+type LogFileConfig struct {
+	// Enabled turns the log files on. The default is false.
+	Enabled bool `yaml:"enabled"`
+	// Dir is the directory of the log files, relative to CDS_HOME unless absolute. The default is
+	// repository/logs.
+	Dir string `yaml:"dir"`
+	// MaxSizeMB is the size at which a file rotates. The default is 10.
+	MaxSizeMB int `yaml:"max_size_mb"`
+	// MaxBackups is the number of rotated files to keep for each stream. The default is 20.
+	MaxBackups int `yaml:"max_backups"`
+}
+
+// AccessLogConfig configures the access log.
+type AccessLogConfig struct {
+	// Enabled turns the access log on. The default is true.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// AuditLogConfig configures the audit log.
+type AuditLogConfig struct {
+	// Enabled turns the audit log on. The default is true.
+	Enabled *bool `yaml:"enabled"`
+	// ReadEvents also records the read operations that succeeded. The default is false. A denied
+	// attempt is always recorded.
+	ReadEvents bool `yaml:"read_events"`
 }
 
 type AuthConfig struct {

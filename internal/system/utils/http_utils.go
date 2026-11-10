@@ -32,6 +32,7 @@ import (
 	customerrors "github.com/wso2/identity-customer-data-service/internal/system/errors" // Alias for the custom errors
 	error2 "github.com/wso2/identity-customer-data-service/internal/system/errors"       // Importing custom error types
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/reqctx"
 )
 
 // HandleError sends an HTTP error response based on the provided error
@@ -39,6 +40,7 @@ func HandleError(w http.ResponseWriter, err error) {
 	var clientError *customerrors.ClientError
 	w.Header().Set("Content-Type", "application/json")
 	if ok := errors.As(err, &clientError); ok {
+		recordErrorCode(w, clientError.ErrorMessage.Code)
 		w.WriteHeader(clientError.StatusCode)
 		_ = json.NewEncoder(w).Encode(struct {
 			Code        string `json:"code"`
@@ -56,11 +58,21 @@ func HandleError(w http.ResponseWriter, err error) {
 	if ok := errors.As(err, &serverError); ok {
 		logger := log.GetLogger()
 		logger.Error(err.Error())
+		recordErrorCode(w, serverError.ErrorMessage.Code)
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error": "Internal server error",
 		})
 		return
+	}
+}
+
+// recordErrorCode gives the CDS error code of an error response to the response recorder, when
+// the request has one. The access log and the audit log report the code as the reason of a failed
+// request.
+func recordErrorCode(w http.ResponseWriter, code string) {
+	if recorder, ok := w.(interface{ RecordErrorCode(string) }); ok {
+		recorder.RecordErrorCode(code)
 	}
 }
 
@@ -101,6 +113,7 @@ func StripTenantPrefix(path string) string {
 
 func WriteErrorResponse(w http.ResponseWriter, err *error2.ClientError) {
 
+	recordErrorCode(w, err.ErrorMessage.Code)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(err.StatusCode)
 
@@ -171,6 +184,10 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 			}
 		}
 		ctx = context.WithValue(ctx, constants.OrgBasePathContextKey, basePath)
+		// The log streams report the organization of the request.
+		orgOfRequest, _ := ctx.Value(constants.TenantContextKey).(string)
+		orgIdOfRequest, _ := ctx.Value(constants.OrgIdContextKey).(string)
+		reqctx.From(ctx).SetOrg(orgOfRequest, orgIdOfRequest)
 		r = r.WithContext(ctx)
 		r.URL.Path = remainingPath
 

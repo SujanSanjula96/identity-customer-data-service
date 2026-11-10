@@ -30,6 +30,7 @@ import (
 	adminConfigPkg "github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
 	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/pagination"
@@ -679,6 +680,8 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 		profileResponse.ProfileId,
 	)
 
+	audit.SetTargetID(ctx, profileResponse.ProfileId)
+
 	w.Header().Set("Location", location)
 	utils.RespondJSON(w, http.StatusCreated, profileResponse, constants.ProfileResource)
 }
@@ -961,6 +964,8 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 
 	log.GetLogger().Info(fmt.Sprintf("Linked profile: %s to user: %s in organization: %s", profileId, userId,
 		org.ID))
+	audit.SetTargetID(ctx, profileId)
+	audit.AddDetail(ctx, "user_id", userId)
 
 	linkResponse := model.ProfileLinkResponse{
 		ProfileId: profileId,
@@ -1115,6 +1120,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 	profilesService := profilesProvider.GetProfilesService()
 
 	profileId := profileSync.ProfileId
+	audit.SetTargetID(ctx, profileId)
+	audit.AddDetail(ctx, "sync_event", profileSync.Event)
 	identityClaims := profileSync.Claims
 	orgHandle := profileSync.OrgHandle
 

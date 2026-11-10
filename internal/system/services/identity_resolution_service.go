@@ -22,6 +22,7 @@ import (
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/handler"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
@@ -39,8 +40,8 @@ func NewIdentityResolutionService(mux *http.ServeMux) *IdentityResolutionService
 	const base = constants.ApiBasePath + "/v1"
 
 	// Review tasks management
-	s.mux.HandleFunc("GET "+base+"/identity-resolution/review-tasks", s.handler.GetReviewTasks)
-	s.mux.HandleFunc("POST "+base+"/identity-resolution/review-tasks/{taskId}/resolve", s.handler.ResolveReviewTask)
+	s.mux.HandleFunc("GET "+base+"/identity-resolution/review-tasks", audit.Wrap(audit.ReviewTaskList, s.handler.GetReviewTasks))
+	s.mux.HandleFunc("POST "+base+"/identity-resolution/review-tasks/{taskId}/resolve", audit.Wrap(audit.ReviewTaskResolve, s.handler.ResolveReviewTask))
 
 	return s
 }

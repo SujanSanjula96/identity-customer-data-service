@@ -31,6 +31,7 @@ import (
 	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	schemaService "github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -356,11 +357,41 @@ func MergeMatchedProfiles(ctx context.Context, orgId string, existingMasterProfi
 
 	// ── Case: perm-temp or temp-perm ──
 	if hasUserIDExisting != hasUserIDNew {
-		return mergePermanentAndTemporary(ctx, orgId, existingMasterProfile, newProfile, newMasterProfile, reason, hasExistingChildren)
+		master, mergeErr := mergePermanentAndTemporary(ctx, orgId, existingMasterProfile, newProfile, newMasterProfile, reason, hasExistingChildren)
+		auditMerge(ctx, orgId, existingMasterProfile.ProfileId, newProfile.ProfileId, reason, master, mergeErr)
+		return master, mergeErr
 	}
 
 	// ── Case: Both permanent with same userId OR both temporary ──
-	return mergeSameKindProfiles(ctx, orgId, existingMasterProfile, newProfile, newMasterProfile, reason, hasUserIDExisting, hasExistingChildren)
+	master, mergeErr := mergeSameKindProfiles(ctx, orgId, existingMasterProfile, newProfile, newMasterProfile, reason, hasUserIDExisting, hasExistingChildren)
+	auditMerge(ctx, orgId, existingMasterProfile.ProfileId, newProfile.ProfileId, reason, master, mergeErr)
+	return master, mergeErr
+}
+
+// auditMerge records a merge of two profiles in the audit log. The target is the profile that
+// survived as the master. A pair that was not mergeable wrote nothing, so it has no record.
+func auditMerge(ctx context.Context, orgId, existingProfileId, newProfileId, reason string,
+	master *profileModel.Profile, mergeErr error) {
+
+	if master == nil && mergeErr == nil {
+		return
+	}
+	entry := audit.Entry{
+		Event:    audit.ProfileMerge,
+		TargetID: existingProfileId,
+		Outcome:  audit.Succeeded(),
+		OrgID:    orgId,
+		Details: map[string]any{
+			"merged_profile_ids": []string{existingProfileId, newProfileId},
+			"reason":             reason,
+		},
+	}
+	if mergeErr != nil {
+		entry.Outcome = audit.Failed("merge_failed")
+	} else {
+		entry.TargetID = master.ProfileId
+	}
+	audit.Log(ctx, entry)
 }
 
 // mergePermanentAndTemporary merges a permanent profile (has userId) with a temporary one.

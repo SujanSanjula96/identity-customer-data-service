@@ -18,6 +18,27 @@
 
 package log
 
+import "strings"
+
+// Standard field names. All components use these names, so that a field has one name in every
+// log stream. A new field name is in snake_case.
+const (
+	// KeyLogType names the log stream of a record: app, access, or audit.
+	KeyLogType = "log_type"
+	// KeyComponent names the component that wrote the record.
+	KeyComponent = "component"
+	// KeyCorrelationID is the correlation ID of the request.
+	KeyCorrelationID = "correlation_id"
+	// KeyOrg is the handle of the organization of the request.
+	KeyOrg = "org"
+	// KeyError is the error that the record reports.
+	KeyError = "error"
+	// KeyProfileID is the ID of a profile.
+	KeyProfileID = "profile_id"
+	// KeyUserID is the ID of a user.
+	KeyUserID = "user_id"
+)
+
 // Field represents a key-value pair for structured logging.
 type Field struct {
 	Key   string
@@ -36,13 +57,38 @@ func Int(key string, value int) Field {
 	return Field{Key: key, Value: value}
 }
 
+// Bool creates a Field with a boolean value.
+func Bool(key string, value bool) Field {
+
+	return Field{Key: key, Value: value}
+}
+
 // Any creates a Field with any value.
 func Any(key string, value interface{}) Field {
 
 	return Field{Key: key, Value: value}
 }
 
+// Error creates a Field with an error value.
 func Error(value error) Field {
 
-	return Field{Key: "error", Value: value}
+	return Field{Key: KeyError, Value: value}
+}
+
+// MaskedString creates a Field with a masked value. Use it for personal data, such as an email
+// address, when the record must show that a value was present.
+func MaskedString(key, value string) Field {
+
+	return Field{Key: key, Value: Mask(value)}
+}
+
+// Mask hides all characters of value except the first and the last. It hides a short value
+// completely.
+func Mask(value string) string {
+
+	runes := []rune(value)
+	if len(runes) <= 3 {
+		return strings.Repeat("*", len(runes))
+	}
+	return string(runes[0]) + strings.Repeat("*", len(runes)-2) + string(runes[len(runes)-1])
 }

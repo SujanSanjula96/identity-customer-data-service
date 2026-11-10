@@ -27,6 +27,7 @@ import (
 	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/provider"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/authn"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -135,6 +136,7 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 		resolvedBy = constants.MergeByAdmin
 	}
 	approved := resolveReq.Decision == constants.ReviewStatusApproved
+	audit.AddDetail(r.Context(), "decision", resolveReq.Decision)
 
 	svc := provider.NewIdentityResolutionProvider().GetIdentityResolutionService()
 	err = svc.ResolveReviewTask(r.Context(), org.ID, taskID, approved, resolvedBy, resolveReq.Notes)

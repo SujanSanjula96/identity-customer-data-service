@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/consent/handler"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
@@ -39,11 +40,11 @@ func NewConsentCategoryService(mux *http.ServeMux) *ConsentCategoryService {
 
 	const base = constants.ApiBasePath + "/v1"
 	// Register routes with Go 1.22 ServeMux patterns on shared mux
-	s.mux.HandleFunc("GET "+base+"/consent-categories", s.handler.GetAllConsentCategories)
-	s.mux.HandleFunc("POST "+base+"/consent-categories", s.handler.AddConsentCategory)
-	s.mux.HandleFunc("GET "+base+"/consent-categories/{categoryId}", s.handler.GetConsentCategory)
-	s.mux.HandleFunc("PUT "+base+"/consent-categories/{categoryId}", s.handler.UpdateConsentCategory)
-	s.mux.HandleFunc("DELETE "+base+"/consent-categories/{categoryId}", s.handler.DeleteConsentCategory)
+	s.mux.HandleFunc("GET "+base+"/consent-categories", audit.Wrap(audit.ConsentCategoryList, s.handler.GetAllConsentCategories))
+	s.mux.HandleFunc("POST "+base+"/consent-categories", audit.Wrap(audit.ConsentCategoryCreate, s.handler.AddConsentCategory))
+	s.mux.HandleFunc("GET "+base+"/consent-categories/{categoryId}", audit.Wrap(audit.ConsentCategoryRead, s.handler.GetConsentCategory))
+	s.mux.HandleFunc("PUT "+base+"/consent-categories/{categoryId}", audit.Wrap(audit.ConsentCategoryUpdate, s.handler.UpdateConsentCategory))
+	s.mux.HandleFunc("DELETE "+base+"/consent-categories/{categoryId}", audit.Wrap(audit.ConsentCategoryDelete, s.handler.DeleteConsentCategory))
 
 	return s
 }

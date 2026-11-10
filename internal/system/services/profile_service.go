@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/handler"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
@@ -39,19 +40,19 @@ func NewProfileService(mux *http.ServeMux) *ProfileService {
 
 	const base = constants.ApiBasePath + "/v1"
 	// Register routes using Go 1.22+ ServeMux patterns on the shared mux
-	ps.mux.HandleFunc("GET "+base+"/profiles", ps.profileHandler.GetAllProfiles)
-	ps.mux.HandleFunc("POST "+base+"/profiles", ps.profileHandler.InitProfile)
-	ps.mux.HandleFunc("GET "+base+"/profiles/Me", ps.profileHandler.GetCurrentUserProfile)
-	ps.mux.HandleFunc("PATCH "+base+"/profiles/Me", ps.profileHandler.PatchCurrentUserProfile)
-	ps.mux.HandleFunc("POST "+base+"/profiles/sync", ps.profileHandler.SyncProfile)
-	ps.mux.HandleFunc("POST "+base+"/profiles/link", ps.profileHandler.LinkProfile)
+	ps.mux.HandleFunc("GET "+base+"/profiles", audit.Wrap(audit.ProfileList, ps.profileHandler.GetAllProfiles))
+	ps.mux.HandleFunc("POST "+base+"/profiles", audit.Wrap(audit.ProfileCreate, ps.profileHandler.InitProfile))
+	ps.mux.HandleFunc("GET "+base+"/profiles/Me", audit.Wrap(audit.ProfileRead, ps.profileHandler.GetCurrentUserProfile))
+	ps.mux.HandleFunc("PATCH "+base+"/profiles/Me", audit.Wrap(audit.ProfileUpdate, ps.profileHandler.PatchCurrentUserProfile))
+	ps.mux.HandleFunc("POST "+base+"/profiles/sync", audit.Wrap(audit.ProfileSync, ps.profileHandler.SyncProfile))
+	ps.mux.HandleFunc("POST "+base+"/profiles/link", audit.Wrap(audit.ProfileLink, ps.profileHandler.LinkProfile))
 
 	// Routes with path variables
-	ps.mux.HandleFunc("GET "+base+"/profiles/{profileId}", ps.profileHandler.GetProfile)
-	ps.mux.HandleFunc("PATCH "+base+"/profiles/{profileId}", ps.profileHandler.PatchProfile)
-	ps.mux.HandleFunc("DELETE "+base+"/profiles/{profileId}", ps.profileHandler.DeleteProfile)
-	ps.mux.HandleFunc("GET "+base+"/profiles/{profileId}/consents", ps.profileHandler.GetProfileConsents)
-	ps.mux.HandleFunc("PUT "+base+"/profiles/{profileId}/consents", ps.profileHandler.UpdateProfileConsents)
+	ps.mux.HandleFunc("GET "+base+"/profiles/{profileId}", audit.Wrap(audit.ProfileRead, ps.profileHandler.GetProfile))
+	ps.mux.HandleFunc("PATCH "+base+"/profiles/{profileId}", audit.Wrap(audit.ProfileUpdate, ps.profileHandler.PatchProfile))
+	ps.mux.HandleFunc("DELETE "+base+"/profiles/{profileId}", audit.Wrap(audit.ProfileDelete, ps.profileHandler.DeleteProfile))
+	ps.mux.HandleFunc("GET "+base+"/profiles/{profileId}/consents", audit.Wrap(audit.ProfileConsentRead, ps.profileHandler.GetProfileConsents))
+	ps.mux.HandleFunc("PUT "+base+"/profiles/{profileId}/consents", audit.Wrap(audit.ProfileConsentUpdate, ps.profileHandler.UpdateProfileConsents))
 
 	return ps
 }

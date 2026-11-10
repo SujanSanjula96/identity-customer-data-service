@@ -23,6 +23,7 @@ import (
 
 	orgHandler "github.com/wso2/identity-customer-data-service/internal/organization/handler"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
@@ -45,16 +46,16 @@ func NewOrganizationService(mux *http.ServeMux) *OrganizationService {
 	utils.IsSubOrgHandle = orgService.IsSubOrgHandle
 
 	const base = constants.ApiBasePath + "/v1"
-	s.mux.HandleFunc("POST "+base+"/organizations/event-sync", s.organizations.SyncOrganization)
-	s.mux.HandleFunc("POST "+base+"/organizations/sync", s.organizations.StartTreeSync)
-	s.mux.HandleFunc("GET "+base+"/organizations/sync-status", s.organizations.GetTreeSync)
+	s.mux.HandleFunc("POST "+base+"/organizations/event-sync", audit.Wrap(audit.OrganizationSync, s.organizations.SyncOrganization))
+	s.mux.HandleFunc("POST "+base+"/organizations/sync", audit.Wrap(audit.OrganizationTreeSync, s.organizations.StartTreeSync))
+	s.mux.HandleFunc("GET "+base+"/organizations/sync-status", audit.Wrap(audit.OrganizationTreeRead, s.organizations.GetTreeSync))
 
 	const orgAccess = base + "/organizations/access-policies"
-	s.mux.HandleFunc("POST "+orgAccess, s.organizations.CreateOrgAccess)
-	s.mux.HandleFunc("GET "+orgAccess, s.organizations.ListOrgAccess)
-	s.mux.HandleFunc("GET "+orgAccess+"/{orgPolicyId}", s.organizations.GetOrgAccess)
-	s.mux.HandleFunc("PUT "+orgAccess+"/{orgPolicyId}", s.organizations.UpdateOrgAccess)
-	s.mux.HandleFunc("DELETE "+orgAccess+"/{orgPolicyId}", s.organizations.DeleteOrgAccess)
+	s.mux.HandleFunc("POST "+orgAccess, audit.Wrap(audit.OrganizationAccessPolicyCreate, s.organizations.CreateOrgAccess))
+	s.mux.HandleFunc("GET "+orgAccess, audit.Wrap(audit.OrganizationAccessPolicyList, s.organizations.ListOrgAccess))
+	s.mux.HandleFunc("GET "+orgAccess+"/{orgPolicyId}", audit.Wrap(audit.OrganizationAccessPolicyRead, s.organizations.GetOrgAccess))
+	s.mux.HandleFunc("PUT "+orgAccess+"/{orgPolicyId}", audit.Wrap(audit.OrganizationAccessPolicyUpdate, s.organizations.UpdateOrgAccess))
+	s.mux.HandleFunc("DELETE "+orgAccess+"/{orgPolicyId}", audit.Wrap(audit.OrganizationAccessPolicyDelete, s.organizations.DeleteOrgAccess))
 
 	return s
 }

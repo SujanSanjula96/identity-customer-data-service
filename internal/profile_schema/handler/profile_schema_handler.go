@@ -36,6 +36,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
+	"github.com/wso2/identity-customer-data-service/internal/system/audit"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -637,6 +638,7 @@ func (h *ProfileSchemaHandler) CreateSharingPolicy(w http.ResponseWriter, r *htt
 		utils.HandleError(w, err)
 		return
 	}
+	audit.SetTargetID(r.Context(), resp.Id)
 	utils.RespondJSON(w, http.StatusCreated, resp, shareHandler.PolicyResource)
 }
 
