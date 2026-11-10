@@ -20,9 +20,12 @@ package cors
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 func TestExtractOrgFromPath(t *testing.T) {
@@ -32,8 +35,8 @@ func TestExtractOrgFromPath(t *testing.T) {
 		want Org
 	}{
 		{"/t/carbon.super/cds/api/v1/profiles", Org{Handle: "carbon.super"}},
-		{"/t/acme/o/4b1e/cds/api/v1/profiles", Org{Handle: "acme", SubOrgID: "4b1e"}},
-		{"/t/acme/o/4b1e", Org{Handle: "acme", SubOrgID: "4b1e"}},
+		{"/t/acme/o/4b1e/cds/api/v1/profiles", Org{Handle: "acme", SubOrgId: "4b1e"}},
+		{"/t/acme/o/4b1e", Org{Handle: "acme", SubOrgId: "4b1e"}},
 		{"/t/acme/o/", Org{Handle: "acme"}},
 		{"/t/acme/cds/api/v1/o/4b1e", Org{Handle: "acme"}},
 		{"/o/4b1e/cds/api/v1/profiles", Org{}},
@@ -57,14 +60,14 @@ func TestExtractOrgFromPath(t *testing.T) {
 func TestSubOrgPathPassesTheSubOrgToTheLookup(t *testing.T) {
 
 	var got Org
-	lookup := func(_ context.Context, org Org) []string {
+	lookup := func(_ context.Context, org Org) ([]string, error) {
 		got = org
-		return []string{"https://app.acme.com"}
+		return []string{"https://app.acme.com"}, nil
 	}
 	h, _ := newTestHandler(lookup, nil)
 
 	w := doRequest(h, http.MethodGet, "/t/acme/o/4b1e/cds/api/v1/profiles", "https://app.acme.com")
-	if want := (Org{Handle: "acme", SubOrgID: "4b1e"}); got != want {
+	if want := (Org{Handle: "acme", SubOrgId: "4b1e"}); got != want {
 		t.Errorf("lookup got %+v, want %+v", got, want)
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.acme.com" {
@@ -97,11 +100,11 @@ func doRequest(h http.Handler, method, path, origin string) *httptest.ResponseRe
 // An organisation's own origin is allowed on its own path.
 func TestOrgOriginIsAllowedForThatOrg(t *testing.T) {
 
-	lookup := func(_ context.Context, org Org) []string {
+	lookup := func(_ context.Context, org Org) ([]string, error) {
 		if org.Handle == "acme" {
-			return []string{"https://app.acme.com"}
+			return []string{"https://app.acme.com"}, nil
 		}
-		return nil
+		return nil, nil
 	}
 	h, _ := newTestHandler(lookup, nil)
 
@@ -118,14 +121,14 @@ func TestOrgOriginIsAllowedForThatOrg(t *testing.T) {
 // back on another organisation's requests.
 func TestOrgOriginIsNotAllowedForAnotherOrg(t *testing.T) {
 
-	lookup := func(_ context.Context, org Org) []string {
+	lookup := func(_ context.Context, org Org) ([]string, error) {
 		switch org.Handle {
 		case "acme":
-			return []string{"https://app.acme.com"}
+			return []string{"https://app.acme.com"}, nil
 		case "globex":
-			return []string{"https://app.globex.com"}
+			return []string{"https://app.globex.com"}, nil
 		}
-		return nil
+		return nil, nil
 	}
 	h, _ := newTestHandler(lookup, nil)
 
@@ -139,7 +142,7 @@ func TestOrgOriginIsNotAllowedForAnotherOrg(t *testing.T) {
 // existing deployments are unaffected.
 func TestFallsBackToDeploymentOriginsWhenOrgHasNone(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return nil }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return nil, nil }
 	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
 
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
@@ -152,7 +155,7 @@ func TestFallsBackToDeploymentOriginsWhenOrgHasNone(t *testing.T) {
 // to it.
 func TestOrgOriginsReplaceDeploymentOrigins(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"https://app.acme.com"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
 
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
@@ -164,9 +167,9 @@ func TestOrgOriginsReplaceDeploymentOrigins(t *testing.T) {
 // A path with no organisation, such as the health check, uses the deployment list.
 func TestPathWithoutOrgUsesDeploymentOrigins(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string {
+	lookup := func(_ context.Context, _ Org) ([]string, error) {
 		t.Error("lookup must not be called for a path carrying no organisation")
-		return nil
+		return nil, nil
 	}
 	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
 
@@ -176,9 +179,30 @@ func TestPathWithoutOrgUsesDeploymentOrigins(t *testing.T) {
 	}
 }
 
+// Origins that cannot be read allow no origin, rather than the deployment-wide list, which
+// would widen what an organisation with origins of its own allows.
+func TestFailedLookupAllowsNoOrigin(t *testing.T) {
+
+	if err := log.Init("ERROR"); err != nil {
+		t.Fatalf("failed to set up the logger: %v", err)
+	}
+	lookup := func(_ context.Context, _ Org) ([]string, error) {
+		return nil, errors.New("database unavailable")
+	}
+	h, reached := newTestHandler(lookup, []string{"https://console.example.com"})
+
+	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want empty when the origins cannot be read", got)
+	}
+	if !*reached {
+		t.Error("request did not reach the wrapped handler")
+	}
+}
+
 func TestDisallowedOriginGetsNoCORSHeaders(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"https://app.acme.com"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, _ := newTestHandler(lookup, nil)
 
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://evil.example.com")
@@ -196,7 +220,7 @@ func TestDisallowedOriginGetsNoCORSHeaders(t *testing.T) {
 // A preflight is answered for the organisation's own origin and never reaches the handler.
 func TestPreflightIsAnsweredForAllowedOrigin(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"https://app.acme.com"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, reached := newTestHandler(lookup, nil)
 
 	r := httptest.NewRequest(http.MethodOptions, "/t/acme/cds/api/v1/profiles", nil)
@@ -219,7 +243,7 @@ func TestPreflightIsAnsweredForAllowedOrigin(t *testing.T) {
 // The allowed set varies by Origin and by organisation, so the response must say so.
 func TestVaryOriginIsAlwaysSet(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"https://app.acme.com"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, _ := newTestHandler(lookup, nil)
 
 	for _, origin := range []string{"https://app.acme.com", "https://evil.example.com"} {
@@ -233,7 +257,7 @@ func TestVaryOriginIsAlwaysSet(t *testing.T) {
 // A request with no Origin header is a same-origin or non-browser call and passes through.
 func TestRequestWithoutOriginPassesThrough(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"https://app.acme.com"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, reached := newTestHandler(lookup, nil)
 
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "")
@@ -249,7 +273,7 @@ func TestRequestWithoutOriginPassesThrough(t *testing.T) {
 // already-normalized Origin header.
 func TestOriginMatchIsCaseInsensitiveOnSchemeAndHost(t *testing.T) {
 
-	lookup := func(_ context.Context, _ Org) []string { return []string{"HTTPS://App.Acme.COM"} }
+	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"HTTPS://App.Acme.COM"}, nil }
 	h, _ := newTestHandler(lookup, nil)
 
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://app.acme.com")

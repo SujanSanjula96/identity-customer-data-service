@@ -45,7 +45,8 @@ type AdminConfigServiceInterface interface {
 	IsCDSEnabled(ctx context.Context, orgId string) bool
 	IsInitialSchemaSyncDone(ctx context.Context, orgId string) bool
 	IsSystemApplication(ctx context.Context, orgId string, appId string) (bool, error)
-	GetCORSAllowedOrigins(ctx context.Context, orgHandle, subOrgID string) []string
+	LookupCORSOrgId(ctx context.Context, orgHandle string) (orgId string, found bool, err error)
+	GetCORSAllowedOrigins(ctx context.Context, orgId, subOrgId string) ([]string, error)
 	UpdateAdminConfig(ctx context.Context, updatedConfig *model.AdminConfig, org orgModel.Ref) error
 	UpdateInitialSchemaSync(ctx context.Context, state bool, orgId string) error
 }
@@ -95,18 +96,24 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgId strin
 	return false, nil
 }
 
-// GetCORSAllowedOrigins returns the browser origins the organisation allows, served from an
-// in-memory snapshot of every organisation's origins because the CORS middleware consults
-// it on every request, before authentication. An empty result means the organisation has
-// configured none and the caller should fall back to the deployment-wide list. A failed
-// reload keeps the previously loaded origins, so that a database blip does not change what
-// browser clients are allowed.
+// LookupCORSOrgId returns the org ID of the handle in the path of a request, for the CORS
+// middleware. found is false when CDS has no organization for the handle. It runs before the
+// request is authenticated, so it neither stores the organization nor asks the identity
+// provider, and a handle found unknown is answered without a read for a while.
+func (a AdminConfigService) LookupCORSOrgId(ctx context.Context, orgHandle string) (string, bool, error) {
+	return corsOrgIds.resolve(ctx, orgHandle)
+}
+
+// GetCORSAllowedOrigins returns the browser origins the organisation allows. The CORS
+// middleware consults it on every request, preflight included, so the origins are cached per
+// organisation. An empty result means the organisation has configured none and the caller
+// should fall back to the deployment-wide list.
 //
-// subOrgID is the ID of the sub organisation a /t/{orgHandle}/o/{org_id}/... path addresses,
-// and empty otherwise. A sub organisation cannot configure origins of its own yet, so it is
-// answered with those of its primary organisation, orgHandle.
-func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgHandle, subOrgID string) []string {
-	return corsOrigins.get(ctx, orgHandle)
+// subOrgId is the ID of the sub organisation a /t/{primary_handle}/o/{org_id}/... path
+// addresses, and empty otherwise. A sub organisation cannot configure origins of its own yet,
+// so it is answered with those of its primary organisation, orgId.
+func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgId, subOrgId string) ([]string, error) {
+	return corsOrigins.get(ctx, orgId)
 }
 
 func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgId string) (model.AdminConfig, error) {
@@ -306,9 +313,10 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		return err
 	}
 
-	// Reload the origins so this process serves the new list at once. Other replicas pick it
-	// up on their next reload.
-	corsOrigins.invalidate()
+	// Drop the cached origins so this process serves the new list at once. Other replicas
+	// pick it up once their cached entry expires.
+	corsOrigins.invalidate(org.ID)
+	corsOrgIds.forget(org.Handle)
 
 	if !sysconfig.OrganizationManagementEnabled() {
 		return nil

@@ -62,14 +62,14 @@ func GetAdminConfig(ctx context.Context, orgId string) (*model.AdminConfig, erro
 	return scanAdminConfigRows(results), nil
 }
 
-// GetAllCORSAllowedOrigins returns the CORS allowed origins of every organization that has
-// configured any, keyed by organization handle, in one read.
-func GetAllCORSAllowedOrigins(ctx context.Context) (map[string][]string, error) {
+// GetCORSAllowedOrigins returns the CORS allowed origins the organization has configured, or nil
+// when it has configured none. It reads the one key, which the (org_id, config) key serves.
+func GetCORSAllowedOrigins(ctx context.Context, orgId string) ([]string, error) {
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := "Failed to get db client for fetching the CORS allowed origins of organizations"
+		errorMsg := fmt.Sprintf("Failed to get db client for fetching the CORS allowed origins of organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_ADMIN_CONFIG.Code,
@@ -79,10 +79,10 @@ func GetAllCORSAllowedOrigins(ctx context.Context) (map[string][]string, error) 
 	}
 	defer dbClient.Close()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetConfigurationOfAllOrgs,
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfiguration, orgId,
 		constants.ConfigCORSAllowedOrigins)
 	if err != nil {
-		errorMsg := "Failed to execute query for fetching the CORS allowed origins of organizations"
+		errorMsg := fmt.Sprintf("Failed to execute query for fetching the CORS allowed origins of organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_ADMIN_CONFIG.Code,
@@ -90,23 +90,18 @@ func GetAllCORSAllowedOrigins(ctx context.Context) (map[string][]string, error) 
 			Description: errorMsg,
 		}, err)
 	}
-
-	originsByOrg := make(map[string][]string, len(results))
-	for _, row := range results {
-		orgHandle, ok := row["org_handle"].(string)
-		if !ok {
-			continue
-		}
-		value, ok := row["value"].(string)
-		if !ok {
-			continue
-		}
-		var origins []string
-		if err := json.Unmarshal([]byte(value), &origins); err == nil && len(origins) > 0 {
-			originsByOrg[orgHandle] = origins
-		}
+	if len(results) == 0 {
+		return nil, nil
 	}
-	return originsByOrg, nil
+	value, ok := results[0]["value"].(string)
+	if !ok {
+		return nil, nil
+	}
+	var origins []string
+	if err := json.Unmarshal([]byte(value), &origins); err != nil || len(origins) == 0 {
+		return nil, nil
+	}
+	return origins, nil
 }
 
 // UpdateAdminConfig updates organization-level admin configuration (e.g., CDS enablement, schema sync flags).

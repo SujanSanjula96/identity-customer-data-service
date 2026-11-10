@@ -25,25 +25,27 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-// Org is the organisation a request is addressed to, as far as its path tells. A sub
-// organisation is addressed as /t/{primary_handle}/o/{org_id}/..., so it is known here by the
-// handle of its primary organisation and its own ID only: resolving the ID to a handle takes a
-// read, which the middleware cannot afford before authentication.
+// Org is the organisation a request is addressed to, as its path names it. A sub organisation
+// is addressed as /t/{primary_handle}/o/{org_id}/..., so it is named by the handle of its
+// primary organisation and its own ID.
 type Org struct {
 	// Handle is the organisation segment of the path, which for a sub organisation is the
 	// handle of its primary organisation.
 	Handle string
-	// SubOrgID is the ID of the sub organisation the path addresses, empty for a primary
+	// SubOrgId is the ID of the sub organisation the path addresses, empty for a primary
 	// organisation. It comes from an unauthenticated request, so a lookup must treat it as a
 	// key to match and nothing more.
-	SubOrgID string
+	SubOrgId string
 }
 
 // OriginsLookup returns the origins an organisation allows. An empty result means the
-// organisation has configured none, and the deployment-wide fallback applies.
-type OriginsLookup func(ctx context.Context, org Org) []string
+// organisation has configured none, and the deployment-wide fallback applies. An error means
+// the origins could not be read, and no origin is allowed.
+type OriginsLookup func(ctx context.Context, org Org) ([]string, error)
 
 // Middleware answers cross-origin requests for UI/SDK clients. For a request addressed to
 // an organisation it matches the Origin header against that organisation's configured
@@ -86,7 +88,15 @@ func isOriginAllowed(r *http.Request, origin string, lookup OriginsLookup,
 	var allowed []string
 
 	if org := ExtractOrgFromPath(r.URL.Path); org.Handle != "" && lookup != nil {
-		allowed = lookup(r.Context(), org)
+		origins, err := lookup(r.Context(), org)
+		if err != nil {
+			// Falling back to the deployment-wide list here would widen what an organisation
+			// with origins of its own allows whenever they cannot be read.
+			log.GetLogger().Debug("Failed to read the CORS allowed origins of the organization. "+
+				"Allowing no origin.", log.String("orgHandle", org.Handle), log.Error(err))
+			return false
+		}
+		allowed = origins
 	}
 
 	// No organisation in the path, or none configured for it: the deployment-wide list
@@ -118,8 +128,8 @@ func ExtractOrgFromPath(path string) Org {
 	}
 	handle, rest, _ := strings.Cut(remainder, "/")
 	if subOrgPath, isSubOrg := strings.CutPrefix(rest, "o/"); isSubOrg {
-		subOrgID, _, _ := strings.Cut(subOrgPath, "/")
-		return Org{Handle: handle, SubOrgID: subOrgID}
+		subOrgId, _, _ := strings.Cut(subOrgPath, "/")
+		return Org{Handle: handle, SubOrgId: subOrgId}
 	}
 	return Org{Handle: handle}
 }

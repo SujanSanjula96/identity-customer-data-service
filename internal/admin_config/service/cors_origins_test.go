@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
@@ -139,104 +141,205 @@ func TestValidateCORSOriginsRejectsAListTooLongToStore(t *testing.T) {
 	}
 }
 
-// countingLoader stands in for the database read, counting how often the snapshot reads.
+// countingLoader stands in for the database read, counting how often each organisation is read.
 type countingLoader struct {
-	reads   int
+	reads   map[string]int
 	origins map[string][]string
 	err     error
 }
 
-func (l *countingLoader) load(context.Context) (map[string][]string, error) {
-	l.reads++
-	return l.origins, l.err
+func newCountingLoader(origins map[string][]string) *countingLoader {
+	return &countingLoader{reads: map[string]int{}, origins: origins}
 }
 
-func TestCORSOriginsSnapshotReadsOnceForAnyNumberOfOrganisations(t *testing.T) {
+func (l *countingLoader) load(_ context.Context, orgId string) ([]string, error) {
+	l.reads[orgId]++
+	if l.err != nil {
+		return nil, l.err
+	}
+	return l.origins[orgId], nil
+}
 
-	loader := &countingLoader{origins: map[string][]string{"acme": {"https://app.acme.com"}}}
-	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+func newTestCORSOriginsCache(t *testing.T, loader *countingLoader, ttl time.Duration) *corsOriginsCache {
+
+	t.Helper()
+	if err := log.Init("ERROR"); err != nil {
+		t.Fatalf("failed to set up the logger: %v", err)
+	}
+	return &corsOriginsCache{load: loader.load, entries: cache.NewCache(ttl)}
+}
+
+// Each organisation is read once per TTL, including one that has configured no origins.
+func TestCORSOriginsCacheReadsEachOrganisationOnce(t *testing.T) {
+
+	loader := newCountingLoader(map[string][]string{"acme-id": {"https://app.acme.com"}})
+	origins := newTestCORSOriginsCache(t, loader, time.Hour)
 	ctx := context.Background()
 
-	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
-		t.Errorf("origins of acme = %v, want those it configured", got)
-	}
-	// Handles that are not organisations, as an unauthenticated caller may send, are
-	// answered from the snapshot without a read each.
-	for i := 0; i < 100; i++ {
-		if got := snapshot.get(ctx, fmt.Sprintf("made-up-%d", i)); got != nil {
-			t.Fatalf("origins of an unknown organisation = %v, want none", got)
+	for i := 0; i < 3; i++ {
+		if got, err := origins.get(ctx, "acme-id"); err != nil ||
+			!reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+			t.Errorf("origins of acme = %v, %v, want those it configured", got, err)
+		}
+		if got, err := origins.get(ctx, "globex-id"); err != nil || got != nil {
+			t.Errorf("origins of globex = %v, %v, want none", got, err)
 		}
 	}
-	if loader.reads != 1 {
-		t.Errorf("reads = %d, want 1", loader.reads)
+	if loader.reads["acme-id"] != 1 || loader.reads["globex-id"] != 1 {
+		t.Errorf("reads = %v, want one per organisation", loader.reads)
 	}
 }
 
-func TestCORSOriginsSnapshotReloadsOnceStale(t *testing.T) {
+func TestCORSOriginsCacheRereadsOnceExpired(t *testing.T) {
 
-	loader := &countingLoader{origins: map[string][]string{}}
-	snapshot := &corsOriginsSnapshot{load: loader.load, interval: 0}
+	loader := newCountingLoader(map[string][]string{})
+	origins := newTestCORSOriginsCache(t, loader, 0)
 	ctx := context.Background()
 
-	snapshot.get(ctx, "acme")
-	loader.origins = map[string][]string{"acme": {"https://app.acme.com"}}
-	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
-		t.Errorf("origins of acme = %v, want those loaded by the reload", got)
+	_, _ = origins.get(ctx, "acme-id")
+	loader.origins["acme-id"] = []string{"https://app.acme.com"}
+	if got, _ := origins.get(ctx, "acme-id"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+		t.Errorf("origins of acme = %v, want those read once the entry expired", got)
 	}
-	if loader.reads != 2 {
-		t.Errorf("reads = %d, want 2", loader.reads)
+	if loader.reads["acme-id"] != 2 {
+		t.Errorf("reads = %d, want 2", loader.reads["acme-id"])
 	}
 }
 
-func TestCORSOriginsSnapshotReloadsAfterAnUpdate(t *testing.T) {
+// An update drops the entry of the organisation and no other.
+func TestCORSOriginsCacheRereadsAfterAnUpdate(t *testing.T) {
 
-	loader := &countingLoader{origins: map[string][]string{}}
-	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+	loader := newCountingLoader(map[string][]string{})
+	origins := newTestCORSOriginsCache(t, loader, time.Hour)
 	ctx := context.Background()
 
-	snapshot.get(ctx, "acme")
-	loader.origins = map[string][]string{"acme": {"https://app.acme.com"}}
-	snapshot.invalidate()
-	if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+	_, _ = origins.get(ctx, "acme-id")
+	_, _ = origins.get(ctx, "globex-id")
+	loader.origins["acme-id"] = []string{"https://app.acme.com"}
+	origins.invalidate("acme-id")
+
+	if got, _ := origins.get(ctx, "acme-id"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
 		t.Errorf("origins of acme = %v, want the updated ones", got)
 	}
-	if loader.reads != 2 {
-		t.Errorf("reads = %d, want 2", loader.reads)
+	_, _ = origins.get(ctx, "globex-id")
+	if loader.reads["acme-id"] != 2 || loader.reads["globex-id"] != 1 {
+		t.Errorf("reads = %v, want acme read again and globex served from the cache", loader.reads)
 	}
 }
 
-func TestCORSOriginsSnapshotKeepsPreviousOriginsWhenAReloadFails(t *testing.T) {
+// A read that started before an update committed is not cached over the update.
+func TestCORSOriginsCacheDoesNotCacheAReadOverlappingAnUpdate(t *testing.T) {
 
-	if err := log.Init("ERROR"); err != nil {
-		t.Fatalf("failed to set up the logger: %v", err)
+	loader := newCountingLoader(map[string][]string{})
+	origins := newTestCORSOriginsCache(t, loader, time.Hour)
+	origins.load = func(ctx context.Context, orgId string) ([]string, error) {
+		read, err := loader.load(ctx, orgId)
+		if loader.reads[orgId] == 1 {
+			origins.invalidate(orgId)
+		}
+		return read, err
 	}
-	loader := &countingLoader{origins: map[string][]string{"acme": {"https://app.acme.com"}}}
-	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
 	ctx := context.Background()
 
-	snapshot.get(ctx, "acme")
-	loader.origins, loader.err = nil, fmt.Errorf("database unavailable")
-	snapshot.invalidate()
-	for i := 0; i < 3; i++ {
-		if got := snapshot.get(ctx, "acme"); !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
-			t.Errorf("origins of acme = %v, want the previously loaded ones", got)
-		}
-	}
-	// The failed reload counts as one, so the database is not read again on every request.
-	if loader.reads != 2 {
-		t.Errorf("reads = %d, want 2", loader.reads)
+	_, _ = origins.get(ctx, "acme-id")
+	_, _ = origins.get(ctx, "acme-id")
+	if loader.reads["acme-id"] != 2 {
+		t.Errorf("reads = %d, want the read that overlapped the update left uncached", loader.reads["acme-id"])
 	}
 }
 
-func TestCORSOriginsSnapshotWithFailedFirstLoadHasNoOrigins(t *testing.T) {
+// A failed read is returned to the caller and not cached, so the next request reads again.
+func TestCORSOriginsCacheDoesNotCacheAFailedRead(t *testing.T) {
 
+	loader := newCountingLoader(map[string][]string{"acme-id": {"https://app.acme.com"}})
+	loader.err = fmt.Errorf("database unavailable")
+	origins := newTestCORSOriginsCache(t, loader, time.Hour)
+	ctx := context.Background()
+
+	if _, err := origins.get(ctx, "acme-id"); err == nil {
+		t.Fatal("expected the error of the read")
+	}
+	loader.err = nil
+	if got, err := origins.get(ctx, "acme-id"); err != nil || !reflect.DeepEqual(got, []string{"https://app.acme.com"}) {
+		t.Errorf("origins of acme = %v, %v, want those read once the database answers", got, err)
+	}
+}
+
+// countingOrgLookup stands in for the organization lookup, counting how often each handle is read.
+type countingOrgLookup struct {
+	reads map[string]int
+	orgs  map[string]string
+	err   error
+}
+
+func (l *countingOrgLookup) lookup(_ context.Context, orgHandle string) (orgModel.Ref, bool, error) {
+	l.reads[orgHandle]++
+	if l.err != nil {
+		return orgModel.Ref{}, false, l.err
+	}
+	orgId, found := l.orgs[orgHandle]
+	return orgModel.Ref{ID: orgId, Handle: orgHandle}, found, nil
+}
+
+func newTestCORSOrgIdResolver(t *testing.T, lookup *countingOrgLookup) *corsOrgIdResolver {
+
+	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}
-	loader := &countingLoader{err: fmt.Errorf("database unavailable")}
-	snapshot := &corsOriginsSnapshot{load: loader.load, interval: time.Hour}
+	return &corsOrgIdResolver{lookup: lookup.lookup, unknown: cache.NewCache(time.Hour)}
+}
 
-	if got := snapshot.get(context.Background(), "acme"); got != nil {
-		t.Errorf("origins of acme = %v, want none, so the deployment-wide origins apply", got)
+// A handle CDS has no organization for, as an unauthenticated preflight may carry, is read once
+// and then answered without a read.
+func TestCORSOrgIdResolverRemembersUnknownHandles(t *testing.T) {
+
+	lookup := &countingOrgLookup{reads: map[string]int{}, orgs: map[string]string{"acme": "acme-id"}}
+	resolver := newTestCORSOrgIdResolver(t, lookup)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		if orgId, found, err := resolver.resolve(ctx, "acme"); err != nil || !found || orgId != "acme-id" {
+			t.Errorf("resolve(acme) = %q, %v, %v, want acme-id", orgId, found, err)
+		}
+		if _, found, err := resolver.resolve(ctx, "made-up"); err != nil || found {
+			t.Errorf("resolve(made-up) found = %v, err = %v, want not found", found, err)
+		}
+	}
+	if lookup.reads["made-up"] != 1 {
+		t.Errorf("reads of made-up = %d, want 1", lookup.reads["made-up"])
+	}
+}
+
+// An organization stored after its handle was found unknown is resolved once it is forgotten.
+func TestCORSOrgIdResolverResolvesAForgottenHandle(t *testing.T) {
+
+	lookup := &countingOrgLookup{reads: map[string]int{}, orgs: map[string]string{}}
+	resolver := newTestCORSOrgIdResolver(t, lookup)
+	ctx := context.Background()
+
+	_, _, _ = resolver.resolve(ctx, "acme")
+	lookup.orgs["acme"] = "acme-id"
+	resolver.forget("acme")
+
+	if orgId, found, err := resolver.resolve(ctx, "acme"); err != nil || !found || orgId != "acme-id" {
+		t.Errorf("resolve(acme) = %q, %v, %v, want acme-id", orgId, found, err)
+	}
+}
+
+// A failed lookup is returned and not taken to mean the handle is unknown.
+func TestCORSOrgIdResolverDoesNotRememberAFailedLookup(t *testing.T) {
+
+	lookup := &countingOrgLookup{reads: map[string]int{}, orgs: map[string]string{"acme": "acme-id"},
+		err: fmt.Errorf("database unavailable")}
+	resolver := newTestCORSOrgIdResolver(t, lookup)
+	ctx := context.Background()
+
+	if _, _, err := resolver.resolve(ctx, "acme"); err == nil {
+		t.Fatal("expected the error of the lookup")
+	}
+	lookup.err = nil
+	if orgId, found, err := resolver.resolve(ctx, "acme"); err != nil || !found || orgId != "acme-id" {
+		t.Errorf("resolve(acme) = %q, %v, %v, want acme-id once the database answers", orgId, found, err)
 	}
 }

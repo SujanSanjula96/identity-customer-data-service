@@ -248,8 +248,13 @@ func newCORSMiddleware(handler http.Handler) http.Handler {
 	adminConfigService := adminConfigProvider.NewAdminConfigProvider().GetAdminConfigService()
 
 	return cors.Middleware(handler,
-		func(ctx context.Context, org cors.Org) []string {
-			return adminConfigService.GetCORSAllowedOrigins(ctx, org.Handle, org.SubOrgID)
+		func(ctx context.Context, org cors.Org) ([]string, error) {
+			// A handle CDS has no organization for has configured no origins.
+			orgId, found, err := adminConfigService.LookupCORSOrgId(ctx, org.Handle)
+			if err != nil || !found {
+				return nil, err
+			}
+			return adminConfigService.GetCORSAllowedOrigins(ctx, orgId, org.SubOrgId)
 		},
 		func() []string { return config.GetCDSRuntime().Config.Auth.CORSAllowedOrigins },
 	)

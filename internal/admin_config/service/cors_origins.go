@@ -25,113 +25,108 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
-	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-// corsOriginsRefreshInterval bounds how long the origins snapshot is served before it is
-// reloaded. An update reloads it in-process at once, so this is also the window in which
-// another replica may still answer with the previous list.
-const corsOriginsRefreshInterval = 30 * time.Second
+// corsOriginsCacheTTL bounds how long the origins of an organisation are served from memory.
+// An update drops the entry of this process at once, so this is the window in which another
+// replica may still answer with the previous list.
+const corsOriginsCacheTTL = 30 * time.Second
+
+// unknownCORSHandleTTL bounds how long a handle that CDS has no organization for is answered
+// without a read. A preflight is answered before the request is dispatched or authenticated,
+// so without it every made-up handle would cost a read.
+const unknownCORSHandleTTL = time.Minute
 
 // maxStoredCORSOriginsLength is the width of cds_config.value, which holds the origins as one
 // JSON array. A longer list is refused rather than left for the database to reject.
 const maxStoredCORSOriginsLength = 500
 
-// corsOrigins holds the configured origins of every organisation. The CORS middleware runs
-// before authentication on every request, preflight included, so a lookup must not reach
-// the database: the whole set is loaded in one read and reloaded on an interval, and a
-// handle that is not in it, including one made up by an unauthenticated caller, costs no
-// read at all.
-var corsOrigins = &corsOriginsSnapshot{
-	load:     store.GetAllCORSAllowedOrigins,
-	interval: corsOriginsRefreshInterval,
+// corsOrigins caches the configured origins of each organisation that receives requests. The
+// CORS middleware consults it on every request, preflight included, so an organisation is read
+// once per TTL, and one that has configured none is cached as such.
+var corsOrigins = &corsOriginsCache{
+	load:    store.GetCORSAllowedOrigins,
+	entries: cache.NewCache(corsOriginsCacheTTL),
 }
 
-type corsOriginsSnapshot struct {
-	load     func(ctx context.Context) (map[string][]string, error)
-	interval time.Duration
-
-	current atomic.Pointer[loadedCORSOrigins]
-	// generation counts updates, so a reload that read the database before an update
-	// committed is not taken as fresh.
+type corsOriginsCache struct {
+	load    func(ctx context.Context, orgId string) ([]string, error)
+	entries *cache.Cache
+	// generation counts updates, so that a read that started before an update committed is
+	// not cached over it.
 	generation atomic.Uint64
-	reloadMu   sync.Mutex
 }
 
-type loadedCORSOrigins struct {
-	byOrg    map[string][]string
-	loadedAt time.Time
+// corsOrgIds resolves the handle in the path of a request to an org ID for the CORS
+// middleware, remembering for a while the handles that CDS has no organization for.
+var corsOrgIds = &corsOrgIdResolver{
+	lookup:  orgService.LookupOrganization,
+	unknown: cache.NewCache(unknownCORSHandleTTL),
+}
+
+type corsOrgIdResolver struct {
+	lookup  func(ctx context.Context, orgHandle string) (orgModel.Ref, bool, error)
+	unknown *cache.Cache
+}
+
+// resolve returns the org ID of the handle. found is false when CDS has no organization for it.
+// It neither stores the organization nor asks the identity provider, as the request is not
+// authenticated yet.
+func (r *corsOrgIdResolver) resolve(ctx context.Context, orgHandle string) (string, bool, error) {
+
+	if _, unknown := r.unknown.Get(orgHandle); unknown {
+		return "", false, nil
+	}
+	ref, found, err := r.lookup(ctx, orgHandle)
+	if err != nil {
+		return "", false, err
+	}
+	if !found {
+		r.unknown.Set(orgHandle, true)
+		return "", false, nil
+	}
+	return ref.ID, true, nil
+}
+
+// forget drops the handle from the unknown ones, so that an organization that has just been
+// stored is resolved at once.
+func (r *corsOrgIdResolver) forget(orgHandle string) {
+	r.unknown.Delete(orgHandle)
 }
 
 // get returns the origins the organisation has configured, or nil if it has none.
-func (s *corsOriginsSnapshot) get(ctx context.Context, orgHandle string) []string {
+func (c *corsOriginsCache) get(ctx context.Context, orgId string) ([]string, error) {
 
-	loaded := s.current.Load()
-	if !s.isFresh(loaded) {
-		loaded = s.reload(ctx, loaded)
-	}
-	return loaded.byOrg[orgHandle]
-}
-
-func (s *corsOriginsSnapshot) isFresh(loaded *loadedCORSOrigins) bool {
-	return loaded != nil && time.Since(loaded.loadedAt) < s.interval
-}
-
-// reload reads the origins of every organisation. One caller reloads at a time, and the
-// others keep answering from the stale snapshot rather than queue on the database. Only a
-// caller with no snapshot at all, before the first load, waits.
-func (s *corsOriginsSnapshot) reload(ctx context.Context, stale *loadedCORSOrigins) *loadedCORSOrigins {
-
-	if stale == nil {
-		s.reloadMu.Lock()
-	} else if !s.reloadMu.TryLock() {
-		return stale
-	}
-	defer s.reloadMu.Unlock()
-
-	// Another caller may have reloaded while this one waited for the lock.
-	if latest := s.current.Load(); s.isFresh(latest) {
-		return latest
-	}
-
-	generation := s.generation.Load()
-	// The read serves every request, not only the one that triggered it, so that request
-	// going away must not cancel it.
-	byOrg, err := s.load(context.WithoutCancel(ctx))
-	if err != nil {
-		// Keep answering with the previous origins, and wait out the interval before trying
-		// again so that an unavailable database is not read on every request. With none
-		// loaded yet, every organisation falls back to the deployment-wide origins.
-		log.GetLogger().Warn("Failed to load the CORS allowed origins of organizations. "+
-			"Serving the previously loaded origins.", log.Error(err))
-		byOrg = map[string][]string{}
-		if stale != nil {
-			byOrg = stale.byOrg
+	if cached, ok := c.entries.Get(orgId); ok {
+		if origins, ok := cached.([]string); ok {
+			return origins, nil
 		}
 	}
-
-	loaded := &loadedCORSOrigins{byOrg: byOrg, loadedAt: time.Now()}
-	if s.generation.Load() != generation {
-		// An update landed during the read, so the next lookup reloads again.
-		loaded.loadedAt = time.Time{}
+	generation := c.generation.Load()
+	origins, err := c.load(ctx, orgId)
+	if err != nil {
+		return nil, err
 	}
-	s.current.Store(loaded)
-	return loaded
+	if c.generation.Load() == generation {
+		c.entries.Set(orgId, origins)
+	}
+	return origins, nil
 }
 
-// invalidate makes the next lookup reload, so that this process serves an update at once.
-func (s *corsOriginsSnapshot) invalidate() {
+// invalidate drops the cached origins of the organisation, so that this process serves an
+// update at once.
+func (c *corsOriginsCache) invalidate(orgId string) {
 
-	s.generation.Add(1)
-	if loaded := s.current.Load(); loaded != nil {
-		s.current.Store(&loadedCORSOrigins{byOrg: loaded.byOrg})
-	}
+	c.generation.Add(1)
+	c.entries.Delete(orgId)
 }
 
 // normalizeOrigin lower-cases the scheme and host of an origin so that comparison against

@@ -27,6 +27,7 @@ import (
 
 	adminConfigModel "github.com/wso2/identity-customer-data-service/internal/admin_config/model"
 	adminConfigStore "github.com/wso2/identity-customer-data-service/internal/admin_config/store"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/cors"
 )
 
@@ -84,32 +85,32 @@ func TestCORSAllowedOriginsEmptyForUnconfiguredOrg(t *testing.T) {
 	}
 }
 
-// The origins of every organisation that configured any are read in one go, which is what
-// lets the middleware answer a lookup without a read per request. They are keyed by org
-// handle, the only identifier the middleware has before the request is dispatched, although
-// the configuration is stored by org ID.
-func TestAllCORSAllowedOriginsAreReadTogether(t *testing.T) {
+// The CORS middleware reads the origins of one organisation by org ID, and an organisation that
+// has configured none, or an empty list, reads as none.
+func TestCORSAllowedOriginsAreReadPerOrg(t *testing.T) {
 
-	want := map[string][]string{
-		"cors-all-acme":   {"https://app.acme.com", "http://localhost:3000"},
-		"cors-all-globex": {"https://app.globex.com"},
-	}
-	for orgHandle, origins := range want {
-		storeCORSOrigins(t, orgHandle, origins)
-	}
-	storeCORSOrigins(t, "cors-all-initech", []string{})
+	ctx := context.Background()
+	acmeId := storeCORSOrigins(t, "cors-one-acme", []string{"https://app.acme.com", "http://localhost:3000"})
+	initechId := storeCORSOrigins(t, "cors-one-initech", []string{})
 
-	originsByOrg, err := adminConfigStore.GetAllCORSAllowedOrigins(context.Background())
-	if err != nil {
-		t.Fatalf("failed to read the origins of every organisation: %v", err)
+	cases := map[string]struct {
+		orgId string
+		want  []string
+	}{
+		"configured":       {acmeId, []string{"https://app.acme.com", "http://localhost:3000"}},
+		"empty list":       {initechId, nil},
+		"never configured": {resolveOrgId(t, "cors-one-never-configured"), nil},
 	}
-	for orgHandle, origins := range want {
-		if got := originsByOrg[orgHandle]; !reflect.DeepEqual(got, origins) {
-			t.Errorf("origins for %s = %v, want %v", orgHandle, got, origins)
-		}
-	}
-	if got, found := originsByOrg["cors-all-initech"]; found {
-		t.Errorf("origins for cors-all-initech = %v, want no entry for an organisation with none", got)
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := adminConfigStore.GetCORSAllowedOrigins(ctx, c.orgId)
+			if err != nil {
+				t.Fatalf("failed to read the origins: %v", err)
+			}
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("origins = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -120,15 +121,16 @@ func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
 	storeCORSOrigins(t, "cors-mw-acme", []string{"https://app.acme.com"})
 	storeCORSOrigins(t, "cors-mw-globex", []string{"https://app.globex.com"})
 
-	// Read straight through the store rather than the service, so the assertion is about
-	// what was persisted and not about what a cache happens to hold. Like the service, it
-	// answers a sub organisation with the origins of its primary organisation.
-	lookup := func(ctx context.Context, org cors.Org) []string {
-		originsByOrg, err := adminConfigStore.GetAllCORSAllowedOrigins(ctx)
-		if err != nil {
-			return nil
+	// Resolve the handle as the server does and read straight through the store rather than
+	// the service, so the assertion is about what was persisted and not about what a cache
+	// happens to hold. Like the service, it answers a sub organisation with the origins of its
+	// primary organisation.
+	lookup := func(ctx context.Context, org cors.Org) ([]string, error) {
+		ref, found, err := orgService.LookupOrganization(ctx, org.Handle)
+		if err != nil || !found {
+			return nil, err
 		}
-		return originsByOrg[org.Handle]
+		return adminConfigStore.GetCORSAllowedOrigins(ctx, ref.ID)
 	}
 
 	handler := cors.Middleware(
@@ -152,6 +154,9 @@ func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
 			"/t/cors-mw-acme/cds/api/v1/profiles", "https://console.example.com", ""},
 		{"deployment origin allowed for unconfigured org",
 			"/t/cors-never-configured/cds/api/v1/profiles", "https://console.example.com",
+			"https://console.example.com"},
+		{"deployment origin allowed for a handle CDS does not know",
+			"/t/cors-mw-unknown/cds/api/v1/profiles", "https://console.example.com",
 			"https://console.example.com"},
 		{"deployment origin allowed with no org in path", "/health", "https://console.example.com",
 			"https://console.example.com"},
