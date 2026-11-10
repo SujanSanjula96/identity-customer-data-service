@@ -53,7 +53,6 @@ type UnificationRuleAPIResponse struct {
 	MatchStrength     string `json:"match_strength,omitempty" bson:"match_strength,omitempty"`
 	MismatchStrength  string `json:"mismatch_strength,omitempty" bson:"mismatch_strength,omitempty"`
 	Origin            string `json:"origin,omitempty" bson:"-"`
-	OwnerOrgHandle    string `json:"owner_org_handle,omitempty" bson:"-"`
 }
 
 // ToAPIResponse converts a rule to its API response. It leaves out the evidence strengths, which
@@ -68,7 +67,6 @@ func ToAPIResponse(rule UnificationRule) UnificationRuleAPIResponse {
 		AttributeType:     rule.AttributeType,
 		UnificationMethod: rule.UnificationMethod,
 		Origin:            rule.Origin,
-		OwnerOrgHandle:    rule.OwnerOrgHandle,
 	}
 }
 

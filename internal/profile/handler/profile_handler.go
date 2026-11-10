@@ -35,6 +35,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/pagination"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
 
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/profile/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile/provider"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
@@ -68,9 +69,13 @@ func (ph *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 
-	if !isCDSEnabled(ctx, orgHandle) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -92,7 +97,7 @@ func (ph *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
-	profile, err := profilesService.GetProfile(ctx, profileId, orgHandle)
+	profile, err := profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -104,14 +109,14 @@ func (ph *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	callerAppIdentifier := callerClientID
 	if config.GetCDSRuntime().Config.UsesAppIDIdentifier() && callerClientID != "" {
 		resolved, resolveErr := appProvider.NewApplicationProvider().GetApplicationService().
-			ResolveAppIdentifierByClientID(ctx, orgHandle, callerClientID)
+			ResolveAppIdentifierByClientID(ctx, org.ID, callerClientID)
 		if resolveErr != nil {
 			utils.HandleError(w, resolveErr)
 			return
 		}
 		callerAppIdentifier = resolved
 	}
-	isSystemApp := isCallerSystemApplication(ctx, orgHandle, callerAppIdentifier)
+	isSystemApp := isCallerSystemApplication(ctx, org.ID, callerAppIdentifier)
 
 	profile.ApplicationData = profileService.FilterApplicationData(
 		profile.ApplicationData,
@@ -122,7 +127,7 @@ func (ph *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 
 	if !isSystemApp {
 		consentIds := parseCommaSeparatedOrRepeated(r.URL.Query()["consentCategoryId"])
-		filtered, filterErr := profileService.FilterProfileByConsent(ctx, *profile, profileId, orgHandle, consentIds)
+		filtered, filterErr := profileService.FilterProfileByConsent(ctx, *profile, profileId, org.ID, consentIds)
 		if filterErr != nil {
 			utils.HandleError(w, filterErr)
 			return
@@ -144,8 +149,12 @@ func (ph *ProfileHandler) GetCurrentUserProfile(w http.ResponseWriter, r *http.R
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -161,7 +170,7 @@ func (ph *ProfileHandler) GetCurrentUserProfile(w http.ResponseWriter, r *http.R
 	// Try cookie-based resolution first
 	cookie, err := r.Cookie(constants.ProfileCookie)
 	if err == nil && cookie.Value != "" {
-		cookieObj, err := profilesService.GetProfileCookieById(ctx, cookie.Value, orgHandle)
+		cookieObj, err := profilesService.GetProfileCookieById(ctx, cookie.Value, org.ID)
 		if err == nil && cookieObj != nil && cookieObj.IsActive {
 			profileId = cookieObj.ProfileId
 		}
@@ -202,7 +211,7 @@ func (ph *ProfileHandler) GetCurrentUserProfile(w http.ResponseWriter, r *http.R
 				utils.HandleError(w, clientError)
 				return
 			}
-			profile, err := profilesService.FindProfileByUserId(ctx, subStr, orgHandle)
+			profile, err := profilesService.FindProfileByUserId(ctx, subStr, org.ID)
 			if err != nil {
 				utils.HandleError(w, err)
 				return
@@ -221,7 +230,7 @@ func (ph *ProfileHandler) GetCurrentUserProfile(w http.ResponseWriter, r *http.R
 	}
 
 	// Fetch the profile using the resolved profile ID
-	profile, err := profilesService.GetProfile(ctx, profileId, orgHandle)
+	profile, err := profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -250,8 +259,12 @@ func (ph *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) 
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -272,7 +285,7 @@ func (ph *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) 
 	}
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
-	err = profilesService.DeleteProfile(ctx, profileId, orgHandle)
+	err = profilesService.DeleteProfile(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -290,9 +303,13 @@ func (ph *ProfileHandler) GetAllProfiles(w http.ResponseWriter, r *http.Request)
 	}
 
 	logger := log.GetLogger()
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 
-	if !isCDSEnabled(ctx, orgHandle) {
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -361,9 +378,9 @@ func (ph *ProfileHandler) GetAllProfiles(w http.ResponseWriter, r *http.Request)
 		var fuzzyErr error
 
 		if hasDeterministic {
-			fuzzyResults, fuzzyErr = profilesService.GetProfilesHybrid(r.Context(), orgHandle, fuzzyFilters, filters, threshold, limit)
+			fuzzyResults, fuzzyErr = profilesService.GetProfilesHybrid(r.Context(), org.ID, fuzzyFilters, filters, threshold, limit)
 		} else {
-			fuzzyResults, fuzzyErr = profilesService.GetProfilesWithFuzzyResolution(r.Context(), orgHandle, fuzzyFilters, threshold, limit)
+			fuzzyResults, fuzzyErr = profilesService.GetProfilesWithFuzzyResolution(r.Context(), org.ID, fuzzyFilters, threshold, limit)
 		}
 
 		if fuzzyErr != nil {
@@ -388,15 +405,14 @@ func (ph *ProfileHandler) GetAllProfiles(w http.ResponseWriter, r *http.Request)
 	var (
 		profiles []model.ProfileResponse
 		hasMore  bool
-		err      error
 	)
 
 	if len(filters) > 0 {
 		logger.Info("Fetching profiles with filters + cursor pagination")
-		profiles, hasMore, err = profilesService.GetAllProfilesWithFilterCursor(ctx, orgHandle, filters, limit, cursor)
+		profiles, hasMore, err = profilesService.GetAllProfilesWithFilterCursor(ctx, org.ID, filters, limit, cursor)
 	} else {
 		logger.Info("Fetching all profiles + cursor pagination")
-		profiles, hasMore, err = profilesService.GetAllProfilesCursor(ctx, orgHandle, limit, cursor)
+		profiles, hasMore, err = profilesService.GetAllProfilesCursor(ctx, org.ID, limit, cursor)
 	}
 
 	if err != nil {
@@ -589,10 +605,14 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 
-	if !isCDSEnabled(ctx, orgHandle) {
-		errMsg := "CDS is not enabled for organization: " + orgHandle
+	if !isCDSEnabled(ctx, org.ID) {
+		errMsg := "CDS is not enabled for organization: " + org.ID
 		log.GetLogger().Info(errMsg)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
@@ -624,13 +644,13 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 	// Check if a valid cookie exists
 	profileCookie, err := r.Cookie(constants.ProfileCookie)
 	if err == nil && profileCookie.Value != "" {
-		if ph.handleExistingCookie(w, r, profileCookie.Value) {
+		if ph.handleExistingCookie(w, r, org.ID, profileCookie.Value) {
 			return
 		}
 	}
 
 	// If no valid cookie, create a new profile and cookie
-	profileResponse, err := profilesService.CreateProfile(ctx, profile, orgHandle)
+	profileResponse, err := profilesService.CreateProfile(ctx, profile, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -664,14 +684,14 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handles existing cookie logic, returns true if response was already written
-func (ph *ProfileHandler) handleExistingCookie(w http.ResponseWriter, r *http.Request, cookieVal string) bool {
+func (ph *ProfileHandler) handleExistingCookie(w http.ResponseWriter, r *http.Request, orgId string,
+	cookieVal string) bool {
 
 	ctx := r.Context()
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
 
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
-	cookieObj, err := profilesService.GetProfileCookieById(ctx, cookieVal, orgHandle)
+	cookieObj, err := profilesService.GetProfileCookieById(ctx, cookieVal, orgId)
 	if err != nil || cookieObj == nil {
 		return false
 	}
@@ -679,7 +699,7 @@ func (ph *ProfileHandler) handleExistingCookie(w http.ResponseWriter, r *http.Re
 	if !cookieObj.IsActive {
 		return false
 	}
-	profileResponse, err := profilesService.GetProfile(ctx, cookieObj.ProfileId, orgHandle)
+	profileResponse, err := profilesService.GetProfile(ctx, cookieObj.ProfileId, orgId)
 	if err != nil {
 		utils.HandleError(w, err)
 		return true
@@ -720,8 +740,12 @@ func (ph *ProfileHandler) UpdateProfile(writer http.ResponseWriter, request *htt
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(request)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(request.Context(), utils.ExtractOrgHandleFromPath(request))
+	if err != nil {
+		utils.HandleError(writer, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -752,13 +776,13 @@ func (ph *ProfileHandler) UpdateProfile(writer http.ResponseWriter, request *htt
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 
-	_, err = profilesService.UpdateProfile(ctx, profileId, orgHandle, profile)
+	_, err = profilesService.UpdateProfile(ctx, profileId, org.ID, profile)
 	if err != nil {
 		utils.HandleError(writer, err)
 		return
 	}
 
-	profileResponse, err := profilesService.GetProfile(ctx, profileId, orgHandle)
+	profileResponse, err := profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update profile with profileId: %s", profileId)
 		log.GetLogger().Debug(errMsg, log.Error(err))
@@ -783,8 +807,12 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -812,12 +840,12 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
-	_, err = profilesService.PatchProfile(ctx, profileId, orgHandle, patchData)
+	_, err = profilesService.PatchProfile(ctx, profileId, org.ID, patchData)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	profileResponse, err := profilesService.GetProfile(ctx, profileId, orgHandle)
+	profileResponse, err := profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to update profile with profileId: %s", profileId)
 		log.GetLogger().Debug(errMsg, log.Error(err))
@@ -842,8 +870,12 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -889,7 +921,7 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 
-	existingProfile, err := profilesService.GetProfile(ctx, profileId, orgHandle)
+	existingProfile, err := profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -921,14 +953,14 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 		ApplicationData:    profileService.WideAppDataMap(existingProfile.ApplicationData),
 	}
 
-	_, err = profilesService.UpdateProfile(ctx, profileId, orgHandle, profileRequest)
+	_, err = profilesService.UpdateProfile(ctx, profileId, org.ID, profileRequest)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
 	log.GetLogger().Info(fmt.Sprintf("Linked profile: %s to user: %s in organization: %s", profileId, userId,
-		orgHandle))
+		org.ID))
 
 	linkResponse := model.ProfileLinkResponse{
 		ProfileId: profileId,
@@ -948,8 +980,12 @@ func (ph *ProfileHandler) PatchCurrentUserProfile(w http.ResponseWriter, r *http
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -960,14 +996,13 @@ func (ph *ProfileHandler) PatchCurrentUserProfile(w http.ResponseWriter, r *http
 	}
 
 	var profileId string
-	var err error
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 
 	// Try cookie-based profileId resolution (preferred)
 	cookie, err := r.Cookie(constants.ProfileCookie)
 	if err == nil && cookie.Value != "" {
-		cookieObj, err := profilesService.GetProfileCookieById(ctx, cookie.Value, orgHandle)
+		cookieObj, err := profilesService.GetProfileCookieById(ctx, cookie.Value, org.ID)
 		if err == nil && cookieObj != nil && cookieObj.IsActive {
 			profileId = cookieObj.ProfileId
 		}
@@ -999,7 +1034,7 @@ func (ph *ProfileHandler) PatchCurrentUserProfile(w http.ResponseWriter, r *http
 			}
 
 			// Lookup profile by sub (username)
-			profile, err := profilesService.FindProfileByUserId(ctx, subStr, orgHandle)
+			profile, err := profilesService.FindProfileByUserId(ctx, subStr, org.ID)
 			if err != nil || profile == nil {
 				http.Error(w, "Profile not found for token subject", http.StatusUnauthorized)
 				return
@@ -1032,7 +1067,7 @@ func (ph *ProfileHandler) PatchCurrentUserProfile(w http.ResponseWriter, r *http
 	}
 
 	// Apply patch
-	updatedProfile, err := profilesService.PatchProfile(ctx, profileId, orgHandle, patchData)
+	updatedProfile, err := profilesService.PatchProfile(ctx, profileId, org.ID, patchData)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -1096,8 +1131,19 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 		return
 	}
 
-	if !isCDSEnabled(ctx, orgHandle) {
-		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgHandle
+	// An identity server event must not store an organization that CDS does not know.
+	org, known, err := orgService.LookupOrganization(ctx, orgHandle)
+	if err != nil {
+		utils.HandleError(writer, err)
+		return
+	}
+	if !known || !isCDSEnabled(ctx, org.ID) {
+		// An organization that CDS does not know has no org ID.
+		orgLabel := orgHandle
+		if known {
+			orgLabel = org.ID
+		}
+		errMsg := "Unable to process profile sync event as CDS is not enabled for organization: " + orgLabel
 		log.GetLogger().Info(errMsg)
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
@@ -1113,14 +1159,14 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 	if profileSync.Event == constants.AddUserEvent {
 		if profileSync.ProfileCookie != "" && profileSync.UserId != "" {
 			logger.Debug("Syncing profile for user id: " + profileSync.UserId + " with profile cookie: " + profileSync.ProfileCookie)
-			cookieObj, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, orgHandle)
+			cookieObj, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, org.ID)
 			if err == nil && cookieObj != nil && cookieObj.IsActive {
 				profileId = cookieObj.ProfileId
 				logger.Debug("Found active profile cookie with profile id: " + profileId)
 			}
 
 			// This scenario is when the user anonymously tried and then trying to signup or login. So profile with profile id exists
-			existingProfile, err = profilesService.GetProfile(ctx, profileId, orgHandle)
+			existingProfile, err = profilesService.GetProfile(ctx, profileId, org.ID)
 			if err != nil {
 				utils.HandleError(writer, err)
 				return
@@ -1144,7 +1190,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 
 				// Save updated profile
-				_, err = profilesService.UpdateProfile(ctx, existingProfile.ProfileId, orgHandle, profileRequest)
+				_, err = profilesService.UpdateProfile(ctx, existingProfile.ProfileId, org.ID, profileRequest)
 				if err != nil {
 					utils.HandleError(writer, err)
 					return
@@ -1155,7 +1201,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 		} else if profileSync.ProfileCookie == "" && profileSync.UserId != "" {
 			logger.Debug("Syncing profile for user id: " + profileSync.UserId + " without profile cookie")
 			// this is when we create a profile for a new user created in IS
-			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, orgHandle)
+			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, org.ID)
 			if err != nil {
 				if !utils.HasClientErrorCode(err, errors2.PROFILE_NOT_FOUND.Code) {
 					utils.HandleError(writer, err)
@@ -1173,7 +1219,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 					UserId:             profileSync.UserId,
 					IdentityAttributes: identityAttributes,
 				}
-				_, err := profilesService.CreateProfile(ctx, profileRequest, orgHandle)
+				_, err := profilesService.CreateProfile(ctx, profileRequest, org.ID)
 				if err != nil {
 					utils.HandleError(writer, err)
 					return
@@ -1186,7 +1232,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 	}
 
 	if profileSync.Event == constants.DeleteUserEvent {
-		existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, orgHandle)
+		existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, org.ID)
 		if err != nil {
 			utils.HandleError(writer, err)
 			return
@@ -1195,7 +1241,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			logger.Debug("No profile found for user: " + profileSync.UserId)
 			return
 		}
-		err := profilesService.DeleteProfile(ctx, existingProfile.ProfileId, orgHandle)
+		err := profilesService.DeleteProfile(ctx, existingProfile.ProfileId, org.ID)
 		if err != nil {
 			utils.HandleError(writer, err)
 			return
@@ -1205,7 +1251,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 	if profileSync.Event == constants.UpdateUserClaimsEvent || profileSync.Event == constants.UpdateUserClaimEvent {
 		if profileSync.UserId != "" {
-			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, orgHandle)
+			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, org.ID)
 			if err != nil {
 				utils.HandleError(writer, err)
 				return
@@ -1223,7 +1269,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 					UserId:             profileSync.UserId,
 					IdentityAttributes: identityAttributes,
 				}
-				_, err := profilesService.CreateProfile(ctx, profileRequest, orgHandle)
+				_, err := profilesService.CreateProfile(ctx, profileRequest, org.ID)
 
 				if err != nil {
 					return
@@ -1249,7 +1295,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 
 				// Save updated profile
-				_, err = profilesService.UpdateProfile(ctx, existingProfile.ProfileId, orgHandle, profileRequest)
+				_, err = profilesService.UpdateProfile(ctx, existingProfile.ProfileId, org.ID, profileRequest)
 				if err != nil {
 					utils.HandleError(writer, err)
 					return
@@ -1279,7 +1325,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 			// Step 1: Resolve anonymous profile from cookie
 			var anonymousProfile *model.ProfileResponse
-			cookieObj, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, orgHandle)
+			cookieObj, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, org.ID)
 			if err != nil {
 				if !utils.HasClientErrorCode(err, errors2.PROFILE_COOKIE_NOT_FOUND.Code) {
 					utils.HandleError(writer, err)
@@ -1287,7 +1333,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 			}
 			if cookieObj != nil && cookieObj.IsActive {
-				anonymousProfile, err = profilesService.GetProfile(ctx, cookieObj.ProfileId, orgHandle)
+				anonymousProfile, err = profilesService.GetProfile(ctx, cookieObj.ProfileId, org.ID)
 				if err != nil {
 					logger.Debug("Failed to fetch anonymous profile from cookie",
 						log.Error(err))
@@ -1296,7 +1342,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			}
 
 			// Step 2: Look up existing profile by userId
-			existingUserProfile, err := profilesService.FindProfileByUserId(ctx, profileSync.UserId, orgHandle)
+			existingUserProfile, err := profilesService.FindProfileByUserId(ctx, profileSync.UserId, org.ID)
 			if err != nil {
 				if !utils.HasClientErrorCode(err, errors2.PROFILE_NOT_FOUND.Code) {
 					utils.HandleError(writer, err)
@@ -1321,7 +1367,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 						Traits:             anonymousProfile.Traits,
 						ApplicationData:    profileService.WideAppDataMap(anonymousProfile.ApplicationData),
 					}
-					_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileId, orgHandle, profileRequest)
+					_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileId, org.ID, profileRequest)
 					if err != nil {
 						utils.HandleError(writer, err)
 						return
@@ -1344,7 +1390,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 					ApplicationData:    profileService.WideAppDataMap(anonymousProfile.ApplicationData),
 				}
 
-				_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileId, orgHandle, profileRequest)
+				_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileId, org.ID, profileRequest)
 				if err != nil {
 					utils.HandleError(writer, err)
 					return
@@ -1367,7 +1413,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				logger.Debug("No profile cookie provided for session termination. Skipping cookie deactivation.")
 				return
 			}
-			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, orgHandle)
+			existingProfile, err = profilesService.FindProfileByUserId(ctx, profileSync.UserId, org.ID)
 			if err != nil {
 				utils.HandleError(writer, err)
 				return
@@ -1378,7 +1424,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				return
 			}
 
-			profileCookie, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, orgHandle)
+			profileCookie, err := profilesService.GetProfileCookieById(ctx, profileSync.ProfileCookie, org.ID)
 			if err != nil {
 				if utils.HasClientErrorCode(err, errors2.PROFILE_COOKIE_NOT_FOUND.Code) {
 					logger.Debug("No cookie found during session termination. Skipping cookie deactivation.")
@@ -1438,8 +1484,12 @@ func (ph *ProfileHandler) GetProfileConsents(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -1454,7 +1504,7 @@ func (ph *ProfileHandler) GetProfileConsents(w http.ResponseWriter, r *http.Requ
 	profilesService := profilesProvider.GetProfilesService()
 
 	// Verify profile exists first
-	consentRecords, err := profilesService.GetProfileConsents(ctx, profileId, orgHandle)
+	consentRecords, err := profilesService.GetProfileConsents(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -1482,8 +1532,12 @@ func (ph *ProfileHandler) UpdateProfileConsents(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !isCDSEnabled(ctx, orgHandle) {
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -1498,7 +1552,7 @@ func (ph *ProfileHandler) UpdateProfileConsents(w http.ResponseWriter, r *http.R
 	profilesService := profilesProvider.GetProfilesService()
 
 	// Verify profile exists first
-	_, err = profilesService.GetProfile(ctx, profileId, orgHandle)
+	_, err = profilesService.GetProfile(ctx, profileId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -1512,7 +1566,7 @@ func (ph *ProfileHandler) UpdateProfileConsents(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err = profilesService.UpdateProfileConsents(ctx, profileId, orgHandle, consentUpdate)
+	err = profilesService.UpdateProfileConsents(ctx, profileId, org.ID, consentUpdate)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -1583,7 +1637,6 @@ func getCallerClientIDFromRequest(r *http.Request) string {
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-
 	introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
 	if err != nil {
 		logger.Debug("Failed to introspect token for app ID extraction", log.Error(err))
@@ -1606,13 +1659,13 @@ func extractAppIDFromClaims(claims map[string]interface{}) string {
 	return ""
 }
 
-func isCallerSystemApplication(ctx context.Context, orgHandle, appId string) bool {
+func isCallerSystemApplication(ctx context.Context, orgId string, appId string) bool {
 	if appId == "" {
 		return false
 	}
 	adminConfigProvider := adminConfigPkg.NewAdminConfigProvider()
 	adminConfigService := adminConfigProvider.GetAdminConfigService()
-	isSystemApp, err := adminConfigService.IsSystemApplication(ctx, orgHandle, appId)
+	isSystemApp, err := adminConfigService.IsSystemApplication(ctx, orgId, appId)
 	if err != nil {
 		return false
 	}
@@ -1620,8 +1673,8 @@ func isCallerSystemApplication(ctx context.Context, orgHandle, appId string) boo
 }
 
 // isCDSEnabled checks if CDS is enabled for the given organization
-func isCDSEnabled(ctx context.Context, orgHandle string) bool {
-	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgHandle)
+func isCDSEnabled(ctx context.Context, orgId string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgId)
 }
 
 // parseFilterStrings splits raw query-param filter values on " and " and returns

@@ -27,7 +27,7 @@ import (
 
 func sharedAttribute(id, owner, name, appId string) model.ProfileSchemaAttribute {
 	return model.ProfileSchemaAttribute{AttributeId: id, AttributeName: name, ApplicationIdentifier: appId,
-		OwnerOrgHandle: owner}
+		OwnerOrgId: owner}
 }
 
 func attributeIds(attrs []model.ProfileSchemaAttribute) []string {
@@ -49,13 +49,13 @@ func TestSelectActiveSharedAttributesConflicts(t *testing.T) {
 		sharedAttribute("primary-age", "r", "traits.age", ""),
 	}
 	shared := []shareModel.SharedResource{
-		{ResourceId: "a-tier", OwnerOrgHandle: "a", OwnerDepth: 1},
-		{ResourceId: "primary-tier", OwnerOrgHandle: "r", OwnerDepth: 2},
-		{ResourceId: "primary-plan", OwnerOrgHandle: "r", OwnerDepth: 2},
-		{ResourceId: "primary-age", OwnerOrgHandle: "r", OwnerDepth: 2},
+		{ResourceId: "a-tier", OwnerOrgId: "a", OwnerDepth: 1},
+		{ResourceId: "primary-tier", OwnerOrgId: "r", OwnerDepth: 2},
+		{ResourceId: "primary-plan", OwnerOrgId: "r", OwnerDepth: 2},
+		{ResourceId: "primary-age", OwnerOrgId: "r", OwnerDepth: 2},
 		// A resource that does not exist, and a resource of another owner, are skipped.
-		{ResourceId: "deleted", OwnerOrgHandle: "r", OwnerDepth: 2},
-		{ResourceId: "primary-age", OwnerOrgHandle: "a", OwnerDepth: 1},
+		{ResourceId: "deleted", OwnerOrgId: "r", OwnerDepth: 2},
+		{ResourceId: "primary-age", OwnerOrgId: "a", OwnerDepth: 1},
 	}
 	owned := []model.ProfileSchemaAttribute{{AttributeId: "a1-plan", AttributeName: "traits.plan"}}
 
@@ -70,7 +70,7 @@ func TestSelectActiveSharedAttributesConflicts(t *testing.T) {
 func TestSelectActiveSharedAttributesScopesAppDataNamesToTheApp(t *testing.T) {
 
 	attrs := []model.ProfileSchemaAttribute{sharedAttribute("shop-cart", "r", "application_data.cart", "shop")}
-	shared := []shareModel.SharedResource{{ResourceId: "shop-cart", OwnerOrgHandle: "r", OwnerDepth: 1}}
+	shared := []shareModel.SharedResource{{ResourceId: "shop-cart", OwnerOrgId: "r", OwnerDepth: 1}}
 
 	otherApp := []model.ProfileSchemaAttribute{{AttributeId: "other-cart", AttributeName: "application_data.cart",
 		ApplicationIdentifier: "other"}}

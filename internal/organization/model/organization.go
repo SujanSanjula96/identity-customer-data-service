@@ -18,7 +18,9 @@
 
 package model
 
-import "time"
+import (
+	"time"
+)
 
 // Organization status values.
 const (
@@ -42,6 +44,19 @@ type Organization struct {
 // IsPrimary reports whether the organization is a primary organization.
 func (o Organization) IsPrimary() bool {
 	return o.OrgId == o.PrimaryOrgId
+}
+
+// Ref is an organization as the request handlers, the services and the workers pass it on: its org ID,
+// which keys the data in the stores, and its org handle, which the APIs, the identity provider and the
+// logs use. The edge of each flow gets it once from the organization service.
+type Ref struct {
+	ID     string
+	Handle string
+}
+
+// Ref returns the org ID and the org handle of the organization.
+func (o Organization) Ref() Ref {
+	return Ref{ID: o.OrgId, Handle: o.OrgHandle}
 }
 
 // IsActive reports whether the organization is active.

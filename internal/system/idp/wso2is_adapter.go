@@ -21,6 +21,7 @@ package idp
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -39,18 +40,24 @@ func NewWSO2ISAdapter() *WSO2ISAdapter {
 
 func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle string) (Organization, error) {
 
-	org, err := a.client.GetSelfOrganization(primaryHandle)
+	// Only a primary organization answers the self call on its own tenant path. A primary
+	// organization can still have a parent, such as the super organization.
+	org, found, err := a.client.GetSelfOrganization(primaryHandle)
 	if err != nil {
 		return Organization{}, err
 	}
-	if org.Parent != nil && org.Parent.Id != "" {
-		return Organization{}, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATION_SYNC.Code,
-			Message:     errors2.ORGANIZATION_SYNC.Message,
-			Description: fmt.Sprintf("Organization '%s' is not a primary organization.", primaryHandle),
-		}, nil)
+	// A handle that IS does not know is not a primary organization. The caller sent a wrong
+	// handle, so it is a client error.
+	if !found {
+		return Organization{}, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
+			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+			Description: fmt.Sprintf("The identity provider does not know the organization '%s'.", primaryHandle),
+		}, http.StatusNotFound)
 	}
-	return toOrganization(org), nil
+	primary := toOrganization(org)
+	primary.ParentId = ""
+	return primary, nil
 }
 
 func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string) ([]Organization, error) {

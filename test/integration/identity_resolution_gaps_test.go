@@ -21,6 +21,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
@@ -40,21 +41,24 @@ func newOrg(prefix string) string {
 }
 
 // insertBareProfile writes a profile directly, bypassing the service so the test controls
-// exactly what exists without waiting on the async unification queue.
+// exactly what exists without waiting on the async unification queue. The org is a handle,
+// resolved as a request handler does.
 func insertBareProfile(t *testing.T, org, userID string, traits map[string]interface{}) profileModel.Profile {
 	t.Helper()
+
+	ref := setup.TestOrg(t, org)
 
 	profile := profileModel.Profile{
 		ProfileId:          uuid.New().String(),
 		UserId:             userID,
-		OrgHandle:          org,
+		OrgId:              ref.ID,
 		Traits:             traits,
 		IdentityAttributes: map[string]interface{}{},
 		CreatedAt:          time.Now().UTC(),
 		UpdatedAt:          time.Now().UTC(),
 		ProfileStatus:      &profileModel.ProfileStatus{},
 	}
-	if err := profileStore.InsertProfile(context.Background(), profile); err != nil {
+	if err := profileStore.InsertProfile(context.Background(), ref.ID, profile); err != nil {
 		t.Fatalf("insert profile: %v", err)
 	}
 	return profile
@@ -71,7 +75,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "user-1", map[string]interface{}{"name": "Ann"})
 		incoming := insertBareProfile(t, org, "", map[string]interface{}{"name": "Ann"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -88,7 +92,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "", map[string]interface{}{"name": "Ben"})
 		incoming := insertBareProfile(t, org, "user-2", map[string]interface{}{"name": "Ben"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -107,7 +111,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "", map[string]interface{}{"name": "Cal"})
 		incoming := insertBareProfile(t, org, "", map[string]interface{}{"name": "Cal"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -125,7 +129,7 @@ func Test_MergeMatchedProfiles_ReturnsSurvivingMaster(t *testing.T) {
 		existing := insertBareProfile(t, org, "user-3", map[string]interface{}{"name": "Dee"})
 		incoming := insertBareProfile(t, org, "user-4", map[string]interface{}{"name": "Dee"})
 
-		master, err := workers.MergeMatchedProfiles(context.Background(), existing, incoming, constants.MergeReasonAutoMerge)
+		master, err := workers.MergeMatchedProfiles(context.Background(), setup.TestOrg(t, org).ID, existing, incoming, constants.MergeReasonAutoMerge)
 		if err != nil {
 			t.Fatalf("merge: %v", err)
 		}
@@ -146,15 +150,16 @@ func Test_BlockingKeyLookup_IsScopedToOrg(t *testing.T) {
 	profileA := insertBareProfile(t, orgA, "", map[string]interface{}{"email": "shared@acme.com"})
 	profileB := insertBareProfile(t, orgB, "", map[string]interface{}{"email": "shared@acme.com"})
 
+	refA, refB := setup.TestOrg(t, orgA), setup.TestOrg(t, orgB)
 	key := []irModel.BlockingKey{{AttributeName: "traits.email", KeyValue: "shared@acme.com"}}
-	if err := irStore.UpsertBlockingKeys(context.Background(), profileA.ProfileId, orgA, key); err != nil {
+	if err := irStore.UpsertBlockingKeys(context.Background(), profileA.ProfileId, refA.ID, key); err != nil {
 		t.Fatalf("index profile A: %v", err)
 	}
-	if err := irStore.UpsertBlockingKeys(context.Background(), profileB.ProfileId, orgB, key); err != nil {
+	if err := irStore.UpsertBlockingKeys(context.Background(), profileB.ProfileId, refB.ID, key); err != nil {
 		t.Fatalf("index profile B: %v", err)
 	}
 
-	found, err := irStore.FindCandidateIDsByKeys(context.Background(), orgA, "traits.email",
+	found, err := irStore.FindCandidateIDsByKeys(context.Background(), refA.ID, "traits.email",
 		[]string{"shared@acme.com"}, "none", 100)
 	if err != nil {
 		t.Fatalf("candidate lookup: %v", err)
@@ -177,25 +182,26 @@ func Test_ResolveReviewTask_RejectsForeignOrg(t *testing.T) {
 	incoming := insertBareProfile(t, orgB, "", map[string]interface{}{"name": "Eve"})
 	candidate := insertBareProfile(t, orgB, "", map[string]interface{}{"name": "Eve"})
 
+	refA, refB := setup.TestOrg(t, orgA), setup.TestOrg(t, orgB)
 	task := irModel.ReviewTask{
-		OrgHandle:          orgB,
+		OrgId:              refB.ID,
 		IncomingProfileID:  incoming.ProfileId,
 		CandidateProfileID: candidate.ProfileId,
 		MatchScore:         0.8,
 		Status:             constants.ReviewStatusPending,
 		ScoreBreakdown:     map[string]float64{"traits.name": 1.0},
 	}
-	if err := irStore.InsertReviewTask(context.Background(), task); err != nil {
+	if err := irStore.InsertReviewTask(context.Background(), refB.ID, task); err != nil {
 		t.Fatalf("insert review task: %v", err)
 	}
 
-	pending, _, err := irStore.GetPendingReviewTasks(context.Background(), orgB, 10)
+	pending, _, err := irStore.GetPendingReviewTasks(context.Background(), refB.ID, 10)
 	if err != nil || len(pending) == 0 {
 		t.Fatalf("expected a pending task for %s: %v", orgB, err)
 	}
 
 	svc := irService.GetIdentityResolutionService()
-	if err := svc.ResolveReviewTask(context.Background(), orgA, pending[0].ID, true, "attacker", ""); err == nil {
+	if err := svc.ResolveReviewTask(context.Background(), refA.ID, pending[0].ID, true, "attacker", ""); err == nil {
 		t.Errorf("org %s resolved a task belonging to org %s", orgA, orgB)
 	}
 }
@@ -209,18 +215,19 @@ func Test_ReviewTask_CanBeRecreatedAfterCancellation(t *testing.T) {
 	incoming := insertBareProfile(t, org, "", map[string]interface{}{"name": "Fay"})
 	candidate := insertBareProfile(t, org, "", map[string]interface{}{"name": "Fay"})
 
+	ref := setup.TestOrg(t, org)
 	task := irModel.ReviewTask{
-		OrgHandle:          org,
+		OrgId:              ref.ID,
 		IncomingProfileID:  incoming.ProfileId,
 		CandidateProfileID: candidate.ProfileId,
 		MatchScore:         0.80,
 		Status:             constants.ReviewStatusPending,
 	}
-	if err := irStore.InsertReviewTask(context.Background(), task); err != nil {
+	if err := irStore.InsertReviewTask(context.Background(), ref.ID, task); err != nil {
 		t.Fatalf("insert review task: %v", err)
 	}
 
-	pending, _, err := irStore.GetPendingReviewTasks(context.Background(), org, 10)
+	pending, _, err := irStore.GetPendingReviewTasks(context.Background(), ref.ID, 10)
 	if err != nil || len(pending) == 0 {
 		t.Fatalf("expected a pending task: %v", err)
 	}
@@ -230,11 +237,11 @@ func Test_ReviewTask_CanBeRecreatedAfterCancellation(t *testing.T) {
 	}
 
 	task.MatchScore = 0.91
-	if err := irStore.InsertReviewTask(context.Background(), task); err != nil {
+	if err := irStore.InsertReviewTask(context.Background(), ref.ID, task); err != nil {
 		t.Fatalf("re-insert review task: %v", err)
 	}
 
-	reopened, _, err := irStore.GetPendingReviewTasks(context.Background(), org, 10)
+	reopened, _, err := irStore.GetPendingReviewTasks(context.Background(), ref.ID, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -254,15 +261,16 @@ func Test_BlockingKeys_RemovedWhenProfileDeleted(t *testing.T) {
 	org := newOrg("delete-index")
 	profile := insertBareProfile(t, org, "", map[string]interface{}{"email": "gone@acme.com"})
 
+	ref := setup.TestOrg(t, org)
 	key := []irModel.BlockingKey{{AttributeName: "traits.email", KeyValue: "gone@acme.com"}}
-	if err := irStore.UpsertBlockingKeys(context.Background(), profile.ProfileId, org, key); err != nil {
+	if err := irStore.UpsertBlockingKeys(context.Background(), profile.ProfileId, ref.ID, key); err != nil {
 		t.Fatalf("index profile: %v", err)
 	}
-	if err := profileService.GetProfilesService().DeleteProfile(context.Background(), profile.ProfileId, org); err != nil {
+	if err := profileService.GetProfilesService().DeleteProfile(context.Background(), profile.ProfileId, ref.ID); err != nil {
 		t.Fatalf("delete profile: %v", err)
 	}
 
-	found, err := irStore.FindCandidateIDsByKeys(context.Background(), org, "traits.email",
+	found, err := irStore.FindCandidateIDsByKeys(context.Background(), ref.ID, "traits.email",
 		[]string{"gone@acme.com"}, "none", 100)
 	if err != nil {
 		t.Fatalf("candidate lookup: %v", err)

@@ -196,3 +196,27 @@ func TestTenantDispatcherDoesNotServeOrgRootPath(t *testing.T) {
 		t.Errorf("expected 404 without the handler, got %d %q", code, org)
 	}
 }
+
+func TestTenantDispatcherRejectsMalformedOrgHandle(t *testing.T) {
+
+	for _, path := range []string{"/t/a%3Fb/cds/api/v1/config", "/t/a%23b/cds/api/v1/config",
+		"/t/a%40b/cds/api/v1/config"} {
+		if code, org, _ := serve(t, path); code != http.StatusBadRequest || org != "" {
+			t.Errorf("%s: expected 400 without the handler, got %d %q", path, code, org)
+		}
+	}
+}
+
+func TestIsValidOrgHandle(t *testing.T) {
+
+	for _, handle := range []string{"carbon.super", "wso2.com", "region_1-a", "10084a8d-113f-4211-a0d5-efe36b082211"} {
+		if !IsValidOrgHandle(handle) {
+			t.Errorf("expected %q to be valid", handle)
+		}
+	}
+	for _, handle := range []string{"", ".", "..", "a/b", "a?b", "a#b", "a@b", "a b", "a%2Fb"} {
+		if IsValidOrgHandle(handle) {
+			t.Errorf("expected %q to be invalid", handle)
+		}
+	}
+}

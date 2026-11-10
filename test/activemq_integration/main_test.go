@@ -85,6 +85,8 @@ func TestMain(m *testing.M) {
 		fmt.Println("Failed to create tables:", err)
 		os.Exit(1)
 	}
+	// The organization service resolves each org handle with a test identity provider, which needs no identity server.
+	setup.InstallTestIdentityProvider()
 
 	// ── Start workers (ActiveMQ-backed) ───────────────────────────────────────
 	if err := workers.StartProfileWorker(); err != nil {

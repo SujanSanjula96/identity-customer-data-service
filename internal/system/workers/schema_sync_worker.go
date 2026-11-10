@@ -21,6 +21,7 @@ package workers
 import (
 	"context"
 	"fmt"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"sync"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -63,7 +64,7 @@ func StartSchemaSyncWorker() error {
 		if err != nil {
 			log.GetLogger().Info(fmt.Sprintf(
 				"workers: the schema sync worker is stopping, so the job for tenant %s did not run: %v",
-				schemaSync.OrgId, err))
+				schemaSync.OrgHandle, err))
 		}
 	}); err != nil {
 		_ = q.Close(context.Background())
@@ -119,16 +120,23 @@ func StopSchemaSyncWorker(ctx context.Context) error {
 func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
 
 	logger := log.GetLogger()
-	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgId, schemaSync.Event))
+	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgHandle, schemaSync.Event))
 
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()
 
-	err := schemaService.SyncProfileSchema(ctx, schemaSync.OrgId)
+	// The sync event carries the org handle. Resolve the org once for the job.
+	org, err := orgService.ResolveOrganization(ctx, schemaSync.OrgHandle)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", schemaSync.OrgId), log.Error(err))
+		logger.Error(fmt.Sprintf("Failed to resolve the organization %s for the schema sync", schemaSync.OrgHandle),
+			log.Error(err))
+		return
+	}
+	err = schemaService.SyncProfileSchema(ctx, org.ID)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to sync profile schema for tenant: %s", org.ID), log.Error(err))
 		return
 	}
 
-	logger.Info(fmt.Sprintf("Profile schema sync completed successfully for tenant: %s", schemaSync.OrgId))
+	logger.Info(fmt.Sprintf("Profile schema sync completed successfully for tenant: %s", org.ID))
 }

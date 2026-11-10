@@ -56,7 +56,7 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 	}
 	ctx := context.Background()
 	primaryConfig := model.AdminConfig{
-		OrgHandle:                  "primary",
+		OrgId:                      "primary",
 		CDSEnabled:                 true,
 		SystemApplications:         []string{},
 		AutoMergeEnabled:           false,
@@ -65,11 +65,11 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 		DeterministicMatchDecisive: false,
 		CORSAllowedOrigins:         []string{"https://app.primary.example"},
 	}
-	if err := store.UpdateAdminConfig(ctx, primaryConfig, "primary"); err != nil {
+	if err := store.UpdateAdminConfig(ctx, primaryConfig, "primary-id"); err != nil {
 		t.Fatalf("failed to store the configuration of the primary organization: %v", err)
 	}
 
-	got, err := AdminConfigService{}.GetAdminConfig(ctx, "sub")
+	got, err := AdminConfigService{}.GetAdminConfig(ctx, "sub-id")
 	if err != nil {
 		t.Fatalf("GetAdminConfig: %v", err)
 	}

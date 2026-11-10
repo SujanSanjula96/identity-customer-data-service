@@ -32,7 +32,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
-func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys []model.BlockingKey) error {
+func UpsertBlockingKeys(ctx context.Context, profileID, orgId string, keys []model.BlockingKey) error {
 	logger := log.GetLogger()
 	if len(keys) == 0 {
 		return nil
@@ -60,7 +60,7 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 	}
 
 	deleteQuery := scripts.DeleteBlockingKeysSQL
-	if _, err = tx.ExecContext(ctx, deleteQuery, orgHandle, profileID); err != nil {
+	if _, err = tx.ExecContext(ctx, deleteQuery, orgId, profileID); err != nil {
 		logger.Error("BlockingStore: failed to delete existing blocking keys", log.Error(err))
 		if rbErr := tx.Rollback(); rbErr != nil {
 			logger.Error("BlockingStore: failed to rollback transaction", log.Error(rbErr))
@@ -79,7 +79,7 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
 			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, profileID, orgHandle, key.AttributeName, key.KeyValue)
+		args = append(args, profileID, orgId, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
 
@@ -109,7 +109,7 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 	return nil
 }
 
-func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error {
+func DeleteBlockingKeys(ctx context.Context, orgId, profileID string) error {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -123,7 +123,7 @@ func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error 
 	defer dbClient.Close()
 
 	deleteQuery := scripts.DeleteBlockingKeysSQL
-	_, err = dbClient.ExecuteQueryContext(ctx, deleteQuery, orgHandle, profileID)
+	_, err = dbClient.ExecuteQueryContext(ctx, deleteQuery, orgId, profileID)
 	if err != nil {
 		logger.Error("BlockingStore: failed to delete blocking keys", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
@@ -137,7 +137,7 @@ func DeleteBlockingKeys(ctx context.Context, orgHandle, profileID string) error 
 }
 
 // DeleteBlockingKeysByAttribute removes all blocking keys for a specific attribute across all profiles in an org.
-func DeleteBlockingKeysByAttribute(ctx context.Context, orgHandle, attributeName string) error {
+func DeleteBlockingKeysByAttribute(ctx context.Context, orgId, attributeName string) error {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -151,7 +151,7 @@ func DeleteBlockingKeysByAttribute(ctx context.Context, orgHandle, attributeName
 	defer dbClient.Close()
 
 	query := scripts.DeleteBlockingKeysByAttributeSQL
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgHandle, attributeName)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, attributeName)
 	if err != nil {
 		logger.Error(fmt.Sprintf("BlockingStore: failed to delete blocking keys for attribute '%s'", attributeName),
 			log.Error(err))
@@ -167,7 +167,7 @@ func DeleteBlockingKeysByAttribute(ctx context.Context, orgHandle, attributeName
 
 // InsertBlockingKeys inserts blocking keys for a profile without deleting existing keys.
 // Uses ON CONFLICT DO NOTHING to skip duplicates.
-func InsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys []model.BlockingKey) error {
+func InsertBlockingKeys(ctx context.Context, profileID, orgId string, keys []model.BlockingKey) error {
 	logger := log.GetLogger()
 	if len(keys) == 0 {
 		return nil
@@ -190,7 +190,7 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgHandle string, keys [
 	for _, key := range keys {
 		valueClauses = append(valueClauses,
 			fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, profileID, orgHandle, key.AttributeName, key.KeyValue)
+		args = append(args, profileID, orgId, key.AttributeName, key.KeyValue)
 		argIdx += blockingKeyColumns
 	}
 
@@ -233,7 +233,7 @@ const maxBlockingKeyRowsPerInsert = 5000
 // InsertBlockingKeysBatch inserts blocking keys for many profiles, chunked so no single
 // statement exceeds the driver's bind-parameter limit.
 // Uses ON CONFLICT DO NOTHING to skip duplicates.
-func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKeys map[string][]model.BlockingKey) error {
+func InsertBlockingKeysBatch(ctx context.Context, orgId string, perProfileKeys map[string][]model.BlockingKey) error {
 	logger := log.GetLogger()
 
 	rows := flattenBlockingKeyRows(perProfileKeys)
@@ -265,7 +265,7 @@ func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKe
 		for _, row := range chunk {
 			valueClauses = append(valueClauses,
 				fmt.Sprintf("($%d, $%d, $%d, $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
-			args = append(args, row.profileID, orgHandle,
+			args = append(args, row.profileID, orgId,
 				row.key.AttributeName, row.key.KeyValue)
 			argIdx += blockingKeyColumns
 		}
@@ -274,12 +274,12 @@ func InsertBlockingKeysBatch(ctx context.Context, orgHandle string, perProfileKe
 		if _, err := dbClient.ExecuteQueryContext(ctx, insertQuery, args...); err != nil {
 			logger.Error(fmt.Sprintf(
 				"BlockingStore: batch insert failed for org '%s' at rows %d-%d of %d",
-				orgHandle, start, end, len(rows)), log.Error(err))
+				orgId, start, end, len(rows)), log.Error(err))
 			return errors2.NewServerError(errors2.ErrorMessage{
 				Code:    errors2.IR_BLOCKING_KEYS_FAILED.Code,
 				Message: errors2.IR_BLOCKING_KEYS_FAILED.Message,
 				Description: fmt.Sprintf("Failed to batch insert blocking keys for org: %s",
-					orgHandle),
+					orgId),
 			}, err)
 		}
 	}
@@ -308,7 +308,7 @@ func flattenBlockingKeyRows(perProfileKeys map[string][]model.BlockingKey) []blo
 }
 
 func FindCandidateIDsByKeys(ctx context.Context,
-	orgHandle, attributeName string,
+	orgId, attributeName string,
 	keyValues []string,
 	excludeProfileID string,
 	maxResults int,
@@ -329,7 +329,7 @@ func FindCandidateIDsByKeys(ctx context.Context,
 	}
 	defer dbClient.Close()
 
-	args := []interface{}{orgHandle, attributeName}
+	args := []interface{}{orgId, attributeName}
 	var inClauses []string
 	argIdx := 3
 
@@ -367,7 +367,7 @@ func FindCandidateIDsByKeys(ctx context.Context,
 	if len(results) > maxResults {
 		logger.Warn(fmt.Sprintf(
 			"BlockingStore: attribute '%s' matched more than %d profiles in org '%s' — skipping this key group",
-			attributeName, maxResults, orgHandle))
+			attributeName, maxResults, orgId))
 		return nil, nil
 	}
 
@@ -437,10 +437,10 @@ var rarityCache = cache.NewCache(constants.RarityLookupCacheTTL)
 
 // CountProfilesByBlockingKey reports how many profiles in the org already carry the given
 // exact blocking key — that is, how common the value is within the tenant.
-func CountProfilesByBlockingKey(ctx context.Context, orgHandle, attributeName, keyValue string) (int, error) {
+func CountProfilesByBlockingKey(ctx context.Context, orgId, attributeName, keyValue string) (int, error) {
 	logger := log.GetLogger()
 
-	cacheKey := orgHandle + "|" + attributeName + "|" + keyValue
+	cacheKey := orgId + "|" + attributeName + "|" + keyValue
 	if cached, found := rarityCache.Get(cacheKey); found {
 		if count, ok := cached.(int); ok {
 			return count, nil
@@ -458,7 +458,7 @@ func CountProfilesByBlockingKey(ctx context.Context, orgHandle, attributeName, k
 	defer dbClient.Close()
 
 	query := scripts.IRCountProfilesByBlockingKey
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, attributeName, keyValue)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, attributeName, keyValue)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("BlockingStore: frequency lookup failed for attribute '%s'", attributeName),
 			log.Error(err))

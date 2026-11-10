@@ -71,17 +71,17 @@ Each kind is queried separately because they do not share a selectivity. A phone
 
 `blocking_keys` is the largest table in the system. A profile writes one key per deterministic rule and several per fuzzy rule, so a tenant with five rules holds roughly twenty rows per profile — half a billion rows at twenty-five million profiles. Three things about its definition were chosen by measurement rather than taste, and the figures below are from a million-row table on PostgreSQL 14 after `ANALYZE`.
 
-**There is no surrogate key.** The table had a `key_id` UUID primary key that nothing referenced, while the natural key `(org_handle, attribute_name, key_value, profile_id)` already identified a row. The surrogate cost its own column and its own index on every row — roughly 38 GB at the target size, for an identifier no query used. The natural key is now the primary key, and its column order matches the candidate lookup: equality on `org_handle` and `attribute_name`, `IN` on `key_value`.
+**There is no surrogate key.** The table had a `key_id` UUID primary key that nothing referenced, while the natural key `(org_id, attribute_name, key_value, profile_id)` already identified a row. The surrogate cost its own column and its own index on every row — roughly 38 GB at the target size, for an identifier no query used. The natural key is now the primary key, and its column order matches the candidate lookup: equality on `org_id` and `attribute_name`, `IN` on `key_value`.
 
-**It is partitioned in two levels** — by `org_handle`, and by `key_value` within each of those. Both single-key arrangements fail, in opposite ways:
+**It is partitioned in two levels** — by `org_id`, and by `key_value` within each of those. Both single-key arrangements fail, in opposite ways:
 
 | Partition key | Partitions scanned | Execution | Single-tenant deployment |
 |---|---|---|---|
-| `(org_handle, key_value)` combined | 16 | 19.1 ms | splits |
-| `org_handle` alone | 1 | 0.095 ms | **every row in one partition** |
+| `(org_id, key_value)` combined | 16 | 19.1 ms | splits |
+| `org_id` alone | 1 | 0.095 ms | **every row in one partition** |
 | **two levels** | **≤ 4** | **0.15 ms** | **splits** |
 
-A combined hash key over both columns prunes nothing, because PostgreSQL prunes hash partitions only when it has an equality clause for every column of the key, and candidate lookup supplies `key_value` as an `IN` list. Partitioning on `org_handle` alone prunes perfectly but leaves a single-organisation deployment — the common shape on-premises — with every row in one partition, which is the case most in need of smaller indexes. Two levels prune at both: `org_handle` by equality, and `key_value` because single-column hash pruning does apply to an `IN` list.
+A combined hash key over both columns prunes nothing, because PostgreSQL prunes hash partitions only when it has an equality clause for every column of the key, and candidate lookup supplies `key_value` as an `IN` list. Partitioning on `org_id` alone prunes perfectly but leaves a single-organisation deployment — the common shape on-premises — with every row in one partition, which is the case most in need of smaller indexes. Two levels prune at both: `org_id` by equality, and `key_value` because single-column hash pruning does apply to an `IN` list.
 
 **The moduli follow the access pattern.** A lookup touches at most one sub-partition per key it searches for, so widening the second level costs reads nothing. What holds it at four is the per-profile delete during re-indexing: it has no `key_value`, so it prunes to one organisation and then probes every sub-partition beneath it. The first level's eight is a fan-out sized for the target table rather than a measured optimum — 8 x 4 is 32 leaves, roughly 15M rows each at half a billion. Both are worth revisiting before this carries real data, because a hash modulus cannot be changed without rebuilding the table.
 
@@ -188,6 +188,34 @@ Both thresholds are validated against each other, not only against 0 and 1: an o
 
 Whether the objections in steps 4–6 apply to a deterministic match at all is also per organisation: `deterministic_match_decisive` (default on) makes an exact match conclusive on its own, as it was before typed matching; turning it off lets the other rules send it to review instead. See [Unification Rules](unification-rules.md#letting-other-rules-object-deterministic_match_decisive).
 
+### Why a pair is in review
+
+A score that a cap held back is not a measure of anything: it is `auto_merge_threshold - 0.01` whatever held it, and it moves when the threshold does. Two numbers are therefore kept apart:
+
+| | What it is | Where it is used |
+|---|---|---|
+| **Score** | The primary signal after every cap | Routing only: merge, review or no action |
+| **Similarity** | The primary signal before any cap | Recorded on the review task and the rejection; ranks fuzzy search |
+
+A review task does not return either number. It returns an **explanation**, recorded when the task is raised, from which a client builds its own sentence:
+
+- `rules`: every active rule, with its ID, name, property, attribute type, method, priority and strengths, the `score` it gave (absent when either profile had no value) and its `verdict` (`AGREE`, `INCONCLUSIVE`, `DISAGREE` or `UNKNOWN`). The rule that spoke for the match is marked `primary`.
+- `reasons`: every reason the pair was held, each a `code` with the IDs of the rules it concerns.
+
+| Code | Holds when |
+|---|---|
+| `BELOW_AUTO_MERGE_THRESHOLD` | The primary rule scored below `auto_merge_threshold`, given as `threshold` as it was at the time |
+| `DISCRIMINATING_MISMATCH` | A rule with `mismatch_strength: HIGH` disagrees (step 4) |
+| `CONFLICTING_EVIDENCE` | Most of the other applicable rules disagree (step 5) |
+| `WEAK_SOLE_EVIDENCE` | Only one rule agrees, and it cannot identify a person alone (step 6) |
+| `COMMON_VALUE` | Only one rule agrees, on a value at least `shared_by_at_least` profiles share (step 6) |
+| `AUTO_MERGE_DISABLED` | The pair scored for a merge, but the organisation has `auto_merge_enabled` off |
+| `REJECTION_RECONSIDERED` | An administrator rejected the pair before; names the rules that agree now and gives `previous_similarity` |
+| `AUTO_MERGE_FAILED` | The pair scored for a merge, but the merge could not be made |
+| `MERGED_WITH_ANOTHER_PROFILE` | The pair scored for a merge, but the profile merged with another candidate in the same evaluation |
+
+A reason is reported whenever its condition holds, not only when it was the one that lowered the score. *Marcus Delacroix* against *Marcus Delacroix* with different emails has a similarity of 1.0 and two reasons, `CONFLICTING_EVIDENCE` on the email rule and `WEAK_SOLE_EVIDENCE` on the name rule; either alone would have held it.
+
 ### Worked examples
 
 Rules: **P1** `nic` (UNIQUE_ID, deterministic) · **P2** `name` (NAME, fuzzy) · **P3** `city` (LOCATION, fuzzy). Thresholds 0.95 / 0.75 — an organisation that has lowered the automatic threshold from its 1.0 default, so tolerant matches can merge unattended.
@@ -236,7 +264,7 @@ The same name evidence produced no action when the NICs contradicted, and an aut
 
 ## Searching profiles by similarity
 
-Unification runs on a queue after a write. The same engine is also reachable synchronously, as a search: `GET /profiles?fuzzyFilter=traits.name eq Jonathan Smith` returns profiles *similar* to the values given rather than equal to them, each with the score it was given and the per-rule breakdown behind it.
+Unification runs on a queue after a write. The same engine is also reachable synchronously, as a search: `GET /profiles?fuzzyFilter=traits.name eq Jonathan Smith` returns profiles *similar* to the values given rather than equal to them, each with its similarity and the per-rule breakdown behind it. Similarity is not lowered by a rule that disagrees: that decides whether profiles merge unattended, not how alike they are.
 
 Two modes, chosen by what the request carries:
 

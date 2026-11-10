@@ -25,6 +25,7 @@ import (
 	"errors" // Standard Go errors package
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -70,6 +71,15 @@ func ExtractOrgBasePath(r *http.Request) string {
 		return basePath
 	}
 	return "/t/" + ExtractOrgHandleFromPath(r)
+}
+
+// orgHandlePattern limits an organization handle to the characters tenant domains and organization IDs use,
+// so a handle taken from a request is always a single, literal URL path segment.
+var orgHandlePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
+
+// IsValidOrgHandle reports whether orgHandle is safe to place in a URL path.
+func IsValidOrgHandle(orgHandle string) bool {
+	return orgHandlePattern.MatchString(orgHandle) && orgHandle != "." && orgHandle != ".."
 }
 
 func ExtractOrgHandleFromPath(r *http.Request) string {
@@ -124,6 +134,10 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 		}
 
 		orgHandle := parts[0]
+		if !IsValidOrgHandle(orgHandle) {
+			http.Error(w, "Invalid path format", http.StatusBadRequest)
+			return
+		}
 		remainingPath := "/" + parts[1]
 
 		basePath := prefix + orgHandle
@@ -131,7 +145,7 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 		if strings.HasPrefix(remainingPath, "/o/") {
 			// /t/{primary_handle}/o/{org_id}/... is the path of a sub organization.
 			segments := strings.SplitN(strings.TrimPrefix(remainingPath, "/o/"), "/", 2)
-			if len(segments) != 2 || segments[0] == "" || SubOrgResolver == nil {
+			if len(segments) != 2 || !IsValidOrgHandle(segments[0]) || SubOrgResolver == nil {
 				http.NotFound(w, r)
 				return
 			}

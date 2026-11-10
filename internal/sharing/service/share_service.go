@@ -96,10 +96,9 @@ func sharedResources(ctx context.Context, resourceType string, org orgModel.Orga
 		seen[p.ResourceId] = true
 		owner := byId[p.OwningOrgId]
 		result = append(result, model.SharedResource{
-			ResourceId:     p.ResourceId,
-			OwnerOrgId:     owner.OrgId,
-			OwnerOrgHandle: owner.OrgHandle,
-			OwnerDepth:     owner.Depth,
+			ResourceId: p.ResourceId,
+			OwnerOrgId: owner.OrgId,
+			OwnerDepth: owner.Depth,
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {

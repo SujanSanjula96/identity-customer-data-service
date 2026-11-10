@@ -50,7 +50,7 @@ func CompleteStatement(name, statement string) string {
 	case "InsertProfileSchemaAttributesForScope":
 		return statement + QueryPlaceholders(12)
 	case "UpdateProfileSchemaAttributeFields":
-		return statement + "attribute_name = $1 WHERE org_handle = $2 AND attribute_id = $3"
+		return statement + "attribute_name = $1 WHERE org_id = $2 AND attribute_id = $3"
 	case "UpsertIdentityClaimsForProfileSchema":
 		return fmt.Sprintf(statement, QueryPlaceholders(13))
 	case "InsertSharePolicyTargets":
@@ -68,7 +68,7 @@ func CompleteStatement(name, statement string) string {
 	case "IRInsertBlockingKeys":
 		return fmt.Sprintf(statement, "($1, $2, $3, $4)")
 	case "GetProfileIDsWithFiltersBase":
-		return statement + " WHERE p.org_handle = $1"
+		return statement + " WHERE p.org_id = $1"
 	default:
 		return statement
 	}

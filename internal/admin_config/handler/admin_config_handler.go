@@ -23,6 +23,7 @@ import (
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
@@ -48,10 +49,14 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 	adminConfigProvider := provider.NewAdminConfigProvider()
 	adminConfigService := adminConfigProvider.GetAdminConfigService()
-	config, err := adminConfigService.GetAdminConfig(ctx, orgHandle)
+	config, err := adminConfigService.GetAdminConfig(ctx, org.ID)
 
 	if err != nil {
 		utils.HandleError(w, err)
@@ -79,7 +84,11 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
 	var config model.AdminConfigUpdateAPI
 
 	decoder := json.NewDecoder(r.Body)
@@ -96,14 +105,14 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 
 	adminConfigService := provider.NewAdminConfigProvider().GetAdminConfigService()
 
-	existingConfig, err := adminConfigService.GetAdminConfig(ctx, orgHandle)
+	existingConfig, err := adminConfigService.GetAdminConfig(ctx, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
 	configToUpdate := model.AdminConfig{
-		OrgHandle:                  orgHandle,
+		OrgId:                      org.ID,
 		InitialSchemaSyncDone:      existingConfig.InitialSchemaSyncDone,
 		CDSEnabled:                 existingConfig.CDSEnabled,
 		SystemApplications:         existingConfig.SystemApplications,
@@ -137,7 +146,7 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 		configToUpdate.CORSAllowedOrigins = config.CORSAllowedOrigins
 	}
 
-	err = adminConfigService.UpdateAdminConfig(ctx, &configToUpdate, orgHandle)
+	err = adminConfigService.UpdateAdminConfig(ctx, &configToUpdate, org)
 	if err != nil {
 		utils.HandleError(w, err)
 		return

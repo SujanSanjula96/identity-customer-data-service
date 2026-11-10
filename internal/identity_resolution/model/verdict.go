@@ -44,8 +44,13 @@ const (
 
 // RuleEvaluation is the outcome of applying one unification rule to a candidate pair.
 type RuleEvaluation struct {
-	PropertyName  string
-	AttributeType string
+	RuleID            string
+	RuleName          string
+	PropertyName      string
+	AttributeType     string
+	UnificationMethod string
+	// Priority is the operator's priority number for the rule, as configured.
+	Priority int
 	// Deterministic is true when the rule matches on exact equality rather than similarity.
 	Deterministic bool
 	// MatchStrength and MismatchStrength are the rule's evidence weights for agreement

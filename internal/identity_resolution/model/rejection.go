@@ -18,7 +18,11 @@
 
 package model
 
-import "github.com/wso2/identity-customer-data-service/internal/system/constants"
+import (
+	"sort"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+)
 
 // Rejection is an administrator's decision that two profiles are different people, together
 // with the evidence that decision was made against.
@@ -31,8 +35,9 @@ import "github.com/wso2/identity-customer-data-service/internal/system/constants
 type Rejection struct {
 	// OtherProfileID is the profile on the far side of the pair from the one looked up.
 	OtherProfileID string
-	// MatchScore is the score at the time of rejection. Zero for a rejection recorded
-	// before the evidence was retained, which is treated as "no evidence to compare".
+	// MatchScore is the pair's similarity at the time of rejection, before any cap. Zero for
+	// a rejection recorded before the evidence was retained, which is treated as "no
+	// evidence to compare".
 	MatchScore float64
 	// ScoreBreakdown is each applicable rule's score at the time of rejection.
 	ScoreBreakdown map[string]float64
@@ -51,21 +56,30 @@ type Rejection struct {
 // Everything else leaves the rejection standing. Re-proposing a pair on any change at all
 // is what turns a review queue into a treadmill: the administrator dismisses the same two
 // profiles repeatedly because an unrelated attribute moved.
+//
+// The score compared is the similarity before any cap. A capped score sits just under the
+// auto-merge threshold whatever the evidence, so it could never rise by the margin.
 func (r Rejection) ShouldReconsider(newScore float64, newBreakdown map[string]float64,
 	agreementThreshold float64) bool {
 
 	if newScore >= r.MatchScore+constants.RejectionReconsiderMargin {
 		return true
 	}
+	return len(r.NewlyAgreeing(newBreakdown, agreementThreshold)) > 0
+}
 
+// NewlyAgreeing lists the properties whose rules agree now but did not when the pair was
+// rejected, in sorted order.
+func (r Rejection) NewlyAgreeing(newBreakdown map[string]float64, agreementThreshold float64) []string {
+	var properties []string
 	for property, score := range newBreakdown {
 		if score < agreementThreshold {
 			continue
 		}
 		if previous, seen := r.ScoreBreakdown[property]; !seen || previous < agreementThreshold {
-			return true
+			properties = append(properties, property)
 		}
 	}
-
-	return false
+	sort.Strings(properties)
+	return properties
 }

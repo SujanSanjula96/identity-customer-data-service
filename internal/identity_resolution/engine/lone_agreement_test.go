@@ -33,7 +33,7 @@ func scoreSoleRule(t *testing.T, attrType, method, a, b string) (float64, string
 	t.Helper()
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgHandle: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
 	rules := []urModel.UnificationRule{testRule("identity_attributes.v", attrType, method, 1)}
 
 	score, _ := ScoreCandidate(

@@ -33,6 +33,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 	urStore "github.com/wso2/identity-customer-data-service/internal/unification_rules/store"
+	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
 // legacyRuleInsert and legacyConfigInsert write rows in the shape a pre-upgrade database
@@ -41,13 +42,13 @@ import (
 var legacyRuleInsert = dbmodel.DBQuery{
 	ID: "TEST-LEGACY-01",
 	Query: `INSERT INTO unification_rules
-		(rule_id, org_handle, rule_name, property_name, priority, is_active, created_at, updated_at)
+		(rule_id, org_id, rule_name, property_name, priority, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 }
 
 var legacyConfigInsert = dbmodel.DBQuery{
 	ID:    "TEST-LEGACY-02",
-	Query: `INSERT INTO cds_config (org_handle, config, value) VALUES ($1, $2, $3)`,
+	Query: `INSERT INTO cds_config (org_id, config, value) VALUES ($1, $2, $3)`,
 }
 
 // insertLegacyRule writes a unification rule the way one existed before typed matching:
@@ -65,7 +66,7 @@ func insertLegacyRule(t *testing.T, org, property string, priority int) {
 	defer dbClient.Close()
 
 	_, err = dbClient.ExecuteQueryContext(context.Background(), legacyRuleInsert,
-		uuid.New().String(), org, fmt.Sprintf("legacy-%s", property), property,
+		uuid.New().String(), setup.TestOrg(t, org).ID, fmt.Sprintf("legacy-%s", property), property,
 		priority, true, time.Now().UTC(), time.Now().UTC())
 	if err != nil {
 		t.Fatalf("insert legacy rule %s: %v", property, err)
@@ -84,7 +85,7 @@ func insertLegacyAdminConfig(t *testing.T, org string) {
 	defer dbClient.Close()
 
 	if _, err := dbClient.ExecuteQueryContext(context.Background(), legacyConfigInsert,
-		org, constants.ConfigCDSEnabled, "true"); err != nil {
+		setup.TestOrg(t, org).ID, constants.ConfigCDSEnabled, "true"); err != nil {
 		t.Fatalf("insert legacy admin config: %v", err)
 	}
 }
@@ -112,6 +113,7 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			org := newOrg("legacy-upgrade")
+			ref := setup.TestOrg(t, org)
 			insertLegacyAdminConfig(t, org)
 			insertLegacyRule(t, org, "traits.email", 1)
 			insertLegacyRule(t, org, "traits.phone", 2)
@@ -119,7 +121,7 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 
 			// A migrated rule must arrive with no stored strength, so the engine derives
 			// it. A column default here is what silently defeats the derivation.
-			rules, err := urStore.GetUnificationRules(context.Background(), org)
+			rules, err := urStore.GetUnificationRules(context.Background(), ref.ID)
 			if err != nil {
 				t.Fatalf("load rules: %v", err)
 			}
@@ -135,7 +137,7 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 			existing := insertBareProfile(t, org, "", shared)
 			incoming := insertBareProfile(t, org, "", shared)
 
-			master, mergeErr := workers.MergeMatchedProfiles(context.Background(), existing, incoming, constants.MergeReasonAutoMerge)
+			master, mergeErr := workers.MergeMatchedProfiles(context.Background(), ref.ID, existing, incoming, constants.MergeReasonAutoMerge)
 			if mergeErr != nil {
 				t.Fatalf("merge: %v", mergeErr)
 			}
@@ -148,7 +150,7 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 				if id == master.ProfileId {
 					continue
 				}
-				child, err := profileStore.GetProfile(context.Background(), id, org)
+				child, err := profileStore.GetProfile(context.Background(), id, ref.ID)
 				if err != nil || child == nil {
 					t.Fatalf("load %s: %v", id, err)
 				}
@@ -169,7 +171,7 @@ func Test_LegacyOrganisation_AutoMergeStaysEnabled(t *testing.T) {
 	org := newOrg("legacy-automerge")
 	insertLegacyAdminConfig(t, org)
 
-	thresholds := irModel.LoadThresholds(context.Background(), org)
+	thresholds := irModel.LoadThresholds(context.Background(), setup.TestOrg(t, org).ID)
 	if !thresholds.AutoMergeEnabled {
 		t.Error("an organisation with no auto_merge_enabled row must keep merging automatically")
 	}
@@ -197,9 +199,10 @@ func Test_LegacyOrganisation_RulesAreIndexedOnWrite(t *testing.T) {
 func waitForBlockingKeys(t *testing.T, org, attribute, profileID string) {
 	t.Helper()
 
+	orgId := setup.TestOrg(t, org).ID
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		ids, err := irStore.FindCandidateIDsByKeys(context.Background(), org, attribute,
+		ids, err := irStore.FindCandidateIDsByKeys(context.Background(), orgId, attribute,
 			[]string{"legacy@acme.com"}, "none", 100)
 		if err == nil {
 			for _, id := range ids {

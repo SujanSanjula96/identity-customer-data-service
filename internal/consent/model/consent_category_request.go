@@ -36,12 +36,12 @@ type ConsentCategoryRequest struct {
 }
 
 // ToCategory converts the request into the internal ConsentCategory model.
-// orgHandle and (for updates) categoryIdentifier are injected by the handler.
-func (r ConsentCategoryRequest) ToCategory(orgHandle, categoryIdentifier string) ConsentCategory {
+// orgId and (for updates) categoryIdentifier are injected by the handler.
+func (r ConsentCategoryRequest) ToCategory(orgId, categoryIdentifier string) ConsentCategory {
 	return ConsentCategory{
 		CategoryName:       r.CategoryName,
 		CategoryIdentifier: categoryIdentifier,
-		OrgHandle:          orgHandle,
+		OrgId:              orgId,
 		Purpose:            r.Purpose,
 		Destinations:       r.Destinations,
 		Attributes:         r.Attributes,

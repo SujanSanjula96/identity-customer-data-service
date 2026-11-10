@@ -24,6 +24,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/application/model"
 	"github.com/wso2/identity-customer-data-service/internal/application/store"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	orgStore "github.com/wso2/identity-customer-data-service/internal/organization/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -32,8 +33,8 @@ import (
 
 // ApplicationServiceInterface defines the interface for the application service.
 type ApplicationServiceInterface interface {
-	ResolveAndRegisterApplication(ctx context.Context, appIdentifier, orgHandle string) (bool, error)
-	ResolveAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error)
+	ResolveAndRegisterApplication(ctx context.Context, appIdentifier string, orgId string) (bool, error)
+	ResolveAppIdentifierByClientID(ctx context.Context, orgId string, clientID string) (string, error)
 }
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
@@ -47,28 +48,32 @@ func GetApplicationService() ApplicationServiceInterface {
 
 // ResolveAndRegisterApplication validates the application in the identity server and persists its clientId.
 func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
-	appIdentifier, orgHandle string) (bool, error) {
+	appIdentifier string, orgId string) (bool, error) {
 
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
+	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgId)
+	if err != nil {
+		return false, err
+	}
 	app, exists, err := identityClient.GetApplication(appIdentifier, orgHandle)
 	if err != nil {
 		return false, err
 	}
 	if !exists {
 		logger.Debug(fmt.Sprintf("Application '%s' does not exist in the identity server for organization '%s'",
-			appIdentifier, orgHandle))
+			appIdentifier, orgId))
 		return false, nil
 	}
 
 	// clientId is empty for SAML-only apps; the row is still persisted (with a NULL clientId) so the table
 	// holds an entry for every application.
-	if err := store.UpsertApplication(ctx, model.Application{
-		AppID:     appIdentifier,
-		OrgHandle: orgHandle,
-		ClientID:  app.ClientId,
+	if err := store.UpsertApplication(ctx, orgId, model.Application{
+		AppID:    appIdentifier,
+		OrgId:    orgId,
+		ClientID: app.ClientId,
 	}); err != nil {
 		return false, err
 	}
@@ -80,14 +85,14 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 // If a sub organization has no mapping for the client ID, the ancestor organizations are checked,
 // nearest first.
 func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context,
-	orgHandle, clientID string) (string, error) {
+	orgId string, clientID string) (string, error) {
 
-	handles, err := orgChain(ctx, orgHandle)
+	orgIds, err := orgChain(ctx, orgId)
 	if err != nil {
 		return "", err
 	}
-	for _, handle := range handles {
-		appID, err := store.GetAppIdentifierByClientID(ctx, handle, clientID)
+	for _, chainOrgId := range orgIds {
+		appID, err := store.GetAppIdentifierByClientID(ctx, chainOrgId, clientID)
 		if err != nil || appID != "" {
 			return appID, err
 		}
@@ -95,23 +100,23 @@ func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context
 	return "", nil
 }
 
-// orgChain returns the handles of the organization and its ancestors, nearest first.
-func orgChain(ctx context.Context, orgHandle string) ([]string, error) {
+// orgChain returns the IDs of the organization and its ancestors, nearest first.
+func orgChain(ctx context.Context, orgId string) ([]string, error) {
 
-	org, err := orgStore.GetOrganizationByHandle(ctx, orgHandle)
+	org, err := orgStore.GetOrganizationById(ctx, orgId)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil || org.IsPrimary() {
-		return []string{orgHandle}, nil
+		return []string{orgId}, nil
 	}
 	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgId)
 	if err != nil {
 		return nil, err
 	}
-	handles := make([]string, 0, len(chain))
+	orgIds := make([]string, 0, len(chain))
 	for i := len(chain) - 1; i >= 0; i-- {
-		handles = append(handles, chain[i].OrgHandle)
+		orgIds = append(orgIds, chain[i].OrgId)
 	}
-	return handles, nil
+	return orgIds, nil
 }

@@ -22,6 +22,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"testing"
 	"time"
 
@@ -49,6 +50,9 @@ func TestUnificationRuleValues(t *testing.T) {
 	}
 }
 
+// tenantOrg is the organization of the worker tests.
+var tenantOrg = orgModel.Ref{ID: "org-id-tenant", Handle: "tenant"}
+
 func candidateWorkerDB(t *testing.T) *sql.DB {
 	t.Helper()
 	require.NoError(t, log.Init("ERROR"))
@@ -56,6 +60,7 @@ func candidateWorkerDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	provider.SetTestDB(db.DB, database.TypeSQLite)
 	t.Cleanup(func() { provider.SetTestDB(nil, ""); db.Terminate() })
+	require.NoError(t, setup.InsertTestOrganization(db.DB, setup.TestOrgId("tenant"), "tenant"))
 	return db.DB
 }
 
@@ -63,13 +68,13 @@ func workerProfile(t *testing.T, db *sql.DB, id, userID, attrs string, age time.
 	t.Helper()
 	created := time.Now().UTC().Add(-age)
 	_, err := db.Exec(`INSERT INTO profiles
-		(profile_id, org_handle, user_id, identity_attributes, created_at, location)
-		VALUES (?, 'tenant', ?, ?, ?, '')`, id, userID, attrs, created)
+		(profile_id, org_id, user_id, identity_attributes, created_at, location)
+		VALUES (?, 'org-id-tenant', ?, ?, ?, '')`, id, userID, attrs, created)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO profile_reference (profile_id, org_handle, profile_status, reference_reason)
-		VALUES (?, 'tenant', 'REFERENCE_PROFILE', '')`, id)
+	_, err = db.Exec(`INSERT INTO profile_reference (profile_id, org_id, profile_status, reference_reason)
+		VALUES (?, 'org-id-tenant', 'REFERENCE_PROFILE', '')`, id)
 	require.NoError(t, err)
-	p, err := profileStore.GetProfileWithOptions(context.Background(), id, "tenant",
+	p, err := profileStore.GetProfileWithOptions(context.Background(), id, tenantOrg.ID,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
 	require.NotNil(t, p)
@@ -79,13 +84,13 @@ func workerProfile(t *testing.T, db *sql.DB, id, userID, attrs string, age time.
 func workerRule(t *testing.T, db *sql.DB, id, property string, priority int, active bool) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO profile_schema
-		(attribute_id, org_handle, attribute_name, display_name, value_type, merge_strategy,
+		(attribute_id, org_id, attribute_name, display_name, value_type, merge_strategy,
 		application_identifier, mutability, scope)
-		VALUES (?, 'tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`, id, property, property)
+		VALUES (?, 'org-id-tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`, id, property, property)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO unification_rules
-		(rule_id, org_handle, rule_name, property_name, property_id, priority, is_active)
-		VALUES (?, 'tenant', ?, ?, ?, ?, ?)`, id, id, property, id, priority, active)
+		(rule_id, org_id, rule_name, property_name, property_id, priority, is_active)
+		VALUES (?, 'org-id-tenant', ?, ?, ?, ?, ?)`, id, id, property, id, priority, active)
 	require.NoError(t, err)
 }
 
@@ -104,7 +109,7 @@ func TestUnificationUserIDPrecedesRulesAndPreservesApplicationData(t *testing.T)
 		_, err = db.Exec(`INSERT INTO application_data (profile_id, app_id, application_data) VALUES (?, ?, ?)`, row.profile, row.app, row.data)
 		require.NoError(t, err)
 	}
-	unifyProfiles(context.Background(), incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var parent, reason string
 	require.NoError(t, db.QueryRow(`SELECT reference_profile_id, reference_reason FROM profile_reference WHERE profile_id='incoming'`).Scan(&parent, &reason))
 	require.Equal(t, "user-match", parent)
@@ -140,11 +145,11 @@ func TestRuleMatchingIsDelegatedToIdentityResolution(t *testing.T) {
 	t.Cleanup(func() { fuzzyResolveFunc = previous })
 
 	var delegated []string
-	RegisterFuzzyResolveFunc(func(_ context.Context, p profileModel.Profile) {
+	RegisterFuzzyResolveFunc(func(_ context.Context, _ string, p profileModel.Profile) {
 		delegated = append(delegated, p.ProfileId)
 	})
 
-	unifyProfiles(context.Background(), incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 
 	require.Equal(t, []string{"incoming"}, delegated,
 		"a profile with no user-ID match must be handed to identity resolution")
@@ -163,10 +168,10 @@ func TestUnificationChildStaysWithParent(t *testing.T) {
 	_, err := db.Exec(`UPDATE profile_reference SET profile_status='MERGED_TO', reference_profile_id='parent'
 		WHERE profile_id='incoming'`)
 	require.NoError(t, err)
-	child, err := profileStore.GetProfileWithOptions(context.Background(), "incoming", "tenant",
+	child, err := profileStore.GetProfileWithOptions(context.Background(), "incoming", tenantOrg.ID,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
-	unifyProfiles(context.Background(), *child)
+	unifyProfiles(context.Background(), tenantOrg.ID, *child)
 	var parentID string
 	require.NoError(t, db.QueryRow(`SELECT reference_profile_id FROM profile_reference
 		WHERE profile_id='incoming'`).Scan(&parentID))
@@ -180,7 +185,7 @@ func TestUnificationWaitingProfileIsSkipped(t *testing.T) {
 	require.NoError(t, err)
 	incoming.ProfileStatus.IsReferenceProfile = false
 	incoming.ProfileStatus.IsWaitingOnUser = true
-	unifyProfiles(context.Background(), incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var status string
 	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference
 		WHERE profile_id='incoming'`).Scan(&status))
@@ -194,18 +199,18 @@ func TestCandidateDiscoveryDoesNotRequireApplicationDataTable(t *testing.T) {
 	incoming := workerProfile(t, db, "incoming", "", `{"email":"b"}`, 0)
 	_, err := db.Exec(`DROP TABLE application_data`)
 	require.NoError(t, err)
-	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileId, incoming.OrgHandle,
+	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileId, tenantOrg.ID,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
-	id, err := profileStore.FindOldestReferenceProfileIDByAttributeValues(context.Background(), incoming.OrgHandle,
+	id, err := profileStore.FindOldestReferenceProfileIDByAttributeValues(context.Background(), tenantOrg.ID,
 		"identity_attributes.email", []string{"a"}, incoming.ProfileId, incoming.UserId)
 	require.NoError(t, err)
 	require.Equal(t, "master", id)
-	unifyProfiles(context.Background(), incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	// A selected pair needs application data. A read failure must leave the
 	// relationship unchanged rather than merging an incomplete profile.
 	incoming.IdentityAttributes["email"] = "a"
-	unifyProfiles(context.Background(), incoming)
+	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var status string
 	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference WHERE profile_id='incoming'`).Scan(&status))
 	require.Equal(t, "REFERENCE_PROFILE", status)

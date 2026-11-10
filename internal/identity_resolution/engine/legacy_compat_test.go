@@ -51,7 +51,7 @@ func TestLegacyDeterministicRulesStillMerge(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgHandle: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{
 		legacyRule("identity_attributes.email", 1),
@@ -85,7 +85,7 @@ func TestLegacyRuleWithOneRuleConfigured(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgHandle: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{legacyRule("identity_attributes.email", 1)}
 	shared := map[string]interface{}{"identity_attributes.email": "a@acme.com"}
@@ -105,7 +105,7 @@ func TestLegacyRulesDoNotMergeOnMismatch(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgHandle: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{legacyRule("identity_attributes.email", 1)}
 
@@ -198,7 +198,7 @@ func TestTwoLegacyRulesWithConflictingEvidence(t *testing.T) {
 		}
 		thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75,
 			DeterministicMatchDecisive: decisive}
-		ctx := ScoringContext{OrgHandle: "legacy", Thresholds: thresholds}
+		ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
 
 		for _, tt := range tests {
 			want := tt.wantOpen
@@ -227,7 +227,7 @@ func TestDeterministicMatchDecisiveLeavesFuzzyRulesOpen(t *testing.T) {
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75,
 		DeterministicMatchDecisive: true}
-	ctx := ScoringContext{OrgHandle: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
 
 	name := testRule("traits.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 1)
 	dob := testRule("traits.dob", constants.AttributeTypeDate, constants.UnificationMethodDeterministic, 2)

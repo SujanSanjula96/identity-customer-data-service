@@ -30,11 +30,11 @@ func attribute(id, name, valueType string) schemaModel.ProfileSchemaAttribute {
 }
 
 func rule(id, owner, propertyName, propertyId string) model.UnificationRule {
-	return model.UnificationRule{RuleId: id, OrgHandle: owner, PropertyName: propertyName, PropertyId: propertyId}
+	return model.UnificationRule{RuleId: id, OrgId: owner, PropertyName: propertyName, PropertyId: propertyId}
 }
 
 func shared(id, owner string, depth int) shareModel.SharedResource {
-	return shareModel.SharedResource{ResourceId: id, OwnerOrgHandle: owner, OwnerDepth: depth}
+	return shareModel.SharedResource{ResourceId: id, OwnerOrgId: owner, OwnerDepth: depth}
 }
 
 func statesOf(rules []sharedRule) map[string]string {

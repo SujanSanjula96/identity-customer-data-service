@@ -30,7 +30,7 @@ import (
 )
 
 // UpsertApplication persists the application information, refreshing the clientId on re-validation.
-func UpsertApplication(ctx context.Context, app model.Application) error {
+func UpsertApplication(ctx context.Context, orgId string, app model.Application) error {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -45,14 +45,14 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 	}
 	defer dbClient.Close()
 
-	// SAML-only apps have no clientId; store NULL so they don't collide on the (org_handle, client_id) unique key.
+	// SAML-only apps have no clientId; store NULL so they don't collide on the (org, client_id) unique key.
 	var clientID interface{}
 	if app.ClientID != "" {
 		clientID = app.ClientID
 	}
 
 	query := scripts.UpsertApplication
-	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, app.OrgHandle, clientID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgId, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
@@ -68,12 +68,12 @@ func UpsertApplication(ctx context.Context, app model.Application) error {
 }
 
 // GetAppIdentifierByClientID resolves an OAuth clientId to the app ID.
-func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string) (string, error) {
+func GetAppIdentifierByClientID(ctx context.Context, orgId, clientID string) (string, error) {
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_APPLICATION_FAILED.Code,
@@ -84,9 +84,9 @@ func GetAppIdentifierByClientID(ctx context.Context, orgHandle, clientID string)
 	defer dbClient.Close()
 
 	query := scripts.GetAppIdentifierByClientID
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgHandle, clientID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, clientID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgHandle)
+		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgId)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GET_APPLICATION_FAILED.Code,

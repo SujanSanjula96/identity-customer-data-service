@@ -68,10 +68,9 @@ type Policy struct {
 // SharedResource is a resource that an ancestor shares with an organization. OwnerDepth is the
 // number of levels from the organization up to the owner. The parent has the depth 1.
 type SharedResource struct {
-	ResourceId     string
-	OwnerOrgId     string
-	OwnerOrgHandle string
-	OwnerDepth     int
+	ResourceId string
+	OwnerOrgId string
+	OwnerDepth int
 }
 
 // Modes of child_orgs.

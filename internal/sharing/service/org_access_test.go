@@ -65,7 +65,7 @@ func markSynced(t *testing.T, ctx context.Context, primary orgModel.Organization
 
 	t.Helper()
 	values := map[string]string{orgModel.ConfigTreeSyncedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := orgStore.SetTreeSyncValues(ctx, primary.OrgHandle, values); err != nil {
+	if err := orgStore.SetTreeSyncValues(ctx, primary.OrgId, values); err != nil {
 		t.Fatalf("failed to mark the tree synced: %v", err)
 	}
 }
@@ -212,9 +212,9 @@ func TestGetSharedResources(t *testing.T) {
 		expected []model.SharedResource
 	}{
 		{"A", []model.SharedResource{
-			{ResourceId: "res-1", OwnerOrgId: "R", OwnerOrgHandle: "r", OwnerDepth: 1},
-			{ResourceId: "res-2", OwnerOrgId: "R", OwnerOrgHandle: "r", OwnerDepth: 1}}},
-		{"A1x", []model.SharedResource{{ResourceId: "res-1", OwnerOrgId: "R", OwnerOrgHandle: "r", OwnerDepth: 3}}},
+			{ResourceId: "res-1", OwnerOrgId: "R", OwnerDepth: 1},
+			{ResourceId: "res-2", OwnerOrgId: "R", OwnerDepth: 1}}},
+		{"A1x", []model.SharedResource{{ResourceId: "res-1", OwnerOrgId: "R", OwnerDepth: 3}}},
 		// The organization access does not include B, and A2 is not active.
 		{"B", nil},
 		{"A2", nil},

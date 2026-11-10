@@ -29,7 +29,7 @@ import (
 // UnificationRule represents rules for merging user profiles
 type UnificationRule struct {
 	RuleId            string `json:"rule_id" bson:"rule_id" binding:"required"`
-	OrgHandle         string `json:"org_handle" bson:"org_handle" binding:"required"`
+	OrgId             string `json:"org_id" bson:"org_id" binding:"required"`
 	RuleName          string `json:"rule_name" bson:"rule_name" binding:"required"`
 	PropertyName      string `json:"property_name" bson:"property_name" binding:"required"`
 	PropertyId        string `json:"property_id" bson:"property_id" binding:"required"`
@@ -46,10 +46,9 @@ type UnificationRule struct {
 	CreatedAt        time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" bson:"updated_at"`
 	// Set only on reads of the effective rules.
-	Origin         string `json:"origin,omitempty" bson:"-"`           // OWNED or SHARED
-	OwnerOrgHandle string `json:"owner_org_handle,omitempty" bson:"-"` // The owner org of a shared rule
-	State          string `json:"state,omitempty" bson:"-"`            // ACTIVE, or why the rule does not run
-	Rank           int    `json:"-" bson:"-"`                          // Position in the evaluation order
+	Origin string `json:"origin,omitempty" bson:"-"` // OWNED or SHARED
+	State  string `json:"state,omitempty" bson:"-"`  // ACTIVE, or why the rule does not run
+	Rank   int    `json:"-" bson:"-"`                // Position in the evaluation order
 }
 
 // ApplyDefaults fills in the fields that older rules predate, deriving each from the

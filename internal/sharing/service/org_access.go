@@ -36,9 +36,9 @@ import (
 
 // IsSubOrgEnabled reports whether the organization access of the primary organization includes the
 // organization.
-func IsSubOrgEnabled(ctx context.Context, orgHandle string) bool {
+func IsSubOrgEnabled(ctx context.Context, orgId string) bool {
 
-	org, err := orgService.GetOrganizationByHandle(ctx, orgHandle)
+	org, err := orgService.GetOrganizationById(ctx, orgId)
 	if err != nil || org == nil {
 		return false
 	}
@@ -185,7 +185,7 @@ func DeleteOrgAccess(ctx context.Context, primary orgModel.Organization, policyI
 // requireSyncedTree returns an error until the organization tree is synced at least once.
 func requireSyncedTree(ctx context.Context, primary orgModel.Organization) error {
 
-	status, err := orgService.GetTreeSyncStatus(ctx, primary.OrgHandle)
+	status, err := orgService.GetTreeSyncStatus(ctx, primary.OrgId)
 	if err != nil {
 		return err
 	}

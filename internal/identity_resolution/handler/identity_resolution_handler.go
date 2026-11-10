@@ -26,6 +26,7 @@ import (
 
 	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/provider"
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/authn"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -50,13 +51,9 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 		return
 	}
 
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if orgHandle == "" {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: "Organization handle is required.",
-		}, http.StatusBadRequest))
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
 		return
 	}
 
@@ -76,9 +73,9 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 
 	var response *irModel.ReviewTaskListResponse
 	if profileID != "" {
-		response, err = svc.GetPendingReviewTasksByProfile(r.Context(), orgHandle, profileID, pageSize)
+		response, err = svc.GetPendingReviewTasksByProfile(r.Context(), org.ID, profileID, pageSize)
 	} else {
-		response, err = svc.GetPendingReviewTasks(r.Context(), orgHandle, pageSize)
+		response, err = svc.GetPendingReviewTasks(r.Context(), org.ID, pageSize)
 	}
 	if err != nil {
 		logger.Error("Handler: failed to fetch review tasks", log.Error(err))
@@ -98,13 +95,9 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 		utils.HandleError(w, err)
 		return
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if orgHandle == "" {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: "Organization handle is required.",
-		}, http.StatusBadRequest))
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
 		return
 	}
 	taskID := r.PathValue("taskId")
@@ -144,7 +137,7 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 	approved := resolveReq.Decision == constants.ReviewStatusApproved
 
 	svc := provider.NewIdentityResolutionProvider().GetIdentityResolutionService()
-	err = svc.ResolveReviewTask(r.Context(), orgHandle, taskID, approved, resolvedBy, resolveReq.Notes)
+	err = svc.ResolveReviewTask(r.Context(), org.ID, taskID, approved, resolvedBy, resolveReq.Notes)
 	if err != nil {
 		logger.Error("Handler: failed to resolve review task", log.Error(err))
 		utils.HandleError(w, err)

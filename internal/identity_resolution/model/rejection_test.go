@@ -134,3 +134,33 @@ func TestShouldReconsiderWithoutStoredEvidence(t *testing.T) {
 		t.Error("no evidence either side should not reopen the pair")
 	}
 }
+
+// TestNewlyAgreeing names the rules that brought a rejected pair back, which is what a
+// reviewer is told changed since they last saw it.
+func TestNewlyAgreeing(t *testing.T) {
+	rejected := Rejection{
+		MatchScore: 1.0,
+		ScoreBreakdown: map[string]float64{
+			"identity_attributes.email": 0.0,
+			"identity_attributes.name":  1.0,
+		},
+	}
+
+	got := rejected.NewlyAgreeing(map[string]float64{
+		"identity_attributes.email":  1.0,
+		"identity_attributes.name":   1.0,
+		"identity_attributes.mobile": 1.0,
+		"identity_attributes.city":   0.4,
+	}, 0.75)
+
+	want := []string{"identity_attributes.email", "identity_attributes.mobile"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("NewlyAgreeing = %v, want %v: the name already agreed and the city does not", got, want)
+	}
+
+	// The similarity cannot rise above 1.0, so for a pair rejected at 1.0 only a newly
+	// agreeing rule can bring it back.
+	if rejected.ShouldReconsider(1.0, rejected.ScoreBreakdown, 0.75) {
+		t.Error("a pair rejected at full similarity came back on the same evidence")
+	}
+}

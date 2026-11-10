@@ -20,10 +20,13 @@ package integration
 
 import (
 	"context"
+	"github.com/wso2/identity-customer-data-service/test/setup"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	irService "github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
@@ -34,8 +37,9 @@ import (
 )
 
 // insertRule stores a unification rule straight to the table, for the same reason as
-// insertFuzzyNameRule: the store would need a profile schema seeded for property_id.
-func insertRule(t *testing.T, org, name, property string, priority int, attributeType, method string) {
+// insertFuzzyNameRule: the store would need a profile schema seeded for property_id. It
+// returns the rule's ID.
+func insertRule(t *testing.T, org, name, property string, priority int, attributeType, method string) string {
 	t.Helper()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -45,11 +49,13 @@ func insertRule(t *testing.T, org, name, property string, priority int, attribut
 	defer dbClient.Close()
 
 	now := time.Now().UTC()
+	ruleID := uuid.New().String()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		uuid.New().String(), org, name, property, priority, true, attributeType, method, now, now)
+		ruleID, resolveOrgId(t, org), name, property, priority, true, attributeType, method, now, now)
 	if err != nil {
 		t.Fatalf("store rule %q: %v", name, err)
 	}
+	return ruleID
 }
 
 // Test_RejectedPair_ReconsideredIsReviewedNotMerged checks that a pair an administrator
@@ -67,19 +73,20 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 
 	ctx := context.Background()
 	org := newOrg("reject-reconsider")
-	insertRule(t, org, "email", "traits.email", 1, constants.AttributeTypeEmail, constants.UnificationMethodDeterministic)
+	ref := setup.TestOrg(t, org)
+	emailRule := insertRule(t, org, "email", "traits.email", 1, constants.AttributeTypeEmail, constants.UnificationMethodDeterministic)
 	insertRule(t, org, "name", "traits.name", 2, constants.AttributeTypeName, constants.UnificationMethodFuzzy)
 
 	// Same name, different emails: the name agrees, the email disagrees, so the pair is
 	// raised for review rather than merged.
 	first := insertBareProfile(t, org, "", map[string]interface{}{
 		"name": "Marcus Delacroix", "email": "marcus.d@cdsfuzz.io"})
-	irWorker.ResolveProfileAsync(ctx, first)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, first)
 	second := insertBareProfile(t, org, "", map[string]interface{}{
 		"name": "Marcus Delacroix", "email": "mdelacroix@othermail.io"})
-	irWorker.ResolveProfileAsync(ctx, second)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 
-	pending, _, err := irStore.GetPendingReviewTasks(ctx, org, 10)
+	pending, _, err := irStore.GetPendingReviewTasks(ctx, ref.ID, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -91,15 +98,24 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	if len(pending[0].ScoreBreakdown) == 0 {
 		t.Fatal("the review task was read back without its score breakdown")
 	}
+	// The task records how alike the pair is, not the capped score that held it back: the
+	// names match exactly, so 1.0. The reasons say what held it.
+	if pending[0].MatchScore != 1.0 {
+		t.Errorf("the task recorded %.4f, want the similarity 1.0", pending[0].MatchScore)
+	}
+	if got := explanationCodes(pending[0]); !reflect.DeepEqual(got,
+		[]string{irModel.ReasonConflictingEvidence, irModel.ReasonWeakSoleEvidence}) {
+		t.Errorf("the task was explained as %v, want conflicting evidence and a weak sole match", got)
+	}
 
 	svc := irService.GetIdentityResolutionService()
-	if err := svc.ResolveReviewTask(ctx, org, pending[0].ID, false, "admin", "different people"); err != nil {
+	if err := svc.ResolveReviewTask(ctx, ref.ID, pending[0].ID, false, "admin", "different people"); err != nil {
 		t.Fatalf("reject task: %v", err)
 	}
 
 	// Evaluating the pair again on the same evidence leaves the rejection standing.
-	irWorker.ResolveProfileAsync(ctx, second)
-	if stillRejected, _, err := irStore.GetPendingReviewTasks(ctx, org, 10); err != nil {
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
+	if stillRejected, _, err := irStore.GetPendingReviewTasks(ctx, ref.ID, 10); err != nil {
 		t.Fatalf("list tasks: %v", err)
 	} else if len(stillRejected) != 0 {
 		t.Fatalf("the rejected pair was raised again with no new evidence: %d pending tasks", len(stillRejected))
@@ -108,13 +124,13 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	// The email now agrees as well. That is new evidence, so the rejection is reconsidered,
 	// and on its own an exact email match would merge the pair.
 	second.Traits["email"] = "marcus.d@cdsfuzz.io"
-	if err := profileStore.UpdateProfile(ctx, second); err != nil {
+	if err := profileStore.UpdateProfile(ctx, ref.ID, second); err != nil {
 		t.Fatalf("update profile: %v", err)
 	}
-	irWorker.ResolveProfileAsync(ctx, second)
+	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 
 	for _, p := range []string{first.ProfileId, second.ProfileId} {
-		stored, err := profileStore.GetProfile(ctx, p, org)
+		stored, err := profileStore.GetProfile(ctx, p, ref.ID)
 		if err != nil || stored == nil {
 			t.Fatalf("load profile %s: %v", p, err)
 		}
@@ -124,11 +140,42 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 		}
 	}
 
-	reopened, _, err := irStore.GetPendingReviewTasks(ctx, org, 10)
+	reopened, _, err := irStore.GetPendingReviewTasks(ctx, ref.ID, 10)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
 	if len(reopened) != 1 {
-		t.Errorf("expected the reconsidered pair back in the review queue, got %d pending tasks", len(reopened))
+		t.Fatalf("expected the reconsidered pair back in the review queue, got %d pending tasks", len(reopened))
 	}
+
+	// The returning task says why it is back: the email rule agrees now, and the pair was
+	// rejected at full similarity.
+	var reconsideredReason *irModel.ReviewReason
+	if reopened[0].Explanation != nil {
+		for i, reason := range reopened[0].Explanation.Reasons {
+			if reason.Code == irModel.ReasonRejectionReconsidered {
+				reconsideredReason = &reopened[0].Explanation.Reasons[i]
+			}
+		}
+	}
+	if reconsideredReason == nil {
+		t.Fatalf("the reconsidered task does not say it was reconsidered: %v", explanationCodes(reopened[0]))
+	}
+	if !reflect.DeepEqual(reconsideredReason.RuleIDs, []string{emailRule}) {
+		t.Errorf("the reconsidered reason names rules %v, want the email rule %s", reconsideredReason.RuleIDs, emailRule)
+	}
+	if reconsideredReason.PreviousSimilarity == nil || *reconsideredReason.PreviousSimilarity != 1.0 {
+		t.Errorf("the reconsidered reason does not carry the similarity the pair was rejected at")
+	}
+}
+
+func explanationCodes(task irModel.ReviewTask) []string {
+	if task.Explanation == nil {
+		return nil
+	}
+	codes := make([]string, 0, len(task.Explanation.Reasons))
+	for _, reason := range task.Explanation.Reasons {
+		codes = append(codes, reason.Code)
+	}
+	return codes
 }

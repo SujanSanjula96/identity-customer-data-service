@@ -60,8 +60,12 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 		utils.HandleError(w, err)
 		return nil, false
 	}
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), orgHandle) {
+	ref, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return nil, false
+	}
+	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref.ID) {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.CDS_NOT_ENABLED.Code,
 			Message:     errors2.CDS_NOT_ENABLED.Message,
@@ -69,7 +73,7 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 		}, http.StatusBadRequest))
 		return nil, false
 	}
-	org, err := knownOrg(r.Context(), orgHandle)
+	org, err := knownOrg(r.Context(), ref)
 	if err != nil {
 		utils.HandleError(w, err)
 		return nil, false
@@ -77,11 +81,11 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 	return org, true
 }
 
-// knownOrg returns the stored organization of the handle. It stores the primary organization if it
-// is not stored yet.
-func knownOrg(ctx context.Context, orgHandle string) (*orgModel.Organization, error) {
+// knownOrg returns the stored organization. It stores the primary organization if it is not
+// stored yet.
+func knownOrg(ctx context.Context, ref orgModel.Ref) (*orgModel.Organization, error) {
 
-	org, err := orgService.GetOrStoreOrganization(ctx, orgHandle)
+	org, err := orgService.GetOrStoreOrganization(ctx, ref.Handle)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +93,7 @@ func knownOrg(ctx context.Context, orgHandle string) (*orgModel.Organization, er
 		return nil, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
 			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
-			Description: "CDS does not know the organization '" + orgHandle + "'.",
+			Description: "CDS does not know the organization '" + ref.ID + "'.",
 		}, http.StatusNotFound)
 	}
 	return org, nil
