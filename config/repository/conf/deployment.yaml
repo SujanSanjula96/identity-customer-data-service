@@ -11,10 +11,9 @@ cache:
 
 
 auth:
-  # Fallback browser origins, applied to requests that carry no organisation in the path
-  # and to organisations that have configured none of their own. An organisation sets its
-  # own origins through cors_allowed_origins in the admin configuration API, and those
-  # replace this list for its requests.
+  # Browser origins allowed on every request, for the apps every organisation uses, such as
+  # the Console and My Account. An organisation adds the origins of its own apps through
+  # cors_allowed_origins in the admin configuration API, and those apply to its requests only.
   cors_allowed_origins:
     - "http://localhost:3000"
     - "http://localhost:3001"

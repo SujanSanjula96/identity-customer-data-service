@@ -16,9 +16,10 @@
  * under the License.
  */
 
-// Package cors decides which browser origins may call the service. The allowed set is
-// per organisation, so it is resolved from the organisation in the request path rather
-// than from a single deployment-wide list.
+// Package cors decides which browser origins may call the service. The deployment-wide list
+// holds the browser apps every organisation uses, such as the Console, and applies to every
+// request. An organisation adds the origins of its own apps, which apply to its requests only,
+// so they are resolved from the organisation in the request path.
 package cors
 
 import (
@@ -42,15 +43,13 @@ type Org struct {
 	SubOrgId string
 }
 
-// OriginsLookup returns the origins an organisation allows. An empty result means the
-// organisation has configured none, and the deployment-wide fallback applies. An error means
-// the origins could not be read, and no origin is allowed.
+// OriginsLookup returns the origins an organisation has added to the deployment-wide list. An
+// error means they could not be read, and only the deployment-wide list applies.
 type OriginsLookup func(ctx context.Context, org Org) ([]string, error)
 
-// Middleware answers cross-origin requests for UI/SDK clients. For a request addressed to
-// an organisation it matches the Origin header against that organisation's configured
-// origins; for one that carries no organisation, such as the health check, and for an
-// organisation that has configured none, it falls back to deploymentOrigins.
+// Middleware answers cross-origin requests for UI/SDK clients. It allows the origins in
+// deploymentOrigins on every request and, for a request addressed to an organisation, the
+// origins that organisation has added as well.
 func Middleware(next http.Handler, lookup OriginsLookup, deploymentOrigins func() []string) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,29 +84,33 @@ func Middleware(next http.Handler, lookup OriginsLookup, deploymentOrigins func(
 func isOriginAllowed(r *http.Request, origin string, lookup OriginsLookup,
 	deploymentOrigins func() []string) bool {
 
-	var allowed []string
-
-	if org := ExtractOrgFromPath(r.URL.Path); org.Handle != "" && lookup != nil {
-		origins, err := lookup(r.Context(), org)
-		if err != nil {
-			// Falling back to the deployment-wide list here would widen what an organisation
-			// with origins of its own allows whenever they cannot be read.
-			log.GetLogger().Debug("Failed to read the CORS allowed origins of the organization. "+
-				"Allowing no origin.", log.String("orgHandle", org.Handle), log.Error(err))
-			return false
-		}
-		allowed = origins
-	}
-
-	// No organisation in the path, or none configured for it: the deployment-wide list
-	// applies, which is what every deployment relied on before origins became per
-	// organisation.
-	if len(allowed) == 0 && deploymentOrigins != nil {
-		allowed = deploymentOrigins()
-	}
-
 	normalizedOrigin := normalizeOrigin(origin)
-	for _, candidate := range allowed {
+
+	// The deployment-wide list applies to every request, so an origin in it, such as the
+	// Console's, needs no lookup of the organisation.
+	if deploymentOrigins != nil && containsOrigin(deploymentOrigins(), normalizedOrigin) {
+		return true
+	}
+
+	org := ExtractOrgFromPath(r.URL.Path)
+	if org.Handle == "" || lookup == nil {
+		return false
+	}
+	origins, err := lookup(r.Context(), org)
+	if err != nil {
+		// The deployment-wide list still applies, so the apps every organisation uses keep
+		// working while the origins of this one cannot be read.
+		log.GetLogger().Debug("Failed to read the CORS allowed origins of the organization. "+
+			"Allowing the deployment-wide origins only.", log.String("orgHandle", org.Handle), log.Error(err))
+		return false
+	}
+	return containsOrigin(origins, normalizedOrigin)
+}
+
+// containsOrigin reports whether normalizedOrigin is among origins.
+func containsOrigin(origins []string, normalizedOrigin string) bool {
+
+	for _, candidate := range origins {
 		if normalizeOrigin(candidate) == normalizedOrigin {
 			return true
 		}

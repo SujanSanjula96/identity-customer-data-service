@@ -29,9 +29,8 @@ type AdminConfig struct {
 	// DeterministicMatchDecisive: a pair agreeing on any deterministic rule merges without
 	// the other rules being consulted. Off, the other rules may object and send it to review.
 	DeterministicMatchDecisive bool `json:"deterministic_match_decisive" bson:"deterministic_match_decisive"`
-	// CORSAllowedOrigins are the browser origins allowed to call this organisation's
-	// endpoints. An empty list means the organisation has configured none, and the
-	// deployment-wide auth.cors_allowed_origins list applies instead.
+	// CORSAllowedOrigins are the browser origins of the organisation's own apps, allowed to
+	// call its endpoints in addition to the deployment-wide auth.cors_allowed_origins list.
 	CORSAllowedOrigins []string `json:"cors_allowed_origins" bson:"cors_allowed_origins"`
 }
 

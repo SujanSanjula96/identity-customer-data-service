@@ -104,10 +104,9 @@ func (a AdminConfigService) LookupCORSOrgId(ctx context.Context, orgHandle strin
 	return corsOrgIds.resolve(ctx, orgHandle)
 }
 
-// GetCORSAllowedOrigins returns the browser origins the organisation allows. The CORS
-// middleware consults it on every request, preflight included, so the origins are cached per
-// organisation. An empty result means the organisation has configured none and the caller
-// should fall back to the deployment-wide list.
+// GetCORSAllowedOrigins returns the browser origins the organisation has added to the
+// deployment-wide list. The CORS middleware consults it on requests from an origin outside that
+// list, preflight included, so the origins are cached per organisation.
 //
 // subOrgId is the ID of the sub organisation a /t/{primary_handle}/o/{org_id}/... path
 // addresses, and empty otherwise. A sub organisation cannot configure origins of its own yet,

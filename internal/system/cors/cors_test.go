@@ -140,7 +140,7 @@ func TestOrgOriginIsNotAllowedForAnotherOrg(t *testing.T) {
 
 // An organisation that has configured no origins keeps working on the deployment list, so
 // existing deployments are unaffected.
-func TestFallsBackToDeploymentOriginsWhenOrgHasNone(t *testing.T) {
+func TestDeploymentOriginsApplyWhenOrgHasNone(t *testing.T) {
 
 	lookup := func(_ context.Context, _ Org) ([]string, error) { return nil, nil }
 	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
@@ -151,16 +151,33 @@ func TestFallsBackToDeploymentOriginsWhenOrgHasNone(t *testing.T) {
 	}
 }
 
-// Once an organisation configures its own origins, the deployment list no longer applies
-// to it.
-func TestOrgOriginsReplaceDeploymentOrigins(t *testing.T) {
+// An organisation's origins are allowed in addition to the deployment list, so the apps every
+// organisation uses, such as the Console, keep working once it adds its own.
+func TestOrgOriginsAddToDeploymentOrigins(t *testing.T) {
 
 	lookup := func(_ context.Context, _ Org) ([]string, error) { return []string{"https://app.acme.com"}, nil }
 	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
 
+	for _, origin := range []string{"https://console.example.com", "https://app.acme.com"} {
+		w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", origin)
+		if got := w.Header().Get("Access-Control-Allow-Origin"); got != origin {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, origin)
+		}
+	}
+}
+
+// An origin in the deployment list is allowed without a lookup of the organisation.
+func TestDeploymentOriginNeedsNoLookup(t *testing.T) {
+
+	lookup := func(_ context.Context, _ Org) ([]string, error) {
+		t.Error("lookup must not be called for an origin in the deployment list")
+		return nil, nil
+	}
+	h, _ := newTestHandler(lookup, []string{"https://console.example.com"})
+
 	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Fatalf("Access-Control-Allow-Origin = %q, want empty once the org sets its own list", got)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://console.example.com" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want the deployment origin", got)
 	}
 }
 
@@ -179,9 +196,9 @@ func TestPathWithoutOrgUsesDeploymentOrigins(t *testing.T) {
 	}
 }
 
-// Origins that cannot be read allow no origin, rather than the deployment-wide list, which
-// would widen what an organisation with origins of its own allows.
-func TestFailedLookupAllowsNoOrigin(t *testing.T) {
+// When an organisation's origins cannot be read, the deployment list still applies and its own
+// origins do not.
+func TestFailedLookupAllowsDeploymentOriginsOnly(t *testing.T) {
 
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
@@ -191,12 +208,16 @@ func TestFailedLookupAllowsNoOrigin(t *testing.T) {
 	}
 	h, reached := newTestHandler(lookup, []string{"https://console.example.com"})
 
-	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
+	w := doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://app.acme.com")
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("Access-Control-Allow-Origin = %q, want empty when the origins cannot be read", got)
 	}
 	if !*reached {
 		t.Error("request did not reach the wrapped handler")
+	}
+	w = doRequest(h, http.MethodGet, "/t/acme/cds/api/v1/profiles", "https://console.example.com")
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://console.example.com" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want the deployment origin", got)
 	}
 }
 
