@@ -20,6 +20,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -37,6 +38,10 @@ import (
 // reloaded. An update reloads it in-process at once, so this is also the window in which
 // another replica may still answer with the previous list.
 const corsOriginsRefreshInterval = 30 * time.Second
+
+// maxStoredCORSOriginsLength is the width of cds_config.value, which holds the origins as one
+// JSON array. A longer list is refused rather than left for the database to reject.
+const maxStoredCORSOriginsLength = 500
 
 // corsOrigins holds the configured origins of every organisation. The CORS middleware runs
 // before authentication on every request, preflight included, so a lookup must not reach
@@ -198,6 +203,12 @@ func validateCORSOrigins(origins []string) ([]string, error) {
 		}
 		seen[candidate] = true
 		normalized = append(normalized, candidate)
+	}
+
+	if stored, err := json.Marshal(normalized); err == nil && len(stored) > maxStoredCORSOriginsLength {
+		return nil, newCORSOriginError(fmt.Sprintf(
+			"The allowed origins take %d characters once stored, over the limit of %d. Remove some origins.",
+			len(stored), maxStoredCORSOriginsLength))
 	}
 
 	return normalized, nil

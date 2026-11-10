@@ -117,6 +117,28 @@ func TestValidateCORSOriginsRejectsWholeListOnOneBadEntry(t *testing.T) {
 	}
 }
 
+// The origins are stored as one JSON array in a column of limited width, so a list that would
+// not fit is refused with a client error rather than failing in the database.
+func TestValidateCORSOriginsRejectsAListTooLongToStore(t *testing.T) {
+
+	var origins []string
+	for i := 0; i < 30; i++ {
+		origins = append(origins, fmt.Sprintf("https://app-%02d.acme.com", i))
+	}
+	_, err := validateCORSOrigins(origins)
+	if err == nil {
+		t.Fatal("expected an error for a list too long to store")
+	}
+	if clientError, ok := err.(*errors.ClientError); !ok || clientError.StatusCode != http.StatusBadRequest {
+		t.Errorf("error = %v, want a bad request client error", err)
+	}
+
+	// The same list cut down to fit is stored.
+	if _, err := validateCORSOrigins(origins[:10]); err != nil {
+		t.Errorf("unexpected error for a list that fits: %v", err)
+	}
+}
+
 // countingLoader stands in for the database read, counting how often the snapshot reads.
 type countingLoader struct {
 	reads   int
