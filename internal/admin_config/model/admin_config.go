@@ -29,6 +29,10 @@ type AdminConfig struct {
 	// DeterministicMatchDecisive: a pair agreeing on any deterministic rule merges without
 	// the other rules being consulted. Off, the other rules may object and send it to review.
 	DeterministicMatchDecisive bool `json:"deterministic_match_decisive" bson:"deterministic_match_decisive"`
+	// CORSAllowedOrigins are the browser origins allowed to call this organisation's
+	// endpoints. An empty list means the organisation has configured none, and the
+	// deployment-wide auth.cors_allowed_origins list applies instead.
+	CORSAllowedOrigins []string `json:"cors_allowed_origins" bson:"cors_allowed_origins"`
 }
 
 type AdminConfigAPI struct {
@@ -38,6 +42,7 @@ type AdminConfigAPI struct {
 	AutoMergeThreshold         float64  `json:"auto_merge_threshold" bson:"auto_merge_threshold"`
 	ManualReviewThreshold      float64  `json:"manual_review_threshold" bson:"manual_review_threshold"`
 	DeterministicMatchDecisive bool     `json:"deterministic_match_decisive" bson:"deterministic_match_decisive"`
+	CORSAllowedOrigins         []string `json:"cors_allowed_origins,omitempty" bson:"cors_allowed_origins,omitempty"`
 }
 
 type AdminConfigUpdateAPI struct {
@@ -47,4 +52,5 @@ type AdminConfigUpdateAPI struct {
 	AutoMergeThreshold         *float64 `json:"auto_merge_threshold,omitempty"`
 	ManualReviewThreshold      *float64 `json:"manual_review_threshold,omitempty"`
 	DeterministicMatchDecisive *bool    `json:"deterministic_match_decisive,omitempty"`
+	CORSAllowedOrigins         []string `json:"cors_allowed_origins,omitempty"`
 }

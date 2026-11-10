@@ -45,7 +45,9 @@ type AdminConfigServiceInterface interface {
 	IsCDSEnabled(ctx context.Context, orgId string) bool
 	IsInitialSchemaSyncDone(ctx context.Context, orgId string) bool
 	IsSystemApplication(ctx context.Context, orgId string, appId string) (bool, error)
-	UpdateAdminConfig(ctx context.Context, category model.AdminConfig, org orgModel.Ref) error
+	LookupCORSOrgId(ctx context.Context, orgHandle string) (orgId string, found bool, err error)
+	GetCORSAllowedOrigins(ctx context.Context, orgId, subOrgId string) ([]string, error)
+	UpdateAdminConfig(ctx context.Context, updatedConfig *model.AdminConfig, org orgModel.Ref) error
 	UpdateInitialSchemaSync(ctx context.Context, state bool, orgId string) error
 }
 
@@ -94,6 +96,26 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgId strin
 	return false, nil
 }
 
+// LookupCORSOrgId returns the org ID of the handle in the path of a request, for the CORS
+// middleware. found is false when CDS has no organization for the handle. It runs before the
+// request is authenticated, so it neither stores the organization nor asks the identity
+// provider, and a handle found unknown is answered without a read for a while.
+func (a AdminConfigService) LookupCORSOrgId(ctx context.Context, orgHandle string) (string, bool, error) {
+	return corsOrgIds.resolve(ctx, orgHandle)
+}
+
+// GetCORSAllowedOrigins returns the browser origins the organisation allows. The CORS
+// middleware consults it on every request, preflight included, so the origins are cached per
+// organisation. An empty result means the organisation has configured none and the caller
+// should fall back to the deployment-wide list.
+//
+// subOrgId is the ID of the sub organisation a /t/{primary_handle}/o/{org_id}/... path
+// addresses, and empty otherwise. A sub organisation cannot configure origins of its own yet,
+// so it is answered with those of its primary organisation, orgId.
+func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgId, subOrgId string) ([]string, error) {
+	return corsOrigins.get(ctx, orgId)
+}
+
 func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgId string) (model.AdminConfig, error) {
 
 	defaultConfig := model.AdminConfig{
@@ -101,6 +123,7 @@ func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgId string) (m
 		CDSEnabled:            false,
 		InitialSchemaSyncDone: false,
 		SystemApplications:    []string{},
+		CORSAllowedOrigins:    []string{},
 	}
 	config, err := store.GetAdminConfig(ctx, orgId)
 	if err != nil {
@@ -125,6 +148,9 @@ func (a AdminConfigService) GetAdminConfig(ctx context.Context, orgId string) (m
 			config.AutoMergeThreshold = primaryConfig.AutoMergeThreshold
 			config.ManualReviewThreshold = primaryConfig.ManualReviewThreshold
 			config.DeterministicMatchDecisive = primaryConfig.DeterministicMatchDecisive
+			// Its requests arrive under the path of the primary organization, so the CORS
+			// middleware answers them with the origins of the primary organization.
+			config.CORSAllowedOrigins = primaryConfig.CORSAllowedOrigins
 		}
 	}
 	return *config, nil
@@ -215,8 +241,10 @@ func validateThresholds(autoMerge, manualReview float64) error {
 	return nil
 }
 
+// UpdateAdminConfig validates and stores the organisation's configuration. It normalizes
+// updatedConfig in place, so the caller can report back exactly what was stored.
 func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
-	updatedConfig model.AdminConfig, org orgModel.Ref) error {
+	updatedConfig *model.AdminConfig, org orgModel.Ref) error {
 	// A sub organization cannot change the configuration.
 	if err := suborg.RejectWrite(ctx, org.ID); err != nil {
 		return err
@@ -227,6 +255,11 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 	if err := validateThresholds(updatedConfig.AutoMergeThreshold, updatedConfig.ManualReviewThreshold); err != nil {
 		return err
 	}
+	validatedOrigins, err := validateCORSOrigins(updatedConfig.CORSAllowedOrigins)
+	if err != nil {
+		return err
+	}
+	updatedConfig.CORSAllowedOrigins = validatedOrigins
 
 	isCDSEnabledInitialState := a.IsCDSEnabled(ctx, org.ID)
 	isInitialSchemaSyncDoneInitialState := a.IsInitialSchemaSyncDone(ctx, org.ID)
@@ -276,9 +309,15 @@ func (a AdminConfigService) UpdateAdminConfig(ctx context.Context,
 		}
 	}
 
-	if err := store.UpdateAdminConfig(ctx, updatedConfig, org.ID); err != nil {
+	if err := store.UpdateAdminConfig(ctx, *updatedConfig, org.ID); err != nil {
 		return err
 	}
+
+	// Drop the cached origins so this process serves the new list at once. Other replicas
+	// pick it up once their cached entry expires.
+	corsOrigins.invalidate(org.ID)
+	corsOrgIds.forget(org.Handle)
+
 	if !sysconfig.OrganizationManagementEnabled() {
 		return nil
 	}

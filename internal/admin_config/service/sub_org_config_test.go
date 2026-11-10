@@ -63,6 +63,7 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 		AutoMergeThreshold:         0.95,
 		ManualReviewThreshold:      0.6,
 		DeterministicMatchDecisive: false,
+		CORSAllowedOrigins:         []string{"https://app.primary.example"},
 	}
 	if err := store.UpdateAdminConfig(ctx, primaryConfig, "primary-id"); err != nil {
 		t.Fatalf("failed to store the configuration of the primary organization: %v", err)
@@ -75,5 +76,8 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 	if got.AutoMergeEnabled || got.AutoMergeThreshold != 0.95 || got.ManualReviewThreshold != 0.6 ||
 		got.DeterministicMatchDecisive {
 		t.Errorf("got %+v, want the identity resolution settings of the primary organization", got)
+	}
+	if len(got.CORSAllowedOrigins) != 1 || got.CORSAllowedOrigins[0] != "https://app.primary.example" {
+		t.Errorf("got CORS allowed origins %v, want those of the primary organization", got.CORSAllowedOrigins)
 	}
 }

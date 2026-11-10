@@ -32,7 +32,9 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	adminConfigProvider "github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/cors"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/idp"
@@ -140,7 +142,7 @@ func main() {
 	}
 
 	serverAddr := fmt.Sprintf("%s:%d", cdsConfig.Addr.Host, cdsConfig.Addr.Port)
-	mux := enableCORS(initMultiplexer())
+	mux := newCORSMiddleware(initMultiplexer())
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("WSO2 CDS starting securely on: https://%s", serverAddr))
@@ -238,40 +240,24 @@ func initMultiplexer() *http.ServeMux {
 	return mux
 }
 
-// enableCORS allows cross-origin requests for UI/SDK clients.
-func enableCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cdsAuthConfig := config.GetCDSRuntime().Config.Auth
-		origin := r.Header.Get("Origin")
+// newCORSMiddleware wraps handler with the organisation-aware CORS middleware. Origins are
+// resolved per organisation from the admin configuration, falling back to the
+// deployment-wide auth.cors_allowed_origins list.
+func newCORSMiddleware(handler http.Handler) http.Handler {
 
-		// Check if the origin is in the allowed list
-		allowedOrigin := ""
-		for _, allowed := range cdsAuthConfig.CORSAllowedOrigins {
-			if origin == allowed {
-				allowedOrigin = origin
-				break
+	adminConfigService := adminConfigProvider.NewAdminConfigProvider().GetAdminConfigService()
+
+	return cors.Middleware(handler,
+		func(ctx context.Context, org cors.Org) ([]string, error) {
+			// A handle CDS has no organization for has configured no origins.
+			orgId, found, err := adminConfigService.LookupCORSOrgId(ctx, org.Handle)
+			if err != nil || !found {
+				return nil, err
 			}
-		}
-
-		// Only set CORS headers if origin is allowed
-		if allowedOrigin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-			if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
-				w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
-			} else {
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			}
-			w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+			return adminConfigService.GetCORSAllowedOrigins(ctx, orgId, org.SubOrgId)
+		},
+		func() []string { return config.GetCDSRuntime().Config.Auth.CORSAllowedOrigins },
+	)
 }
 
 // resolveCDSHome parses flags and determines the CDS home directory.

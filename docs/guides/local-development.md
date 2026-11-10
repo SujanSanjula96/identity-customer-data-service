@@ -154,7 +154,9 @@ and `--pg-container`.
   `internal_cds_*` scopes cannot be created through the management API.
 - **`[console.extensions] cds_host`**, which makes the Console call CDS directly
   instead of building CDS URLs off the IS origin. Those cross-origin calls are
-  allowed by the CDS `auth.cors_allowed_origins`.
+  allowed by the CDS `auth.cors_allowed_origins`, which applies to organisations
+  that have not set `cors_allowed_origins` of their own through the admin
+  configuration API.
 - **Certificates in both directions.** The CDS certificate into the IS
   `client-truststore.p12`, the IS certificate into the CDS trust store. CDS does
   not start with an unreadable `tls.trust_store`, and neither self-signed

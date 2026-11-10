@@ -83,7 +83,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 		t.Fatalf("failed to mark the schema sync done: %v", err)
 	}
 
-	err = AdminConfigService{}.UpdateAdminConfig(ctx, model.AdminConfig{
+	err = AdminConfigService{}.UpdateAdminConfig(ctx, &model.AdminConfig{
 		OrgId:              "acme",
 		CDSEnabled:         true,
 		SystemApplications: []string{},
