@@ -153,8 +153,8 @@ func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
 
 	// Read straight through the store rather than the service, so the assertion is about
 	// what was persisted and not about what a cache happens to hold.
-	lookup := func(ctx context.Context, orgHandle string) []string {
-		stored, err := adminConfigStore.GetAdminConfig(ctx, orgHandle)
+	lookup := func(ctx context.Context, org cors.Org) []string {
+		stored, err := adminConfigStore.GetAdminConfig(ctx, org.Handle)
 		if err != nil || stored == nil {
 			return nil
 		}

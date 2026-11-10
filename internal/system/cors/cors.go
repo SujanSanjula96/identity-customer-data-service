@@ -27,9 +27,23 @@ import (
 	"strings"
 )
 
+// Org is the organisation a request is addressed to, as far as its path tells. A sub
+// organisation is addressed as /t/{primary_handle}/o/{org_id}/..., so it is known here by the
+// handle of its primary organisation and its own ID only: resolving the ID to a handle takes a
+// read, which the middleware cannot afford before authentication.
+type Org struct {
+	// Handle is the organisation segment of the path, which for a sub organisation is the
+	// handle of its primary organisation.
+	Handle string
+	// SubOrgID is the ID of the sub organisation the path addresses, empty for a primary
+	// organisation. It comes from an unauthenticated request, so a lookup must treat it as a
+	// key to match and nothing more.
+	SubOrgID string
+}
+
 // OriginsLookup returns the origins an organisation allows. An empty result means the
 // organisation has configured none, and the deployment-wide fallback applies.
-type OriginsLookup func(ctx context.Context, orgHandle string) []string
+type OriginsLookup func(ctx context.Context, org Org) []string
 
 // Middleware answers cross-origin requests for UI/SDK clients. For a request addressed to
 // an organisation it matches the Origin header against that organisation's configured
@@ -71,8 +85,8 @@ func isOriginAllowed(r *http.Request, origin string, lookup OriginsLookup,
 
 	var allowed []string
 
-	if orgHandle := ExtractOrgHandleFromPath(r.URL.Path); orgHandle != "" && lookup != nil {
-		allowed = lookup(r.Context(), orgHandle)
+	if org := ExtractOrgFromPath(r.URL.Path); org.Handle != "" && lookup != nil {
+		allowed = lookup(r.Context(), org)
 	}
 
 	// No organisation in the path, or none configured for it: the deployment-wide list
@@ -91,20 +105,23 @@ func isOriginAllowed(r *http.Request, origin string, lookup OriginsLookup,
 	return false
 }
 
-// ExtractOrgHandleFromPath returns the organisation segment of a /t/{tenant}/... path,
-// matching how the request is dispatched further down. A sub organisation is addressed as
-// /t/{primary_handle}/o/{org_id}/..., so its requests resolve to the primary organisation,
-// whose origins it uses. It returns an empty string for any other path, such as the health
-// check. The middleware runs before dispatch, so the segment cannot yet be read from the
-// request context.
-func ExtractOrgHandleFromPath(path string) string {
+// ExtractOrgFromPath returns the organisation a /t/{tenant}/... or
+// /t/{primary_handle}/o/{org_id}/... path addresses, matching how the request is dispatched
+// further down. It returns an empty Org for any other path, such as the health check. The
+// middleware runs before dispatch, so the organisation cannot yet be read from the request
+// context.
+func ExtractOrgFromPath(path string) Org {
 
 	remainder, found := strings.CutPrefix(path, "/t/")
 	if !found {
-		return ""
+		return Org{}
 	}
-	handle, _, _ := strings.Cut(remainder, "/")
-	return handle
+	handle, rest, _ := strings.Cut(remainder, "/")
+	if subOrgPath, isSubOrg := strings.CutPrefix(rest, "o/"); isSubOrg {
+		subOrgID, _, _ := strings.Cut(subOrgPath, "/")
+		return Org{Handle: handle, SubOrgID: subOrgID}
+	}
+	return Org{Handle: handle}
 }
 
 // normalizeOrigin lower-cases the scheme and host so that a configured origin compares

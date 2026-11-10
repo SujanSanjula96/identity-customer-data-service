@@ -44,7 +44,7 @@ type AdminConfigServiceInterface interface {
 	IsCDSEnabled(ctx context.Context, orgHandle string) bool
 	IsInitialSchemaSyncDone(ctx context.Context, orgHandle string) bool
 	IsSystemApplication(ctx context.Context, orgHandle, appId string) (bool, error)
-	GetCORSAllowedOrigins(ctx context.Context, orgHandle string) []string
+	GetCORSAllowedOrigins(ctx context.Context, orgHandle, subOrgID string) []string
 	UpdateAdminConfig(ctx context.Context, updatedConfig *model.AdminConfig, orgHandle string) error
 	UpdateInitialSchemaSync(ctx context.Context, state bool, orgHandle string) error
 }
@@ -100,7 +100,11 @@ func (a AdminConfigService) IsSystemApplication(ctx context.Context, orgHandle, 
 // configured none and the caller should fall back to the deployment-wide list. A failed
 // reload keeps the previously loaded origins, so that a database blip does not change what
 // browser clients are allowed.
-func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgHandle string) []string {
+//
+// subOrgID is the ID of the sub organisation a /t/{orgHandle}/o/{org_id}/... path addresses,
+// and empty otherwise. A sub organisation cannot configure origins of its own yet, so it is
+// answered with those of its primary organisation, orgHandle.
+func (a AdminConfigService) GetCORSAllowedOrigins(ctx context.Context, orgHandle, subOrgID string) []string {
 	return corsOrigins.get(ctx, orgHandle)
 }
 

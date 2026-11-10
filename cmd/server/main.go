@@ -248,7 +248,9 @@ func newCORSMiddleware(handler http.Handler) http.Handler {
 	adminConfigService := adminConfigProvider.NewAdminConfigProvider().GetAdminConfigService()
 
 	return cors.Middleware(handler,
-		adminConfigService.GetCORSAllowedOrigins,
+		func(ctx context.Context, org cors.Org) []string {
+			return adminConfigService.GetCORSAllowedOrigins(ctx, org.Handle, org.SubOrgID)
+		},
 		func() []string { return config.GetCDSRuntime().Config.Auth.CORSAllowedOrigins },
 	)
 }
