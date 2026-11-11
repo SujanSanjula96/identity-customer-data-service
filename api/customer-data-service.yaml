@@ -835,9 +835,10 @@ paths:
       tags: [Sharing]
       summary: Share a profile schema attribute with child organizations
       description: |
-        Only the organization that owns the attribute can share it. Identity attributes, complex
-        attributes, and sub-attributes cannot be shared. An organization has a maximum of one policy
-        for each attribute.
+        Only the organization that owns the attribute can share it. Identity attributes cannot be
+        shared. A complex attribute is shared as one unit: its sub-attributes follow the sharing
+        policies of the parent, and a sub-attribute cannot be shared alone. An organization has a
+        maximum of one policy for each attribute.
 
         <br><b>Scope required:</b> `profile_schema:share_update`
       operationId: createSchemaAttributeSharingPolicy

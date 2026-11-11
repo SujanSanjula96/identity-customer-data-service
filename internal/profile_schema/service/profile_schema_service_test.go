@@ -18,11 +18,13 @@
 package service
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	shareModel "github.com/wso2/identity-customer-data-service/internal/sharing/model"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
 func sharedAttribute(id, owner, name, appId string) model.ProfileSchemaAttribute {
@@ -81,5 +83,82 @@ func TestSelectActiveSharedAttributesScopesAppDataNamesToTheApp(t *testing.T) {
 		ApplicationIdentifier: "shop"}}
 	if got := attributeIds(selectActiveSharedAttributes(shared, attrs, sameApp)); len(got) != 0 {
 		t.Errorf("expected a conflict with the attribute of the same app, got %v", got)
+	}
+}
+
+func complexAttribute(id, owner, name string, subs ...model.ProfileSchemaAttribute) model.ProfileSchemaAttribute {
+	attr := sharedAttribute(id, owner, name, "")
+	attr.ValueType = constants.ComplexDataType
+	for _, sub := range subs {
+		attr.SubAttributes = append(attr.SubAttributes,
+			model.SubAttribute{AttributeId: sub.AttributeId, AttributeName: sub.AttributeName})
+	}
+	return attr
+}
+
+// A shared complex attribute comes with its sub-attributes at all levels, parent first.
+func TestSelectActiveSharedAttributesAddsSubAttributesOfComplexAttribute(t *testing.T) {
+
+	city := sharedAttribute("city", "r", "traits.address.city", "")
+	lat := sharedAttribute("lat", "r", "traits.address.geo.lat", "")
+	geo := complexAttribute("geo", "r", "traits.address.geo", lat)
+	address := complexAttribute("address", "r", "traits.address", city, geo)
+	// A sub-attribute of another owner is not in the group.
+	address.SubAttributes = append(address.SubAttributes,
+		model.SubAttribute{AttributeId: "foreign", AttributeName: "traits.address.zip"})
+	foreign := sharedAttribute("foreign", "a", "traits.address.zip", "")
+
+	attrs := []model.ProfileSchemaAttribute{address, city, geo, lat, foreign}
+	shared := []shareModel.SharedResource{{ResourceId: "address", OwnerOrgId: "r", OwnerDepth: 1}}
+
+	got := attributeIds(selectActiveSharedAttributes(shared, attrs, nil))
+	if expected := []string{"address", "city", "geo", "lat"}; !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
+	}
+}
+
+// The parent and its sub-attributes are active or not active together. A conflict on a
+// sub-attribute name makes the whole complex attribute not active.
+func TestSelectActiveSharedAttributesComplexAttributeConflicts(t *testing.T) {
+
+	city := sharedAttribute("r-city", "r", "traits.address.city", "")
+	address := complexAttribute("r-address", "r", "traits.address", city)
+	plan := sharedAttribute("r-plan", "r", "traits.plan", "")
+	attrs := []model.ProfileSchemaAttribute{address, city, plan}
+	shared := []shareModel.SharedResource{
+		{ResourceId: "r-address", OwnerOrgId: "r", OwnerDepth: 1},
+		{ResourceId: "r-plan", OwnerOrgId: "r", OwnerDepth: 1},
+	}
+
+	owned := []model.ProfileSchemaAttribute{{AttributeId: "local-city", AttributeName: "traits.address.city"}}
+	got := attributeIds(selectActiveSharedAttributes(shared, attrs, owned))
+	if expected := []string{"r-plan"}; !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
+	}
+
+	// The complex attribute of a nearer owner wins as one unit.
+	aCity := sharedAttribute("a-city", "a", "traits.address.city", "")
+	aAddress := complexAttribute("a-address", "a", "traits.address", aCity)
+	attrs = append(attrs, aAddress, aCity)
+	shared = append([]shareModel.SharedResource{{ResourceId: "a-address", OwnerOrgId: "a", OwnerDepth: 1}},
+		shareModel.SharedResource{ResourceId: "r-address", OwnerOrgId: "r", OwnerDepth: 2})
+	got = attributeIds(selectActiveSharedAttributes(shared, attrs, nil))
+	if expected := []string{"a-address", "a-city"}; !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %v, got %v", expected, got)
+	}
+}
+
+// A complex attribute can be shared. A sub-attribute cannot be shared alone.
+func TestIsShareableAttributeComplexAndSubAttribute(t *testing.T) {
+
+	ctx := context.Background()
+	address := complexAttribute("address", "r", "traits.address",
+		sharedAttribute("city", "r", "traits.address.city", ""))
+	if err := isShareableAttribute(ctx, "r", address); err != nil {
+		t.Errorf("expected the complex attribute to be shareable, got %v", err)
+	}
+	city := sharedAttribute("city", "r", "traits.address.city", "")
+	if err := isShareableAttribute(ctx, "r", city); err == nil {
+		t.Error("expected an error for a sub-attribute")
 	}
 }

@@ -1199,7 +1199,8 @@ func keepIdentityAttributeIds(ctx context.Context, orgId string, incoming []mode
 }
 
 // isShareableAttribute checks that the organization can share the attribute. Only a primary
-// organization can share an application data attribute.
+// organization can share an application data attribute. A complex attribute is shared as one unit:
+// its sub-attributes follow the sharing policies of the parent and cannot be shared alone.
 func isShareableAttribute(ctx context.Context, orgId string, attr model.ProfileSchemaAttribute) error {
 
 	reject := func(description string) error {
@@ -1217,10 +1218,9 @@ func isShareableAttribute(ctx context.Context, orgId string, attr model.ProfileS
 		return reject("The application data attribute has no application identifier.")
 	case scope == constants.ApplicationData && !isPrimaryOrg(ctx, orgId):
 		return reject("Only the primary organization can share application data attributes.")
-	case attr.ValueType == constants.ComplexDataType:
-		return reject("Sharing of complex attributes is not supported.")
 	case strings.Count(attr.AttributeName, ".") > 1:
-		return reject("Sharing of a sub-attribute is not supported.")
+		return reject("A sub-attribute cannot be shared alone. Share its parent attribute. The " +
+			"sub-attributes follow the sharing policies of the parent.")
 	}
 	return nil
 }
@@ -1262,7 +1262,7 @@ func activeSharedAttributes(ctx context.Context, org orgModel.Organization) ([]m
 	for _, r := range shared {
 		ids = append(ids, r.ResourceId)
 	}
-	attrs, err := psstr.GetProfileSchemaAttributesByIds(ctx, ids)
+	attrs, err := withSubAttributes(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -1273,9 +1273,40 @@ func activeSharedAttributes(ctx context.Context, org orgModel.Organization) ([]m
 	return selectActiveSharedAttributes(shared, attrs, owned), nil
 }
 
+// withSubAttributes returns the attributes with the IDs and the sub-attributes of each complex
+// attribute among them, at all levels. The sub-attributes of a shared complex attribute follow
+// the sharing policies of the parent.
+func withSubAttributes(ctx context.Context, ids []string) ([]model.ProfileSchemaAttribute, error) {
+
+	var result []model.ProfileSchemaAttribute
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		seen[id] = true
+	}
+	for len(ids) > 0 {
+		attrs, err := psstr.GetProfileSchemaAttributesByIds(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, attrs...)
+		ids = nil
+		for _, attr := range attrs {
+			for _, sub := range attr.SubAttributes {
+				if !seen[sub.AttributeId] {
+					seen[sub.AttributeId] = true
+					ids = append(ids, sub.AttributeId)
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
 // selectActiveSharedAttributes returns the shared attributes that are active, in the order of the
-// shared resources. A shared attribute is not active when an owned attribute or the shared
-// attribute of a nearer owner has the same key.
+// shared resources. A shared complex attribute comes with its sub-attributes, and the parent and
+// its sub-attributes are active or not active together. A shared attribute is not active when an
+// owned attribute or the shared attribute of a nearer owner has the same key as it or as one of
+// its sub-attributes. attrs contains the shared attributes and their sub-attributes.
 func selectActiveSharedAttributes(shared []shareModel.SharedResource, attrs,
 	owned []model.ProfileSchemaAttribute) []model.ProfileSchemaAttribute {
 
@@ -1283,20 +1314,57 @@ func selectActiveSharedAttributes(shared []shareModel.SharedResource, attrs,
 	for _, attr := range attrs {
 		byId[attr.AttributeId] = attr
 	}
-	usedKeys := make(map[string]bool, len(owned)+len(shared))
+	usedKeys := make(map[string]bool, len(owned)+len(attrs))
 	for _, attr := range owned {
 		usedKeys[attributeKey(attr)] = true
 	}
 	var result []model.ProfileSchemaAttribute
 	for _, r := range shared {
 		attr, ok := byId[r.ResourceId]
-		if !ok || attr.OwnerOrgId != r.OwnerOrgId || usedKeys[attributeKey(attr)] {
+		if !ok || attr.OwnerOrgId != r.OwnerOrgId {
 			continue
 		}
-		usedKeys[attributeKey(attr)] = true
-		result = append(result, attr)
+		group := sharedAttributeGroup(attr, byId)
+		if anyKeyUsed(group, usedKeys) {
+			continue
+		}
+		for _, member := range group {
+			usedKeys[attributeKey(member)] = true
+		}
+		result = append(result, group...)
 	}
 	return result
+}
+
+// sharedAttributeGroup returns the shared attribute and its sub-attributes at all levels, parent
+// first. A sub-attribute is in the group only when the owner of the parent owns it.
+func sharedAttributeGroup(attr model.ProfileSchemaAttribute,
+	byId map[string]model.ProfileSchemaAttribute) []model.ProfileSchemaAttribute {
+
+	group := []model.ProfileSchemaAttribute{attr}
+	inGroup := map[string]bool{attr.AttributeId: true}
+	for i := 0; i < len(group); i++ {
+		for _, ref := range group[i].SubAttributes {
+			sub, ok := byId[ref.AttributeId]
+			if !ok || inGroup[sub.AttributeId] || sub.OwnerOrgId != attr.OwnerOrgId {
+				continue
+			}
+			inGroup[sub.AttributeId] = true
+			group = append(group, sub)
+		}
+	}
+	return group
+}
+
+// anyKeyUsed reports whether the key of an attribute of the group is in the used keys.
+func anyKeyUsed(group []model.ProfileSchemaAttribute, usedKeys map[string]bool) bool {
+
+	for _, attr := range group {
+		if usedKeys[attributeKey(attr)] {
+			return true
+		}
+	}
+	return false
 }
 
 // attributeKey returns the key of an attribute for name conflicts. Application data attribute
