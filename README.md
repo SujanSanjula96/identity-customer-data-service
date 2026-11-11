@@ -66,6 +66,11 @@ Lightweight, extensible Customer Data Server built to power personalized experie
         - profile_schema:update: "internal_cds_profile_schema_update"
         - profile_schema:delete: "internal_cds_profile_schema_delete"
 
+        - consent_category:view: "internal_cds_consent_category_view"
+        - consent_category:create: "internal_cds_consent_category_create"
+        - consent_category:update: "internal_cds_consent_category_update"
+        - consent_category:delete: "internal_cds_consent_category_delete"
+
 🎯 Include only the scopes you need in your token request.
 
 ```bash
