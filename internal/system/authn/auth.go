@@ -45,9 +45,8 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 
 // ValidateTokenForOrg validates the token for the organization of the path. It introspects the token
 // at the primary organization primaryHandle. For a sub organization, the org_id claim must match
-// pathOrgId. For a primary organization, the org_handle claim must match the path handle.
-func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgId string) (map[string]interface{}, error) {
-
+// pathOrgID. For a primary organization, the org_handle claim must match the path handle.
+func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgID string) (map[string]interface{}, error) {
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
@@ -64,7 +63,7 @@ func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgId string) (map
 		}
 
 		// Validate org claims against request org handle
-		if !validateClaims(orgHandle, pathOrgId, claims) {
+		if !validateClaims(orgHandle, pathOrgID, claims) {
 			logger.Debug("JWT claims validation failed")
 			return nil, unauthorizedError()
 		}
@@ -105,9 +104,9 @@ func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgId string) (map
 	}
 
 	// The token must be issued for the organization of the path.
-	if pathOrgId != "" {
-		if tokenOrgId, _ := introspectionClaims[constants.OrgIdClaim].(string); tokenOrgId != pathOrgId {
-			logger.Debug(fmt.Sprintf("Opaque token is for organization '%s', not for '%s'", tokenOrgId, pathOrgId))
+	if pathOrgID != "" {
+		if tokenOrgID, _ := introspectionClaims[constants.OrgIdClaim].(string); tokenOrgID != pathOrgID {
+			logger.Debug(fmt.Sprintf("Opaque token is for organization '%s', not for '%s'", tokenOrgID, pathOrgID))
 			return nil, unauthorizedError()
 		}
 	} else if tokenOrg, ok := introspectionClaims[constants.OrgHandleClaim].(string); ok && tokenOrg != "" &&

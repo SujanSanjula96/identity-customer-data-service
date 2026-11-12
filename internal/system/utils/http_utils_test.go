@@ -88,7 +88,6 @@ func TestTenantDispatcherOrgPath(t *testing.T) {
 }
 
 func TestTenantDispatcherPrimaryOrgHandle(t *testing.T) {
-
 	defer func(resolver func(context.Context, string, string) (string, error)) {
 		SubOrgResolver = resolver
 	}(SubOrgResolver)
