@@ -124,7 +124,7 @@ func authenticate(r *http.Request) (map[string]interface{}, error) {
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	//  Validate token
-	claims, err := authn.ValidateTokenForOrg(token, orgHandle, pathOrgIdOf(r))
+	claims, err := authn.ValidateTokenForOrg(token, orgHandle, utils.ExtractPrimaryOrgHandle(r), pathOrgIdOf(r))
 	if err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
 			Code:        errors.UN_AUTHORIZED.Code,

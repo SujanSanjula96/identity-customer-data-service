@@ -356,7 +356,7 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 	f := newFixture(t, usableKey)
 	adapter := idp.NewWSO2ISAdapter()
 
-	claims, err := adapter.IntrospectToken(context.Background(), "a-token", "acme")
+	claims, err := adapter.IntrospectToken(context.Background(), "a-token", "acme", "acme")
 	if err != nil || claims["introspected_at"] != "/t/carbon.super/oauth2/introspect" {
 		t.Fatalf("before the sync: got %v, %v, want the configured client at the super tenant", claims, err)
 	}
@@ -365,7 +365,7 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 		http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
-	claims, err = adapter.IntrospectToken(context.Background(), "a-token", "acme")
+	claims, err = adapter.IntrospectToken(context.Background(), "a-token", "acme", "acme")
 	if err != nil || claims["introspected_at"] != "/t/acme/oauth2/introspect" {
 		t.Fatalf("after the sync: got %v, %v, want the credentials of acme at its own endpoint", claims, err)
 	}

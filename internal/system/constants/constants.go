@@ -64,6 +64,9 @@ const OrgBasePathContextKey contextKey = "org_base_path"
 // OrgIdContextKey holds the organization ID of a sub organization path.
 const OrgIdContextKey contextKey = "org_id"
 
+// PrimaryOrgHandleContextKey holds the handle of the primary organization of the path.
+const PrimaryOrgHandleContextKey contextKey = "primary_org_handle"
+
 const (
 	ProfileResource            = "profile"
 	UnificationRuleResource    = "unification rule"

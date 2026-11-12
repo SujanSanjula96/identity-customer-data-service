@@ -87,6 +87,29 @@ func TestTenantDispatcherOrgPath(t *testing.T) {
 	}
 }
 
+func TestTenantDispatcherPrimaryOrgHandle(t *testing.T) {
+
+	defer func(resolver func(context.Context, string, string) (string, error)) {
+		SubOrgResolver = resolver
+	}(SubOrgResolver)
+	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return "region1", nil }
+
+	for path, want := range map[string]string{
+		"/t/acme/cds/api/v1/config":            "acme",
+		"/t/acme/o/4f088c20/cds/api/v1/config": "acme",
+	} {
+		mux := http.NewServeMux()
+		var got string
+		MountTenantDispatcher(mux, func(w http.ResponseWriter, r *http.Request) {
+			got = ExtractPrimaryOrgHandle(r)
+		})
+		mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+		if got != want {
+			t.Errorf("%s: expected the primary handle %q, got %q", path, want, got)
+		}
+	}
+}
+
 func TestTenantDispatcherSubOrgHandleOnPrimaryOrgPath(t *testing.T) {
 
 	defer func(isSub func(context.Context, string) (bool, error)) { IsSubOrgHandle = isSub }(IsSubOrgHandle)
