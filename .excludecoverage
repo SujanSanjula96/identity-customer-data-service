@@ -1,0 +1,10 @@
+# Coverage Exclusion Configuration
+#
+# This file lists full Go package paths to exclude from code coverage reports.
+# Each line should be a complete package path or a path prefix.
+# Lines starting with '#' are comments and will be ignored.
+#
+# To find package paths, run: go list ./...
+
+# The test helpers and the integration suites. They are the tests, not the code under test.
+github.com/wso2/identity-customer-data-service/test
