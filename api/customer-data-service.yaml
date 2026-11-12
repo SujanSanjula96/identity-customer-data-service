@@ -1595,8 +1595,8 @@ components:
         org_id:
           type: string
           description: >-
-            The ID of the organization of the path, in the identity provider. CDS keys the credentials by it. For an
-            organization that CDS already knows, it has to be that organization's ID.
+            The ID of the organization of the path, in the identity provider. CDS keys the credentials by it. It has
+            to be the ID that the identity provider reports for the client.
         client_id:
           type: string
         client_secret:

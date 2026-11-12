@@ -83,28 +83,37 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	}
 
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	// The credentials can arrive before CDS stores the organization, since CDS needs them to read it from the
-	// identity provider. An organization CDS already knows has to be the one of the event.
+	// The identity provider says which organization the client belongs to. The credentials are keyed by its ID,
+	// which has to be the one the event names.
+	org, err := verifier.VerifyServiceCredentials(r.Context(), orgHandle, event.ClientID, event.ClientSecret)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if org.Id != event.OrgID {
+		utils.HandleError(w, badRequest(fmt.Sprintf("'org_id' is not the ID of the organization %s in the "+
+			"identity provider.", orgHandle)))
+		return
+	}
+	// The credentials arrive before CDS stores the organization, since CDS needs them to read it from the
+	// identity provider. CDS stores it now, so that the next calls find the credentials of the handle.
 	ref, known, err := orgService.LookupOrganization(r.Context(), orgHandle)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	if known && ref.ID != event.OrgID {
-		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("'org_id' is not the ID of the organization %s.", orgHandle),
-		}, http.StatusBadRequest))
+	if known && ref.ID != org.Id {
+		utils.HandleError(w, badRequest(fmt.Sprintf("CDS knows the organization %s under another ID.", orgHandle)))
 		return
 	}
-	if err := verifier.VerifyServiceCredentials(r.Context(), orgHandle, event.ClientID,
-		event.ClientSecret); err != nil {
-		utils.HandleError(w, err)
-		return
+	if !known {
+		if _, err := orgService.StorePrimary(r.Context(), orgHandle, org); err != nil {
+			utils.HandleError(w, err)
+			return
+		}
 	}
 	err = servicecreds.Save(r.Context(), servicecreds.Credentials{
-		OrgID:        event.OrgID,
+		OrgID:        org.Id,
 		OrgHandle:    orgHandle,
 		ClientID:     event.ClientID,
 		ClientSecret: event.ClientSecret,
@@ -116,4 +125,12 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	log.GetLogger().Info(fmt.Sprintf("Stored the service credentials %s of organization: %s", event.ClientID,
 		orgHandle))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func badRequest(description string) error {
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.BAD_REQUEST.Code,
+		Message:     errors2.BAD_REQUEST.Message,
+		Description: description,
+	}, http.StatusBadRequest)
 }

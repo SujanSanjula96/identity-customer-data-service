@@ -117,12 +117,16 @@ any of these is true:
 
 ## How the secret is stored
 
-The credentials are stored in `org_service_credentials`, keyed by the org ID that
-the event carries, like every other CDS table. The org handle is kept beside it,
-since token requests and introspection name the organization by its handle. For an
-organization CDS already knows, the org ID of the event has to be its ID. A tenant
-deleted and created again with the same domain gets a new org ID, and its
-credentials replace those of the earlier organization.
+The credentials are stored in `org_service_credentials`, keyed by org ID like every
+other CDS table. The handle is not stored with them: another identity provider may
+not keep handles unique or fixed.
+
+When CDS verifies the credentials, the adapter of the identity provider also reads
+the organization the client belongs to, with the token it got. Its ID has to be the
+`org_id` of the event. CDS stores that organization if it does not know it yet, as
+the credentials arrive before CDS has read the organization. Token requests and
+introspection then find the credentials of a handle through the organizations
+table of CDS.
 
 Encrypted, with AES-256-GCM, under `encryption_key`. Each row carries the nonce and
 the ID of the key that encrypted it, so a secret encrypted under a key the

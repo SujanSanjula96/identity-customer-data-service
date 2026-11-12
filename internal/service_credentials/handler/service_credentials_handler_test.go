@@ -85,6 +85,15 @@ func newFixture(t *testing.T, encryptionKey string) *fixture {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"active": true, "introspected_at": r.URL.Path})
 			return
 		}
+		if r.URL.Path == "/t/acme/api/server/v1/organizations/self" {
+			if r.Header.Get("Authorization") != "Bearer "+issuedToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": acmeOrgID, "name": "Acme", "orgHandle": "acme",
+				"status": "ACTIVE"})
+			return
+		}
 		if r.URL.Path != "/t/acme/oauth2/token" || !ok || id != goodClient || secret != goodSecret {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
@@ -164,20 +173,24 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func credentials(clientID, clientSecret string) string {
+	return credentialsOf(acmeOrgID, clientID, clientSecret)
+}
+
+func credentialsOf(orgID, clientID, clientSecret string) string {
 	body, _ := json.Marshal(map[string]string{
 		"event":         "SERVICE_CREDENTIALS_UPDATED",
-		"org_id":        acmeOrgID,
+		"org_id":        orgID,
 		"client_id":     clientID,
 		"client_secret": clientSecret,
 	})
 	return string(body)
 }
 
-func (f *fixture) storedClientID(org string) string {
+func (f *fixture) storedClientID() string {
 	f.t.Helper()
 	var clientID string
-	err := f.testDB.DB.QueryRow("SELECT client_id FROM org_service_credentials WHERE org_handle = ?", org).
-		Scan(&clientID)
+	err := f.testDB.DB.QueryRow(`SELECT c.client_id FROM org_service_credentials c
+		JOIN organizations o ON o.org_id = c.org_id WHERE o.org_handle = 'acme'`).Scan(&clientID)
 	if err != nil {
 		return ""
 	}
@@ -191,13 +204,13 @@ func TestStoresVerifiedCredentialsAndUsesThemForTokens(t *testing.T) {
 		http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
-	if got := f.storedClientID("acme"); got != goodClient {
+	if got := f.storedClientID(); got != goodClient {
 		t.Fatalf("stored client ID: got %q, want %q", got, goodClient)
 	}
 
 	var stored string
 	if err := f.testDB.DB.QueryRow(
-		"SELECT client_secret FROM org_service_credentials WHERE org_handle = 'acme'").Scan(&stored); err != nil {
+		"SELECT client_secret FROM org_service_credentials WHERE org_id = 'acme-org-id'").Scan(&stored); err != nil {
 		t.Fatalf("failed to read the stored row: %v", err)
 	}
 	if stored == goodSecret || strings.Contains(stored, goodSecret) {
@@ -219,7 +232,7 @@ func TestRefusesCredentialsTheIdentityProviderRejects(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-16003" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-16003", rec.Code, rec.Body.String())
 	}
-	if got := f.storedClientID("acme"); got != "" {
+	if got := f.storedClientID(); got != "" {
 		t.Fatalf("rejected credentials were stored: %q", got)
 	}
 }
@@ -291,12 +304,14 @@ type verifyingAdapter struct {
 	verifiedOrg    string
 }
 
-func (a *verifyingAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID, _ string) error {
+func (a *verifyingAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID,
+	_ string) (idp.Organization, error) {
 	a.verifiedOrg = orgHandle
 	if clientID != a.acceptedClient {
-		return errors2.NewClientError(errors2.ServiceCredentialsRejected, http.StatusBadRequest)
+		return idp.Organization{}, errors2.NewClientError(errors2.ServiceCredentialsRejected,
+			http.StatusBadRequest)
 	}
-	return nil
+	return idp.Organization{Id: acmeOrgID, Handle: orgHandle, Name: "Acme"}, nil
 }
 
 // Any identity provider whose adapter verifies service credentials can send
@@ -313,7 +328,7 @@ func TestVerifiesCredentialsThroughTheAdapterOfTheIdentityProvider(t *testing.T)
 	if adapter.verifiedOrg != "acme" {
 		t.Fatalf("the adapter verified organization %q, want acme", adapter.verifiedOrg)
 	}
-	if got := f.storedClientID("acme"); got != "other-idp-client" {
+	if got := f.storedClientID(); got != "other-idp-client" {
 		t.Fatalf("stored client ID: got %q, want other-idp-client", got)
 	}
 
@@ -360,8 +375,12 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 // configured pair instead of failing every call for the organization.
 func TestCredentialsUnderAnotherKeyFallBackToTheConfiguredPair(t *testing.T) {
 	f := newFixture(t, usableKey)
-	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
-		key_id) VALUES ('acme-org-id', 'acme', 'old-client', 'c2VhbGVk', 'another-key')`); err != nil {
+	if _, err := f.testDB.DB.Exec(`INSERT INTO organizations (org_id, org_handle, primary_org_id, status)
+		VALUES ('acme-org-id', 'acme', 'acme-org-id', 'ACTIVE')`); err != nil {
+		t.Fatalf("failed to insert the organization: %v", err)
+	}
+	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, client_id, client_secret, key_id)
+		VALUES ('acme-org-id', 'old-client', 'c2VhbGVk', 'another-key')`); err != nil {
 		t.Fatalf("failed to insert the row: %v", err)
 	}
 
@@ -385,42 +404,48 @@ func TestCheckStore(t *testing.T) {
 	}
 }
 
-// CDS keys the credentials by org ID. An organization that CDS already knows has
-// to be the one the event names.
-func TestRefusesAnOrgIdThatIsNotTheOrganizationOfThePath(t *testing.T) {
+// CDS keys the credentials by the org ID that the identity provider reports for
+// the client, which has to be the one the event names.
+func TestRefusesAnOrgIDThatIsNotTheOrganizationOfTheClient(t *testing.T) {
 	f := newFixture(t, usableKey)
-	if _, err := f.testDB.DB.Exec(`INSERT INTO organizations (org_id, org_handle, primary_org_id, status)
-		VALUES ('beta-org-id', 'beta', 'beta-org-id', 'ACTIVE')`); err != nil {
-		t.Fatalf("failed to insert the organization: %v", err)
-	}
 
-	rec := f.call("/t/beta/cds/api/v1/service-credentials/sync",
-		credentials(goodClient, goodSecret), true)
+	rec := f.call(syncPath, credentialsOf("another-org-id", goodClient, goodSecret), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-10001" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-10001", rec.Code, rec.Body.String())
 	}
+	if got := f.storedClientID(); got != "" {
+		t.Fatalf("credentials of a wrong org ID were stored: %q", got)
+	}
 }
 
-// A tenant deleted and created again with the same domain gets a new org ID. Its
-// credentials replace those of the earlier organization.
-func TestReplacesTheCredentialsOfAnEarlierOrganizationWithTheHandle(t *testing.T) {
+// The credentials arrive before CDS knows the organization. CDS stores it, so that
+// the next calls find the credentials by the handle.
+func TestStoresTheOrganizationOfTheCredentials(t *testing.T) {
 	f := newFixture(t, usableKey)
-	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
-		key_id) VALUES ('earlier-org-id', 'acme', 'earlier-client', 'c2VhbGVk', 'another-key')`); err != nil {
-		t.Fatalf("failed to insert the row: %v", err)
-	}
 
-	if rec := f.call(syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
-		http.StatusNoContent {
+	if rec := f.call(syncPath, credentials(goodClient, goodSecret), true); rec.Code != http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
 	var orgID string
-	if err := f.testDB.DB.QueryRow("SELECT org_id FROM org_service_credentials WHERE org_handle = 'acme'").
+	if err := f.testDB.DB.QueryRow("SELECT org_id FROM organizations WHERE org_handle = 'acme'").
 		Scan(&orgID); err != nil || orgID != acmeOrgID {
-		t.Fatalf("stored org ID: got %q, %v, want %q", orgID, err, acmeOrgID)
+		t.Fatalf("stored organization: got %q, %v, want %q", orgID, err, acmeOrgID)
 	}
 	creds, found, err := servicecreds.Get(context.Background(), "acme")
 	if err != nil || !found || creds.OrgID != acmeOrgID || creds.ClientID != goodClient {
 		t.Fatalf("Get: got %+v, %t, %v", creds, found, err)
+	}
+}
+
+func TestRefusesCredentialsForAnOrganizationCDSKnowsUnderAnotherID(t *testing.T) {
+	f := newFixture(t, usableKey)
+	if _, err := f.testDB.DB.Exec(`INSERT INTO organizations (org_id, org_handle, primary_org_id, status)
+		VALUES ('earlier-org-id', 'acme', 'earlier-org-id', 'ACTIVE')`); err != nil {
+		t.Fatalf("failed to insert the organization: %v", err)
+	}
+
+	rec := f.call(syncPath, credentials(goodClient, goodSecret), true)
+	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-10001" {
+		t.Fatalf("sync: got %d %s, want 400 CDS-10001", rec.Code, rec.Body.String())
 	}
 }

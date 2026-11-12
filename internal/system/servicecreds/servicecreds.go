@@ -187,15 +187,8 @@ func Save(ctx context.Context, creds Credentials) error {
 	}
 	defer func() { _ = dbClient.Close() }()
 
-	// An earlier organization with the same handle no longer exists, so its
-	// credentials no longer work.
-	_, err = dbClient.ExecuteQueryContext(ctx, scripts.DeleteStaleOrgServiceCredentials, creds.OrgHandle,
-		creds.OrgID)
-	if err != nil {
-		return saveFailed(creds.OrgHandle, "failed to remove the credentials of an earlier organization", err)
-	}
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrgServiceCredentials,
-		creds.OrgID, creds.OrgHandle, creds.ClientID, sealed, keeper.KeyID())
+		creds.OrgID, creds.ClientID, sealed, keeper.KeyID())
 	if err != nil {
 		return saveFailed(creds.OrgHandle, "failed to persist the credentials", err)
 	}

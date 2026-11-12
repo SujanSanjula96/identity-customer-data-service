@@ -47,10 +47,29 @@ func NewWSO2ISAdapter() *WSO2ISAdapter {
 }
 
 // VerifyServiceCredentials asks the token endpoint of the organization for a token with the
-// client.
+// client, and reads the organization with that token.
 func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID,
-	clientSecret string) error {
-	return a.client.VerifyClientCredentials(orgHandle, clientID, clientSecret)
+	clientSecret string) (Organization, error) {
+	token, err := a.client.VerifyClientCredentials(orgHandle, clientID, clientSecret)
+	if err != nil {
+		return Organization{}, err
+	}
+	org, found, err := a.client.GetSelfOrganizationWithToken(orgHandle, token)
+	if err != nil {
+		return Organization{}, err
+	}
+	if !found {
+		return Organization{}, errors2.NewClientError(errors2.ErrorMessage{
+			Code:    errors2.ServiceCredentialsRejected.Code,
+			Message: errors2.ServiceCredentialsRejected.Message,
+			Description: fmt.Sprintf("The identity provider does not know the organization '%s' of the client %s.",
+				orgHandle, clientID),
+		}, http.StatusBadRequest)
+	}
+	primary := toOrganization(org)
+	primary.Handle = orgHandle
+	primary.ParentId = ""
+	return primary, nil
 }
 
 // IntrospectToken introspects the token at the introspection endpoint of the

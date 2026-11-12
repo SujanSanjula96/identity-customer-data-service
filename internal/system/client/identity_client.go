@@ -277,31 +277,33 @@ func (c *IdentityClient) fetchClientCredentialsToken(orgId string, authCfg confi
 
 // VerifyClientCredentials asks the token endpoint of orgHandle for a token with
 // the given client, so that credentials are known to work before they are
-// stored. It returns a client error when the token endpoint refuses the client,
-// and a server error when the token endpoint cannot be reached.
-func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecret string) error {
+// stored, and returns the token. It returns a client error when the token
+// endpoint refuses the client, and a server error when the token endpoint cannot
+// be reached.
+func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecret string) (string, error) {
 	authCfg := config.GetCDSRuntime().Config.AuthServer
 	endpoint, err := c.buildTokenEndpoint(orgHandle, authCfg.TokenEndpoint)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = c.requestToken(endpoint, clientID, clientSecret, clientCredentialsForm(managementAPIScope), orgHandle)
+	token, err := c.requestToken(endpoint, clientID, clientSecret, clientCredentialsForm(managementAPIScope),
+		orgHandle)
 	if err == nil {
-		return nil
+		return token, nil
 	}
 
 	var serverErr *errors2.ServerError
 	var statusErr *tokenEndpointStatusError
 	if errors.As(err, &serverErr) && errors.As(serverErr.Err, &statusErr) &&
 		statusErr.StatusCode >= 400 && statusErr.StatusCode < 500 {
-		return errors2.NewClientError(errors2.ErrorMessage{
+		return "", errors2.NewClientError(errors2.ErrorMessage{
 			Code:    errors2.ServiceCredentialsRejected.Code,
 			Message: errors2.ServiceCredentialsRejected.Message,
 			Description: fmt.Sprintf("The token endpoint of the organization %s refused the client %s with "+
 				"status %d.", orgHandle, clientID, statusErr.StatusCode),
 		}, http.StatusBadRequest)
 	}
-	return err
+	return "", err
 }
 
 func clientCredentialsForm(scope string) url.Values {

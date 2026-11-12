@@ -54,9 +54,11 @@ type Adapter interface {
 // the service credentials CDS calls it with, one pair per primary organization. CDS stores a pair
 // only after the adapter verifies it, and refuses an encryption key for any other adapter.
 type ServiceCredentialsVerifier interface {
-	// VerifyServiceCredentials returns nil when the identity provider issues a token to the client
-	// for the organization, and a client error when it refuses the client.
-	VerifyServiceCredentials(ctx context.Context, orgHandle, clientID, clientSecret string) error
+	// VerifyServiceCredentials returns the primary organization that the identity provider issues
+	// a token for to the client, read with that token, and a client error when it refuses the
+	// client. CDS keys the credentials by the ID of that organization.
+	VerifyServiceCredentials(ctx context.Context, orgHandle, clientID, clientSecret string) (Organization,
+		error)
 }
 
 // TokenIntrospector is implemented by the adapter of an identity provider that
