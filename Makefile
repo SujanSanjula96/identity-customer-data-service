@@ -15,7 +15,7 @@ PROJECT_DIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 PROJECT_BIN_DIR := $(PROJECT_DIR)/bin
 TOOL_BIN ?= $(PROJECT_BIN_DIR)/tools
 GOLANGCI_LINT ?= $(TOOL_BIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.14.0
 
 $(TOOL_BIN):
 	mkdir -p $(TOOL_BIN)
@@ -30,7 +30,13 @@ clean:
 # Build project and package it.
 build: _build _package
 
+LINT_BASE ?= origin/main
+
 lint: golangci-lint
+	cd . && $(GOLANGCI_LINT) run --new-from-rev=$(LINT_BASE) ./...
+
+# Lint all the code.
+lint-all: golangci-lint
 	cd . && $(GOLANGCI_LINT) run ./...
 
 # Run the integration suite against PostgreSQL, which needs Docker.
@@ -55,6 +61,17 @@ endif
 # across every request and every worker.
 unit-test:
 	go test -race ./internal/... ./dbscripts/...
+
+# Run the unit tests and write the coverage reports to target/coverage/.
+COVERAGE_DIR=$(OUTPUT_DIR)/coverage
+COVERAGE_EXCLUDE_FILE=.excludecoverage
+COVERPKG=$(shell go list ./... | grep -v -E "$$(awk '!/^\#/ && NF {if (n++) printf "|"; printf "%s", $$0}' $(COVERAGE_EXCLUDE_FILE))" | tr '\n' ',' | sed 's/,$$//')
+unit-test-coverage:
+	mkdir -p $(COVERAGE_DIR)
+	go test -race -count=1 -covermode=atomic -coverpkg="$(COVERPKG)" -coverprofile=$(COVERAGE_DIR)/coverage_unit.out ./internal/... ./dbscripts/...
+	go tool cover -func=$(COVERAGE_DIR)/coverage_unit.out > $(COVERAGE_DIR)/coverage_unit.txt
+	go tool cover -html=$(COVERAGE_DIR)/coverage_unit.out -o $(COVERAGE_DIR)/coverage_unit.html
+	@tail -n 1 $(COVERAGE_DIR)/coverage_unit.txt
 
 mq-integration-test:
 ifdef test
@@ -88,10 +105,11 @@ help:
 	@echo "  integration-test-sqlite    - Run integration tests against the inbuilt database (use test=TestName to filter)."
 	@echo "  mq-integration-test        - Run message queue integration tests (use test=TestName to filter)."
 	@echo "  unit-test                  - Run unit tests with the race detector."
+	@echo "  unit-test-coverage         - Run unit tests and write coverage reports to target/coverage."
 	@echo "  lint                       - Run golangci-lint."
 	@echo "  help                       - Show this help message."
 
-.PHONY: all clean build lint help integration-test integration-test-sqlite mq-integration-test unit-test
+.PHONY: all clean build lint lint-all help integration-test integration-test-sqlite mq-integration-test unit-test unit-test-coverage
 
 .PHONY: go_install_tool golangci-lint
 
@@ -103,4 +121,4 @@ endef
 golangci-lint: $(GOLANGCI_LINT)
 
 $(GOLANGCI_LINT): $(TOOL_BIN)
-	$(call go_install_tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	$(call go_install_tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
