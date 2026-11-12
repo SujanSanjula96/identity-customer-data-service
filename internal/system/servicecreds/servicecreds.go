@@ -47,6 +47,7 @@ import (
 
 // Credentials are one organization's service credentials.
 type Credentials struct {
+	OrgId        string
 	OrgHandle    string
 	ClientID     string
 	ClientSecret string
@@ -159,10 +160,12 @@ func Get(ctx context.Context, orgHandle string) (Credentials, bool, error) {
 		return Credentials{}, false, getFailed(orgHandle, "failed to open the sealed client secret", err)
 	}
 
+	orgId, _ := row["org_id"].(string)
 	clientID, _ := row["client_id"].(string)
 	logger.Debug(fmt.Sprintf("Resolved the service credentials of organization: %s", orgHandle))
 
 	return Credentials{
+		OrgId:        orgId,
 		OrgHandle:    orgHandle,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -190,8 +193,15 @@ func Save(ctx context.Context, creds Credentials) error {
 	}
 	defer dbClient.Close()
 
+	// An earlier organization with the same handle no longer exists, so its
+	// credentials no longer work.
+	_, err = dbClient.ExecuteQueryContext(ctx, scripts.DeleteStaleOrgServiceCredentials, creds.OrgHandle,
+		creds.OrgId)
+	if err != nil {
+		return saveFailed(creds.OrgHandle, "failed to remove the credentials of an earlier organization", err)
+	}
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrgServiceCredentials,
-		creds.OrgHandle, creds.ClientID, sealed, keeper.KeyID())
+		creds.OrgId, creds.OrgHandle, creds.ClientID, sealed, keeper.KeyID())
 	if err != nil {
 		return saveFailed(creds.OrgHandle, "failed to persist the credentials", err)
 	}

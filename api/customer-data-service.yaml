@@ -1584,6 +1584,7 @@ components:
       type: object
       required:
         - event
+        - org_id
         - client_id
         - client_secret
       properties:
@@ -1591,6 +1592,11 @@ components:
           type: string
           enum: [SERVICE_CREDENTIALS_UPDATED]
           description: SERVICE_CREDENTIALS_UPDATED replaces the stored credentials with these.
+        org_id:
+          type: string
+          description: >-
+            The ID of the organization of the path, in the identity provider. CDS keys the credentials by it. For an
+            organization that CDS already knows, it has to be that organization's ID.
         client_id:
           type: string
         client_secret:

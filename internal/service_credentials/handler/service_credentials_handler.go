@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/service_credentials/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
@@ -69,23 +70,39 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&event); err != nil || event.Event != model.EventServiceCredentialsUpdated ||
-		event.ClientID == "" || event.ClientSecret == "" {
+		event.OrgId == "" || event.ClientID == "" || event.ClientSecret == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:    errors2.BAD_REQUEST.Code,
 			Message: errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("The body must have 'event' %s, 'client_id' and 'client_secret'.",
+			Description: fmt.Sprintf("The body must have 'event' %s, 'org_id', 'client_id' and 'client_secret'.",
 				model.EventServiceCredentialsUpdated),
 		}, http.StatusBadRequest))
 		return
 	}
 
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
+	// The credentials can arrive before CDS stores the organization, since CDS needs them to read it from the
+	// identity provider. An organization CDS already knows has to be the one of the event.
+	ref, known, err := orgService.LookupOrganization(r.Context(), orgHandle)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if known && ref.ID != event.OrgId {
+		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.BAD_REQUEST.Code,
+			Message:     errors2.BAD_REQUEST.Message,
+			Description: fmt.Sprintf("'org_id' is not the ID of the organization %s.", orgHandle),
+		}, http.StatusBadRequest))
+		return
+	}
 	if err := verifier.VerifyServiceCredentials(r.Context(), orgHandle, event.ClientID,
 		event.ClientSecret); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	err := servicecreds.Save(r.Context(), servicecreds.Credentials{
+	err = servicecreds.Save(r.Context(), servicecreds.Credentials{
+		OrgId:        event.OrgId,
 		OrgHandle:    orgHandle,
 		ClientID:     event.ClientID,
 		ClientSecret: event.ClientSecret,

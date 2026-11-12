@@ -151,11 +151,13 @@ CREATE TABLE IF NOT EXISTS cds_config
 -- key_id names the key that sealed it.
 CREATE TABLE IF NOT EXISTS org_service_credentials
 (
+    org_id        VARCHAR(255) NOT NULL,
     org_handle    VARCHAR(255) NOT NULL,
     client_id     VARCHAR(255) NOT NULL,
     client_secret TEXT         NOT NULL,
     key_id        VARCHAR(64)  NOT NULL,
-    PRIMARY KEY (org_handle)
+    PRIMARY KEY (org_id),
+    UNIQUE (org_handle)
 );
 
 

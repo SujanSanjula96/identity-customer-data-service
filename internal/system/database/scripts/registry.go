@@ -94,6 +94,7 @@ func AllQueries() map[string]model.DBQuery {
 		"GetOrgServiceCredentials":                    GetOrgServiceCredentials,
 		"UpsertOrgServiceCredentials":                 UpsertOrgServiceCredentials,
 		"CheckOrgServiceCredentials":                  CheckOrgServiceCredentials,
+		"DeleteStaleOrgServiceCredentials":            DeleteStaleOrgServiceCredentials,
 		"HealthCheckPing":                             HealthCheckPing,
 
 		// Organization management statements.

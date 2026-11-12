@@ -56,7 +56,7 @@ Identity Server (CDS extension)                             CDS
   │ (creates the application, or renews its secret if CDS is turning on from off)
   │ POST /t/{org}/cds/api/v1/service-credentials/sync ──────▶ token request to /t/{org}/oauth2/token
   │      {event: SERVICE_CREDENTIALS_UPDATED,                  stores only if a token is issued
-  │       client_id, client_secret}
+  │       org_id, client_id, client_secret}
   │ PATCH /t/{org}/cds/api/v1/config {cds_enabled} ─────────▶ initial schema sync, with the new credentials
 ```
 
@@ -116,6 +116,13 @@ any of these is true:
 ---
 
 ## How the secret is stored
+
+The credentials are stored in `org_service_credentials`, keyed by the org ID that
+the event carries, like every other CDS table. The org handle is kept beside it,
+since token requests and introspection name the organization by its handle. For an
+organization CDS already knows, the org ID of the event has to be its ID. A tenant
+deleted and created again with the same domain gets a new org ID, and its
+credentials replace those of the earlier organization.
 
 Encrypted, with AES-256-GCM, under `encryption_key`. Each row carries the nonce and
 the ID of the key that encrypted it, so a secret encrypted under a key the

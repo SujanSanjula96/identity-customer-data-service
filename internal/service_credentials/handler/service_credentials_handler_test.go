@@ -52,6 +52,7 @@ const (
 	goodSecret  = "acme-secret"
 	issuedToken = "issued-token"
 	syncPath    = "/t/acme/cds/api/v1/service-credentials/sync"
+	acmeOrgId   = "acme-org-id"
 )
 
 // fixture is a CDS with the service credentials sync endpoint mounted, the WSO2
@@ -169,6 +170,7 @@ func credentials(clientID, clientSecret string) string {
 
 	body, _ := json.Marshal(map[string]string{
 		"event":         "SERVICE_CREDENTIALS_UPDATED",
+		"org_id":        acmeOrgId,
 		"client_id":     clientID,
 		"client_secret": clientSecret,
 	})
@@ -249,14 +251,16 @@ func TestRefusesARequestItCannotServe(t *testing.T) {
 			"CDS-10002"},
 		{"sub organization", "/t/acme/o/child-id/cds/api/v1/service-credentials/sync",
 			credentials(goodClient, goodSecret), true, http.StatusBadRequest, "CDS-17007"},
-		{"no client secret", syncPath, `{"event":"SERVICE_CREDENTIALS_UPDATED","client_id":"x"}`, true,
+		{"no client secret", syncPath, `{"event":"SERVICE_CREDENTIALS_UPDATED","org_id":"o","client_id":"x"}`, true,
 			http.StatusBadRequest, "CDS-10001"},
-		{"no event", syncPath, `{"client_id":"x","client_secret":"y"}`, true, http.StatusBadRequest,
-			"CDS-10001"},
-		{"unknown event", syncPath, `{"event":"SERVICE_CREDENTIALS_DELETED","client_id":"x","client_secret":"y"}`,
+		{"no event", syncPath, `{"org_id":"o","client_id":"x","client_secret":"y"}`, true,
+			http.StatusBadRequest, "CDS-10001"},
+		{"no org ID", syncPath, `{"event":"SERVICE_CREDENTIALS_UPDATED","client_id":"x","client_secret":"y"}`, true,
+			http.StatusBadRequest, "CDS-10001"},
+		{"unknown event", syncPath, `{"event":"SERVICE_CREDENTIALS_DELETED","org_id":"o","client_id":"x","client_secret":"y"}`,
 			true, http.StatusBadRequest, "CDS-10001"},
 		{"unknown field", syncPath,
-			`{"event":"SERVICE_CREDENTIALS_UPDATED","client_id":"x","client_secret":"y","app_id":"z"}`, true,
+			`{"event":"SERVICE_CREDENTIALS_UPDATED","org_id":"o","client_id":"x","client_secret":"y","app_id":"z"}`, true,
 			http.StatusBadRequest, "CDS-10001"},
 	}
 	for _, c := range cases {
@@ -369,8 +373,8 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 func TestCredentialsUnderAnotherKeyFallBackToTheConfiguredPair(t *testing.T) {
 
 	f := newFixture(t, usableKey)
-	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_handle, client_id, client_secret, key_id)
-		VALUES ('acme', 'old-client', 'c2VhbGVk', 'another-key')`); err != nil {
+	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
+		key_id) VALUES ('acme-org-id', 'acme', 'old-client', 'c2VhbGVk', 'another-key')`); err != nil {
 		t.Fatalf("failed to insert the row: %v", err)
 	}
 
@@ -392,5 +396,47 @@ func TestCheckStore(t *testing.T) {
 	if err := servicecreds.CheckStore(context.Background()); err == nil ||
 		!strings.Contains(err.Error(), "003-service-credentials-postgres.sql") {
 		t.Fatalf("CheckStore without the table: got %v, want the migration named", err)
+	}
+}
+
+// CDS keys the credentials by org ID. An organization that CDS already knows has
+// to be the one the event names.
+func TestRefusesAnOrgIdThatIsNotTheOrganizationOfThePath(t *testing.T) {
+
+	f := newFixture(t, usableKey)
+	if _, err := f.testDB.DB.Exec(`INSERT INTO organizations (org_id, org_handle, primary_org_id, status)
+		VALUES ('beta-org-id', 'beta', 'beta-org-id', 'ACTIVE')`); err != nil {
+		t.Fatalf("failed to insert the organization: %v", err)
+	}
+
+	rec := f.call(http.MethodPost, "/t/beta/cds/api/v1/service-credentials/sync",
+		credentials(goodClient, goodSecret), true)
+	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-10001" {
+		t.Fatalf("sync: got %d %s, want 400 CDS-10001", rec.Code, rec.Body.String())
+	}
+}
+
+// A tenant deleted and created again with the same domain gets a new org ID. Its
+// credentials replace those of the earlier organization.
+func TestReplacesTheCredentialsOfAnEarlierOrganizationWithTheHandle(t *testing.T) {
+
+	f := newFixture(t, usableKey)
+	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
+		key_id) VALUES ('earlier-org-id', 'acme', 'earlier-client', 'c2VhbGVk', 'another-key')`); err != nil {
+		t.Fatalf("failed to insert the row: %v", err)
+	}
+
+	if rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
+		http.StatusNoContent {
+		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
+	}
+	var orgId string
+	if err := f.testDB.DB.QueryRow("SELECT org_id FROM org_service_credentials WHERE org_handle = 'acme'").
+		Scan(&orgId); err != nil || orgId != acmeOrgId {
+		t.Fatalf("stored org ID: got %q, %v, want %q", orgId, err, acmeOrgId)
+	}
+	creds, found, err := servicecreds.Get(context.Background(), "acme")
+	if err != nil || !found || creds.OrgId != acmeOrgId || creds.ClientID != goodClient {
+		t.Fatalf("Get: got %+v, %t, %v", creds, found, err)
 	}
 }

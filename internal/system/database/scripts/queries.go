@@ -528,18 +528,25 @@ var UpdateInitialSchemaSyncDoneConfig = newQuery("CDS-CFG-04",
                  ON CONFLICT (org_id, config) 
                  DO UPDATE SET value = EXCLUDED.value`)
 
+// The credentials are keyed by org ID, and read by org handle: token requests and
+// introspection name the organization by its handle.
 var GetOrgServiceCredentials = newQuery("CDS-SVC-01",
-	`SELECT client_id, client_secret, key_id FROM org_service_credentials WHERE org_handle = $1`)
+	`SELECT org_id, client_id, client_secret, key_id FROM org_service_credentials WHERE org_handle = $1`)
 
 var CheckOrgServiceCredentials = newQuery("CDS-SVC-03",
 	`SELECT org_handle FROM org_service_credentials LIMIT 1`)
 
 var UpsertOrgServiceCredentials = newQuery("CDS-SVC-02",
-	`INSERT INTO org_service_credentials (org_handle, client_id, client_secret, key_id)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (org_handle)
-                 DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret,
-                               key_id = EXCLUDED.key_id`)
+	`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret, key_id)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (org_id)
+                 DO UPDATE SET org_handle = EXCLUDED.org_handle, client_id = EXCLUDED.client_id,
+                               client_secret = EXCLUDED.client_secret, key_id = EXCLUDED.key_id`)
+
+// DeleteStaleOrgServiceCredentials removes the credentials of an earlier organization with the
+// handle, as of a tenant deleted and created again with the same domain.
+var DeleteStaleOrgServiceCredentials = newQuery("CDS-SVC-04",
+	`DELETE FROM org_service_credentials WHERE org_handle = $1 AND org_id <> $2`)
 
 // HealthCheckPing checks that the datasource answers.
 var HealthCheckPing = newQuery("CDS-SYS-01", `SELECT 1;`)

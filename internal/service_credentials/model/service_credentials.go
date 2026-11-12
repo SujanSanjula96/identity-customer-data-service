@@ -26,6 +26,7 @@ const EventServiceCredentialsUpdated = "SERVICE_CREDENTIALS_UPDATED"
 // service credentials of an organization change.
 type ServiceCredentialsSyncEvent struct {
 	Event        string `json:"event"`
+	OrgId        string `json:"org_id"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 }
