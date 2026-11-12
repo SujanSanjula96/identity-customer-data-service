@@ -30,7 +30,6 @@ const usableKey = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
 // A deployment without a key stores nothing and seals nothing, so it must not be
 // asked for a key it has no use for, whatever its identity provider.
 func TestValidateConfigAcceptsNoKey(t *testing.T) {
-
 	for _, supported := range []bool{true, false} {
 		if err := ValidateConfig(withKey("", "other"), supported); err != nil {
 			t.Fatalf("ValidateConfig with supported %t: %v", supported, err)
@@ -39,7 +38,6 @@ func TestValidateConfigAcceptsNoKey(t *testing.T) {
 }
 
 func TestValidateConfigRefusesAnUnusableKey(t *testing.T) {
-
 	cases := map[string]string{
 		"not base64":   "not-base64-$$$",
 		"wrong length": "c2hvcnQ=",
@@ -59,7 +57,6 @@ func TestValidateConfigRefusesAnUnusableKey(t *testing.T) {
 }
 
 func TestValidateConfigAcceptsAUsableKey(t *testing.T) {
-
 	if err := ValidateConfig(withKey(usableKey, "wso2is"), true); err != nil {
 		t.Fatalf("ValidateConfig: %v", err)
 	}
@@ -68,7 +65,6 @@ func TestValidateConfigAcceptsAUsableKey(t *testing.T) {
 // Nothing sends credentials to a deployment whose identity provider adapter does
 // not verify them, so a key there is a mistake to report at start.
 func TestValidateConfigRefusesAKeyTheIdentityProviderHasNoUseFor(t *testing.T) {
-
 	err := ValidateConfig(withKey(usableKey, "other"), false)
 	if err == nil {
 		t.Fatal("expected a key for an identity provider without service credentials to stop the server")
@@ -79,7 +75,6 @@ func TestValidateConfigRefusesAKeyTheIdentityProviderHasNoUseFor(t *testing.T) {
 }
 
 func TestEnabledOnceAKeyIsSet(t *testing.T) {
-
 	_ = config.InitializeCDSRuntime(t.TempDir(), &config.Config{})
 	saved := config.GetCDSRuntime().Config
 	t.Cleanup(func() { config.GetCDSRuntime().Config = saved })
@@ -93,7 +88,6 @@ func TestEnabledOnceAKeyIsSet(t *testing.T) {
 }
 
 func withKey(key, idpType string) config.Config {
-
 	return config.Config{
 		IdP: config.IdPConfig{
 			Type:               idpType,

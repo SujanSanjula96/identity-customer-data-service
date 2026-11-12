@@ -52,7 +52,7 @@ const (
 	goodSecret  = "acme-secret"
 	issuedToken = "issued-token"
 	syncPath    = "/t/acme/cds/api/v1/service-credentials/sync"
-	acmeOrgId   = "acme-org-id"
+	acmeOrgID   = "acme-org-id"
 )
 
 // fixture is a CDS with the service credentials sync endpoint mounted, the WSO2
@@ -65,7 +65,6 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T, encryptionKey string) *fixture {
-
 	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
@@ -144,10 +143,9 @@ func newFixture(t *testing.T, encryptionKey string) *fixture {
 	return &fixture{t: t, cds: cds, testDB: testDB}
 }
 
-func (f *fixture) call(method, path, body string, authenticated bool) *httptest.ResponseRecorder {
-
+func (f *fixture) call(path, body string, authenticated bool) *httptest.ResponseRecorder {
 	f.t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	if authenticated {
 		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(syncUser+":"+syncPass)))
 	}
@@ -157,7 +155,6 @@ func (f *fixture) call(method, path, body string, authenticated bool) *httptest.
 }
 
 func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
-
 	t.Helper()
 	var body struct {
 		Code string `json:"code"`
@@ -167,10 +164,9 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func credentials(clientID, clientSecret string) string {
-
 	body, _ := json.Marshal(map[string]string{
 		"event":         "SERVICE_CREDENTIALS_UPDATED",
-		"org_id":        acmeOrgId,
+		"org_id":        acmeOrgID,
 		"client_id":     clientID,
 		"client_secret": clientSecret,
 	})
@@ -178,7 +174,6 @@ func credentials(clientID, clientSecret string) string {
 }
 
 func (f *fixture) storedClientID(org string) string {
-
 	f.t.Helper()
 	var clientID string
 	err := f.testDB.DB.QueryRow("SELECT client_id FROM org_service_credentials WHERE org_handle = ?", org).
@@ -190,10 +185,9 @@ func (f *fixture) storedClientID(org string) string {
 }
 
 func TestStoresVerifiedCredentialsAndUsesThemForTokens(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 
-	if rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
+	if rec := f.call(syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
 		http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
@@ -219,10 +213,9 @@ func TestStoresVerifiedCredentialsAndUsesThemForTokens(t *testing.T) {
 }
 
 func TestRefusesCredentialsTheIdentityProviderRejects(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 
-	rec := f.call(http.MethodPost, syncPath, credentials(goodClient, "wrong-secret"), true)
+	rec := f.call(syncPath, credentials(goodClient, "wrong-secret"), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-16003" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-16003", rec.Code, rec.Body.String())
 	}
@@ -232,7 +225,6 @@ func TestRefusesCredentialsTheIdentityProviderRejects(t *testing.T) {
 }
 
 func TestRefusesARequestItCannotServe(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 
 	previous := utils.SubOrgResolver
@@ -257,15 +249,16 @@ func TestRefusesARequestItCannotServe(t *testing.T) {
 			http.StatusBadRequest, "CDS-10001"},
 		{"no org ID", syncPath, `{"event":"SERVICE_CREDENTIALS_UPDATED","client_id":"x","client_secret":"y"}`, true,
 			http.StatusBadRequest, "CDS-10001"},
-		{"unknown event", syncPath, `{"event":"SERVICE_CREDENTIALS_DELETED","org_id":"o","client_id":"x","client_secret":"y"}`,
-			true, http.StatusBadRequest, "CDS-10001"},
-		{"unknown field", syncPath,
-			`{"event":"SERVICE_CREDENTIALS_UPDATED","org_id":"o","client_id":"x","client_secret":"y","app_id":"z"}`, true,
+		{"unknown event", syncPath,
+			`{"event":"SERVICE_CREDENTIALS_DELETED","org_id":"o","client_id":"x","client_secret":"y"}`, true,
 			http.StatusBadRequest, "CDS-10001"},
+		{"unknown field", syncPath,
+			`{"event":"SERVICE_CREDENTIALS_UPDATED","org_id":"o","client_id":"x","client_secret":"y","app_id":"z"}`,
+			true, http.StatusBadRequest, "CDS-10001"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec := f.call(http.MethodPost, c.path, c.body, c.authenticated)
+			rec := f.call(c.path, c.body, c.authenticated)
 			if rec.Code != c.status || errorCode(t, rec) != c.code {
 				t.Fatalf("got %d %s, want %d %s", rec.Code, rec.Body.String(), c.status, c.code)
 			}
@@ -276,10 +269,9 @@ func TestRefusesARequestItCannotServe(t *testing.T) {
 // Without a key CDS keeps the configured pair for every organization. The
 // identity provider reads CDS-16004 as that, and sends no credentials.
 func TestRefusesCredentialsWithoutAnEncryptionKey(t *testing.T) {
-
 	f := newFixture(t, "")
 
-	rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true)
+	rec := f.call(syncPath, credentials(goodClient, goodSecret), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-16004" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-16004", rec.Code, rec.Body.String())
 	}
@@ -300,10 +292,9 @@ type verifyingAdapter struct {
 }
 
 func (a *verifyingAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID, _ string) error {
-
 	a.verifiedOrg = orgHandle
 	if clientID != a.acceptedClient {
-		return errors2.NewClientError(errors2.SERVICE_CREDENTIALS_REJECTED, http.StatusBadRequest)
+		return errors2.NewClientError(errors2.ServiceCredentialsRejected, http.StatusBadRequest)
 	}
 	return nil
 }
@@ -311,12 +302,11 @@ func (a *verifyingAdapter) VerifyServiceCredentials(_ context.Context, orgHandle
 // Any identity provider whose adapter verifies service credentials can send
 // them; the endpoint does not depend on WSO2 IS.
 func TestVerifiesCredentialsThroughTheAdapterOfTheIdentityProvider(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	adapter := &verifyingAdapter{acceptedClient: "other-idp-client"}
 	idp.SetAdapter(adapter)
 
-	rec := f.call(http.MethodPost, syncPath, credentials("other-idp-client", "other-idp-secret"), true)
+	rec := f.call(syncPath, credentials("other-idp-client", "other-idp-secret"), true)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
@@ -327,7 +317,7 @@ func TestVerifiesCredentialsThroughTheAdapterOfTheIdentityProvider(t *testing.T)
 		t.Fatalf("stored client ID: got %q, want other-idp-client", got)
 	}
 
-	rec = f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true)
+	rec = f.call(syncPath, credentials(goodClient, goodSecret), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-16003" {
 		t.Fatalf("sync of a client the adapter refuses: got %d %s, want 400 CDS-16003", rec.Code,
 			rec.Body.String())
@@ -335,11 +325,10 @@ func TestVerifiesCredentialsThroughTheAdapterOfTheIdentityProvider(t *testing.T)
 }
 
 func TestRefusesCredentialsForAnIdentityProviderWithoutThem(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	idp.SetAdapter(otherAdapter{})
 
-	rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true)
+	rec := f.call(syncPath, credentials(goodClient, goodSecret), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-16004" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-16004", rec.Code, rec.Body.String())
 	}
@@ -349,7 +338,6 @@ func TestRefusesCredentialsForAnIdentityProviderWithoutThem(t *testing.T) {
 // organization's service credentials, at its own endpoint, and uses the
 // configured introspection client for an organization without them.
 func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	adapter := idp.NewWSO2ISAdapter()
 
@@ -358,7 +346,7 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 		t.Fatalf("before the sync: got %v, %v, want the configured client at the super tenant", claims, err)
 	}
 
-	if rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
+	if rec := f.call(syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
 		http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
@@ -371,7 +359,6 @@ func TestIntrospectsWithTheServiceCredentialsOfTheOrganization(t *testing.T) {
 // Credentials sealed under a key the deployment no longer holds fall back to the
 // configured pair instead of failing every call for the organization.
 func TestCredentialsUnderAnotherKeyFallBackToTheConfiguredPair(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
 		key_id) VALUES ('acme-org-id', 'acme', 'old-client', 'c2VhbGVk', 'another-key')`); err != nil {
@@ -385,7 +372,6 @@ func TestCredentialsUnderAnotherKeyFallBackToTheConfiguredPair(t *testing.T) {
 }
 
 func TestCheckStore(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	if err := servicecreds.CheckStore(context.Background()); err != nil {
 		t.Fatalf("CheckStore with the table: %v", err)
@@ -402,14 +388,13 @@ func TestCheckStore(t *testing.T) {
 // CDS keys the credentials by org ID. An organization that CDS already knows has
 // to be the one the event names.
 func TestRefusesAnOrgIdThatIsNotTheOrganizationOfThePath(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	if _, err := f.testDB.DB.Exec(`INSERT INTO organizations (org_id, org_handle, primary_org_id, status)
 		VALUES ('beta-org-id', 'beta', 'beta-org-id', 'ACTIVE')`); err != nil {
 		t.Fatalf("failed to insert the organization: %v", err)
 	}
 
-	rec := f.call(http.MethodPost, "/t/beta/cds/api/v1/service-credentials/sync",
+	rec := f.call("/t/beta/cds/api/v1/service-credentials/sync",
 		credentials(goodClient, goodSecret), true)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "CDS-10001" {
 		t.Fatalf("sync: got %d %s, want 400 CDS-10001", rec.Code, rec.Body.String())
@@ -419,24 +404,23 @@ func TestRefusesAnOrgIdThatIsNotTheOrganizationOfThePath(t *testing.T) {
 // A tenant deleted and created again with the same domain gets a new org ID. Its
 // credentials replace those of the earlier organization.
 func TestReplacesTheCredentialsOfAnEarlierOrganizationWithTheHandle(t *testing.T) {
-
 	f := newFixture(t, usableKey)
 	if _, err := f.testDB.DB.Exec(`INSERT INTO org_service_credentials (org_id, org_handle, client_id, client_secret,
 		key_id) VALUES ('earlier-org-id', 'acme', 'earlier-client', 'c2VhbGVk', 'another-key')`); err != nil {
 		t.Fatalf("failed to insert the row: %v", err)
 	}
 
-	if rec := f.call(http.MethodPost, syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
+	if rec := f.call(syncPath, credentials(goodClient, goodSecret), true); rec.Code !=
 		http.StatusNoContent {
 		t.Fatalf("sync: got %d %s, want 204", rec.Code, rec.Body.String())
 	}
-	var orgId string
+	var orgID string
 	if err := f.testDB.DB.QueryRow("SELECT org_id FROM org_service_credentials WHERE org_handle = 'acme'").
-		Scan(&orgId); err != nil || orgId != acmeOrgId {
-		t.Fatalf("stored org ID: got %q, %v, want %q", orgId, err, acmeOrgId)
+		Scan(&orgID); err != nil || orgID != acmeOrgID {
+		t.Fatalf("stored org ID: got %q, %v, want %q", orgID, err, acmeOrgID)
 	}
 	creds, found, err := servicecreds.Get(context.Background(), "acme")
-	if err != nil || !found || creds.OrgId != acmeOrgId || creds.ClientID != goodClient {
+	if err != nil || !found || creds.OrgID != acmeOrgID || creds.ClientID != goodClient {
 		t.Fatalf("Get: got %+v, %t, %v", creds, found, err)
 	}
 }

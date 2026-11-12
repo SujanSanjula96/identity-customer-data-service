@@ -37,6 +37,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 
 	"github.com/google/uuid"
+
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 
@@ -279,7 +280,6 @@ func (c *IdentityClient) fetchClientCredentialsToken(orgId string, authCfg confi
 // stored. It returns a client error when the token endpoint refuses the client,
 // and a server error when the token endpoint cannot be reached.
 func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecret string) error {
-
 	authCfg := config.GetCDSRuntime().Config.AuthServer
 	endpoint, err := c.buildTokenEndpoint(orgHandle, authCfg.TokenEndpoint)
 	if err != nil {
@@ -295,8 +295,8 @@ func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecr
 	if errors.As(err, &serverErr) && errors.As(serverErr.Err, &statusErr) &&
 		statusErr.StatusCode >= 400 && statusErr.StatusCode < 500 {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:    errors2.SERVICE_CREDENTIALS_REJECTED.Code,
-			Message: errors2.SERVICE_CREDENTIALS_REJECTED.Message,
+			Code:    errors2.ServiceCredentialsRejected.Code,
+			Message: errors2.ServiceCredentialsRejected.Message,
 			Description: fmt.Sprintf("The token endpoint of the organization %s refused the client %s with "+
 				"status %d.", orgHandle, clientID, statusErr.StatusCode),
 		}, http.StatusBadRequest)
@@ -305,7 +305,6 @@ func (c *IdentityClient) VerifyClientCredentials(orgHandle, clientID, clientSecr
 }
 
 func clientCredentialsForm(scope string) url.Values {
-
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("scope", scope)
@@ -552,7 +551,6 @@ func (c *IdentityClient) IntrospectToken(token, orgHandle string) (map[string]in
 // Server client can only authenticate at the endpoints of its own tenant.
 func (c *IdentityClient) IntrospectTokenAsOrg(token, orgHandle, clientID, clientSecret string) (map[string]interface{},
 	error) {
-
 	authConfig := config.GetCDSRuntime().Config.AuthServer
 	introspectionEndpoint, err := orgEndpoint(c.BaseURL, orgHandle,
 		"/t/"+orgHandle+authConfig.IntrospectionEndPoint)
@@ -566,7 +564,6 @@ func (c *IdentityClient) IntrospectTokenAsOrg(token, orgHandle, clientID, client
 
 func (c *IdentityClient) introspect(introspectionEndpoint, clientID, clientSecret string,
 	form url.Values) (map[string]interface{}, error) {
-
 	log.GetLogger().Info("Introspecting token at endpoint: " + introspectionEndpoint)
 	req, err := http.NewRequest("POST", introspectionEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {

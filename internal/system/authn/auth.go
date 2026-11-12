@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -226,7 +227,6 @@ func unauthorizedError() error {
 // of the identity provider introspects it when it can, as with the service
 // credentials of the organization.
 func introspect(identityClient *client.IdentityClient, token, orgHandle string) (map[string]interface{}, error) {
-
 	if introspector, ok := idp.GetAdapter().(idp.TokenIntrospector); ok {
 		return introspector.IntrospectToken(context.Background(), token, orgHandle)
 	}

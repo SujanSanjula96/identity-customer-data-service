@@ -50,7 +50,6 @@ func NewWSO2ISAdapter() *WSO2ISAdapter {
 // client.
 func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID,
 	clientSecret string) error {
-
 	return a.client.VerifyClientCredentials(orgHandle, clientID, clientSecret)
 }
 
@@ -59,7 +58,6 @@ func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, c
 // such as a sub organization, uses the configured introspection client.
 func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle string) (map[string]interface{},
 	error) {
-
 	if servicecreds.Enabled() {
 		creds, found, err := servicecreds.Get(ctx, orgHandle)
 		if err != nil {

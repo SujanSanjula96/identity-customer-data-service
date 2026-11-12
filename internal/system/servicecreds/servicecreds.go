@@ -47,7 +47,7 @@ import (
 
 // Credentials are one organization's service credentials.
 type Credentials struct {
-	OrgId        string
+	OrgID        string
 	OrgHandle    string
 	ClientID     string
 	ClientSecret string
@@ -63,7 +63,6 @@ var (
 // life of the process, so the key is resolved once and the AES key schedule is
 // not redone on every token fetch.
 func sealer() (*secrets.Sealer, error) {
-
 	sealerOnce.Do(func() {
 		cachedSealer, sealerErr = secrets.NewSealer(
 			config.GetCDSRuntime().Config.IdP.ServiceCredentials.EncryptionKey)
@@ -75,7 +74,6 @@ func sealer() (*secrets.Sealer, error) {
 // which it does once an encryption key is configured. ValidateConfig refuses a
 // key for an identity provider that does not send credentials.
 func Enabled() bool {
-
 	return config.GetCDSRuntime().Config.IdP.ServiceCredentials.EncryptionKey != ""
 }
 
@@ -85,7 +83,6 @@ func Enabled() bool {
 // credentials. It is called at start so that a deployment with a broken key
 // fails there, rather than at the first organization that sends credentials.
 func ValidateConfig(cfg config.Config, supported bool) error {
-
 	key := cfg.IdP.ServiceCredentials.EncryptionKey
 	if key == "" {
 		return nil
@@ -104,12 +101,11 @@ func ValidateConfig(cfg config.Config, supported bool) error {
 // It is called at start once a key is set, so that a PostgreSQL database
 // without the migration fails there, rather than at every token fetch.
 func CheckStore(ctx context.Context) error {
-
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return fmt.Errorf("failed to get a database client: %w", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	if _, err := dbClient.ExecuteQueryContext(ctx, scripts.CheckOrgServiceCredentials); err != nil {
 		return fmt.Errorf("the org_service_credentials table cannot be read; on PostgreSQL, run "+
@@ -121,14 +117,13 @@ func CheckStore(ctx context.Context) error {
 // Get returns the credentials stored for orgHandle. found is false when the
 // organization has none, and the configured pair applies.
 func Get(ctx context.Context, orgHandle string) (Credentials, bool, error) {
-
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return Credentials{}, false, getFailed(orgHandle, "failed to get a database client", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgServiceCredentials, orgHandle)
 	if err != nil {
@@ -160,12 +155,12 @@ func Get(ctx context.Context, orgHandle string) (Credentials, bool, error) {
 		return Credentials{}, false, getFailed(orgHandle, "failed to open the sealed client secret", err)
 	}
 
-	orgId, _ := row["org_id"].(string)
+	orgID, _ := row["org_id"].(string)
 	clientID, _ := row["client_id"].(string)
 	logger.Debug(fmt.Sprintf("Resolved the service credentials of organization: %s", orgHandle))
 
 	return Credentials{
-		OrgId:        orgId,
+		OrgID:        orgID,
 		OrgHandle:    orgHandle,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -175,7 +170,6 @@ func Get(ctx context.Context, orgHandle string) (Credentials, bool, error) {
 // Save seals the client secret and persists the credentials, replacing whatever
 // the organization held before.
 func Save(ctx context.Context, creds Credentials) error {
-
 	logger := log.GetLogger()
 
 	keeper, err := sealer()
@@ -191,17 +185,17 @@ func Save(ctx context.Context, creds Credentials) error {
 	if err != nil {
 		return saveFailed(creds.OrgHandle, "failed to get a database client", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	// An earlier organization with the same handle no longer exists, so its
 	// credentials no longer work.
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.DeleteStaleOrgServiceCredentials, creds.OrgHandle,
-		creds.OrgId)
+		creds.OrgID)
 	if err != nil {
 		return saveFailed(creds.OrgHandle, "failed to remove the credentials of an earlier organization", err)
 	}
 	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrgServiceCredentials,
-		creds.OrgId, creds.OrgHandle, creds.ClientID, sealed, keeper.KeyID())
+		creds.OrgID, creds.OrgHandle, creds.ClientID, sealed, keeper.KeyID())
 	if err != nil {
 		return saveFailed(creds.OrgHandle, "failed to persist the credentials", err)
 	}
@@ -211,23 +205,21 @@ func Save(ctx context.Context, creds Credentials) error {
 }
 
 func getFailed(orgHandle, what string, err error) error {
-
 	errorMsg := fmt.Sprintf("%s for the organization: %s", what, orgHandle)
 	log.GetLogger().Debug(errorMsg, log.Error(err))
 	return errors2.NewServerError(errors2.ErrorMessage{
-		Code:        errors2.GET_SERVICE_CREDENTIALS_FAILED.Code,
-		Message:     errors2.GET_SERVICE_CREDENTIALS_FAILED.Message,
+		Code:        errors2.GetServiceCredentialsFailed.Code,
+		Message:     errors2.GetServiceCredentialsFailed.Message,
 		Description: errorMsg,
 	}, err)
 }
 
 func saveFailed(orgHandle, what string, err error) error {
-
 	errorMsg := fmt.Sprintf("%s for the organization: %s", what, orgHandle)
 	log.GetLogger().Debug(errorMsg, log.Error(err))
 	return errors2.NewServerError(errors2.ErrorMessage{
-		Code:        errors2.SAVE_SERVICE_CREDENTIALS_FAILED.Code,
-		Message:     errors2.SAVE_SERVICE_CREDENTIALS_FAILED.Message,
+		Code:        errors2.SaveServiceCredentialsFailed.Code,
+		Message:     errors2.SaveServiceCredentialsFailed.Message,
 		Description: errorMsg,
 	}, err)
 }

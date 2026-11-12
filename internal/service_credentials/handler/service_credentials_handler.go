@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package handler serves the endpoint the identity provider sends the service credentials of an
+// organization to.
 package handler
 
 import (
@@ -39,6 +41,7 @@ import (
 // the sync admin credentials.
 type ServiceCredentialsHandler struct{}
 
+// NewServiceCredentialsHandler returns the handler of the service credentials sync endpoint.
 func NewServiceCredentialsHandler() *ServiceCredentialsHandler {
 	return &ServiceCredentialsHandler{}
 }
@@ -46,12 +49,11 @@ func NewServiceCredentialsHandler() *ServiceCredentialsHandler {
 // SyncServiceCredentials stores the credentials of the organization, after the
 // adapter of the identity provider has verified them.
 func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter, r *http.Request) {
-
 	if err := security.AuthnWithAdminCredentials(r); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	if pathOrgId, _ := r.Context().Value(constants.OrgIdContextKey).(string); pathOrgId != "" {
+	if pathOrgID, _ := r.Context().Value(constants.OrgIdContextKey).(string); pathOrgID != "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Code,
 			Message:     errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Message,
@@ -61,7 +63,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	}
 	verifier, supported := idp.GetAdapter().(idp.ServiceCredentialsVerifier)
 	if !supported || !servicecreds.Enabled() {
-		utils.HandleError(w, errors2.NewClientError(errors2.SERVICE_CREDENTIALS_NOT_CONFIGURED,
+		utils.HandleError(w, errors2.NewClientError(errors2.ServiceCredentialsNotConfigured,
 			http.StatusBadRequest))
 		return
 	}
@@ -70,7 +72,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&event); err != nil || event.Event != model.EventServiceCredentialsUpdated ||
-		event.OrgId == "" || event.ClientID == "" || event.ClientSecret == "" {
+		event.OrgID == "" || event.ClientID == "" || event.ClientSecret == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:    errors2.BAD_REQUEST.Code,
 			Message: errors2.BAD_REQUEST.Message,
@@ -88,7 +90,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		utils.HandleError(w, err)
 		return
 	}
-	if known && ref.ID != event.OrgId {
+	if known && ref.ID != event.OrgID {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.BAD_REQUEST.Code,
 			Message:     errors2.BAD_REQUEST.Message,
@@ -102,7 +104,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		return
 	}
 	err = servicecreds.Save(r.Context(), servicecreds.Credentials{
-		OrgId:        event.OrgId,
+		OrgID:        event.OrgID,
 		OrgHandle:    orgHandle,
 		ClientID:     event.ClientID,
 		ClientSecret: event.ClientSecret,

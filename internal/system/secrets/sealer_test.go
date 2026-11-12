@@ -26,7 +26,6 @@ import (
 )
 
 func testKey(t *testing.T, fill byte) string {
-
 	t.Helper()
 	key := make([]byte, KeyLength)
 	for i := range key {
@@ -36,7 +35,6 @@ func testKey(t *testing.T, fill byte) string {
 }
 
 func TestNewSealerRefusesUnusableKeys(t *testing.T) {
-
 	cases := map[string]string{
 		"empty":        "",
 		"not base64":   "not-base64-$$$",
@@ -53,7 +51,6 @@ func TestNewSealerRefusesUnusableKeys(t *testing.T) {
 }
 
 func TestSealOpenRoundTrip(t *testing.T) {
-
 	sealer, err := NewSealer(testKey(t, 0x01))
 	if err != nil {
 		t.Fatalf("NewSealer: %v", err)
@@ -77,10 +74,9 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}
 }
 
-// A fresh nonce per call is what keeps two organisations that happen to hold the
+// A fresh nonce per call is what keeps two organizations that happen to hold the
 // same secret from being visibly identical in the database.
 func TestSealIsNotDeterministic(t *testing.T) {
-
 	sealer, err := NewSealer(testKey(t, 0x02))
 	if err != nil {
 		t.Fatalf("NewSealer: %v", err)
@@ -103,7 +99,6 @@ func TestSealIsNotDeterministic(t *testing.T) {
 // alternative is an authentication failure, which reads like a corrupt row and
 // sends the operator looking in the wrong place.
 func TestOpenNamesTheKeyAValueWasSealedUnder(t *testing.T) {
-
 	original, err := NewSealer(testKey(t, 0x03))
 	if err != nil {
 		t.Fatalf("NewSealer: %v", err)
@@ -131,7 +126,6 @@ func TestOpenNamesTheKeyAValueWasSealedUnder(t *testing.T) {
 }
 
 func TestOpenRefusesTamperedValues(t *testing.T) {
-
 	sealer, err := NewSealer(testKey(t, 0x05))
 	if err != nil {
 		t.Fatalf("NewSealer: %v", err)
@@ -154,7 +148,6 @@ func TestOpenRefusesTamperedValues(t *testing.T) {
 }
 
 func TestKeyIDIsStableAndHidesTheKey(t *testing.T) {
-
 	key := testKey(t, 0x06)
 	first, err := NewSealer(key)
 	if err != nil {

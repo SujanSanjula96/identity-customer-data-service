@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package model holds the service credentials sync event.
 package model
 
 // EventServiceCredentialsUpdated replaces the service credentials of the
@@ -26,7 +27,7 @@ const EventServiceCredentialsUpdated = "SERVICE_CREDENTIALS_UPDATED"
 // service credentials of an organization change.
 type ServiceCredentialsSyncEvent struct {
 	Event        string `json:"event"`
-	OrgId        string `json:"org_id"`
+	OrgID        string `json:"org_id"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 }

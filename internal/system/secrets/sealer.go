@@ -19,7 +19,7 @@
 // Package secrets seals the credentials CDS has to be able to present again.
 //
 // The client secret of an Identity Server application CDS provisions for an
-// organisation goes back to the token endpoint on every token request, so it
+// organization goes back to the token endpoint on every token request, so it
 // cannot be hashed - a hash cannot be presented. It is sealed instead, under a
 // key the deployment holds outside the database, so that a database dump on its
 // own yields nothing that can be used against the Identity Server.
@@ -54,7 +54,6 @@ type Sealer struct {
 // NewSealer builds a sealer from a base64-encoded key of KeyLength bytes, which
 // is what `openssl rand -base64 32` prints.
 func NewSealer(encodedKey string) (*Sealer, error) {
-
 	if encodedKey == "" {
 		return nil, fmt.Errorf("no encryption key is configured")
 	}
@@ -83,7 +82,6 @@ func NewSealer(encodedKey string) (*Sealer, error) {
 // so that a value sealed under a key the deployment no longer has is reported as
 // exactly that, rather than as a corrupt ciphertext.
 func (s *Sealer) KeyID() string {
-
 	return s.keyID
 }
 
@@ -91,7 +89,6 @@ func (s *Sealer) KeyID() string {
 // ciphertext. Every call draws a fresh nonce, so sealing one value twice gives
 // two different results.
 func (s *Sealer) Seal(plaintext string) (string, error) {
-
 	nonce := make([]byte, s.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", fmt.Errorf("failed to draw a nonce: %w", err)
@@ -105,7 +102,6 @@ func (s *Sealer) Seal(plaintext string) (string, error) {
 // stored; a value sealed under a different key is refused by name rather than
 // failing authentication, because the two call for different operator action.
 func (s *Sealer) Open(sealed, sealedUnder string) (string, error) {
-
 	if sealedUnder != "" && sealedUnder != s.keyID {
 		return "", fmt.Errorf("%w: the value was sealed under key %s, the configured key is %s",
 			ErrSealedUnderAnotherKey, sealedUnder, s.keyID)
@@ -131,7 +127,6 @@ func (s *Sealer) Open(sealed, sealedUnder string) (string, error) {
 // keyID is a short, non-reversible name for a key: the first eight bytes of its
 // SHA-256, hex encoded. It identifies a key without disclosing anything about it.
 func keyID(key []byte) string {
-
 	sum := sha256.Sum256(key)
 	return hex.EncodeToString(sum[:8])
 }

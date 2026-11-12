@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package services registers the routes of the CDS APIs.
 package services
 
 import (
@@ -31,8 +32,8 @@ type ServiceCredentialsService struct {
 	mux     *http.ServeMux
 }
 
+// NewServiceCredentialsService registers the service credentials sync endpoint on the mux.
 func NewServiceCredentialsService(mux *http.ServeMux) *ServiceCredentialsService {
-
 	s := &ServiceCredentialsService{
 		handler: handler.NewServiceCredentialsHandler(),
 		mux:     mux,

@@ -108,12 +108,12 @@ var (
 		Message: "Error while resolving application information.",
 	}
 
-	GET_SERVICE_CREDENTIALS_FAILED = ErrorMessage{
+	GetServiceCredentialsFailed = ErrorMessage{
 		Code:    errorPrefix + "15114",
 		Message: "Error while reading the service credentials of the organization.",
 	}
 
-	SAVE_SERVICE_CREDENTIALS_FAILED = ErrorMessage{
+	SaveServiceCredentialsFailed = ErrorMessage{
 		Code:    errorPrefix + "15115",
 		Message: "Error while persisting the service credentials of the organization.",
 	}
@@ -389,12 +389,12 @@ var (
 		Description: "Customer data service is not enabled for the organization",
 	}
 
-	SERVICE_CREDENTIALS_REJECTED = ErrorMessage{
+	ServiceCredentialsRejected = ErrorMessage{
 		Code:    errorPrefix + "16003",
 		Message: "Service credentials rejected.",
 	}
 
-	SERVICE_CREDENTIALS_NOT_CONFIGURED = ErrorMessage{
+	ServiceCredentialsNotConfigured = ErrorMessage{
 		Code:    errorPrefix + "16004",
 		Message: "Service credentials are not accepted.",
 		Description: "CDS has no encryption key to store the credentials with. Set " +
