@@ -66,8 +66,9 @@ type ServiceCredentialsVerifier interface {
 // organization. CDS introspects tokens through it when the adapter implements it.
 type TokenIntrospector interface {
 	// IntrospectToken returns the introspection response of the token, for the
-	// organization of the request path.
-	IntrospectToken(ctx context.Context, token, orgHandle string) (map[string]interface{}, error)
+	// organization of the request path orgHandle. primaryHandle is the primary
+	// organization of that path.
+	IntrospectToken(ctx context.Context, token, orgHandle, primaryHandle string) (map[string]interface{}, error)
 }
 
 var (

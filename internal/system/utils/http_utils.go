@@ -91,6 +91,16 @@ func ExtractOrgHandleFromPath(r *http.Request) string {
 	return tenant
 }
 
+// ExtractPrimaryOrgHandle returns the handle of the primary organization of the path. For a sub
+// organization path /t/{primary_handle}/o/{org_id}, it is {primary_handle}.
+func ExtractPrimaryOrgHandle(r *http.Request) string {
+	if primaryHandle, ok := r.Context().Value(constants.PrimaryOrgHandleContextKey).(string); ok &&
+		primaryHandle != "" {
+		return primaryHandle
+	}
+	return ExtractOrgHandleFromPath(r)
+}
+
 func StripTenantPrefix(path string) string {
 	parts := strings.SplitN(path, "/", 4)
 	if len(parts) < 4 {
@@ -142,6 +152,7 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 
 		basePath := prefix + orgHandle
 		ctx := context.WithValue(r.Context(), constants.TenantContextKey, orgHandle)
+		ctx = context.WithValue(ctx, constants.PrimaryOrgHandleContextKey, orgHandle)
 		if strings.HasPrefix(remainingPath, "/o/") {
 			// /t/{primary_handle}/o/{org_id}/... is the path of a sub organization.
 			segments := strings.SplitN(strings.TrimPrefix(remainingPath, "/o/"), "/", 2)

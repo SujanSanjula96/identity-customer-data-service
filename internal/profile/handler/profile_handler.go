@@ -1636,8 +1636,7 @@ func getCallerClientIDFromRequest(r *http.Request) string {
 	// For opaque tokens, introspect to get the app ID
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
-	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	introspectionClaims, err := identityClient.IntrospectToken(token, orgHandle)
+	introspectionClaims, err := identityClient.IntrospectToken(token, utils.ExtractPrimaryOrgHandle(r))
 	if err != nil {
 		logger.Debug("Failed to introspect token for app ID extraction", log.Error(err))
 		return ""

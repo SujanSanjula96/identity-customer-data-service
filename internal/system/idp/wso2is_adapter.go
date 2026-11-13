@@ -74,9 +74,10 @@ func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, c
 
 // IntrospectToken introspects the token at the introspection endpoint of the
 // organization, with its service credentials. An organization without them,
-// such as a sub organization, uses the configured introspection client.
-func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle string) (map[string]interface{},
-	error) {
+// such as a sub organization, uses the configured introspection client for its
+// primary organization.
+func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle,
+	primaryHandle string) (map[string]interface{}, error) {
 	if servicecreds.Enabled() {
 		creds, found, err := servicecreds.Get(ctx, orgHandle)
 		if err != nil {
@@ -86,7 +87,7 @@ func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle st
 			return a.client.IntrospectTokenAsOrg(token, orgHandle, creds.ClientID, creds.ClientSecret)
 		}
 	}
-	return a.client.IntrospectToken(token, orgHandle)
+	return a.client.IntrospectToken(token, primaryHandle)
 }
 
 func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle string) (Organization, error) {
