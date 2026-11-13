@@ -1849,6 +1849,48 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /service-credentials/sync:
+    post:
+      tags: [Service credentials]
+      summary: Receive the service credentials of the organization from the identity provider
+      description: >-
+        The identity provider sends the client credentials CDS calls it with for this organization.
+        Only the identity provider calls this endpoint. CDS asks the adapter of the identity provider
+        to verify the credentials (WSO2 IS: a token request at the token endpoint of the
+        organization), and stores them only when they are accepted. The client secret is encrypted at
+        rest and never returned. A later event replaces the stored credentials. Only a primary
+        organization has service credentials.
+      operationId: syncServiceCredentials
+      security:
+        - basicAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCredentialsEvent'
+      responses:
+        '204':
+          description: Credentials verified and stored
+        '400':
+          description: >-
+            The body is not valid (CDS-10001), the identity provider refused the client (CDS-16003),
+            the path is a child organization path (CDS-17007), or CDS keeps the configured client for
+            every organization (CDS-16004). The identity provider reads CDS-16004 as "send no
+            credentials".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CDS-16004
+                message: Service credentials are not accepted.
+                description: >-
+                  CDS has no encryption key to store the credentials with. Set
+                  idp.service_credentials.encryption_key in deployment.yaml.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   parameters:
     ProfileId:
@@ -2900,6 +2942,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OrganizationAccessPolicy'
+
+    ServiceCredentialsEvent:
+      type: object
+      required:
+        - event
+        - org_id
+        - client_id
+        - client_secret
+      properties:
+        event:
+          type: string
+          enum: [SERVICE_CREDENTIALS_UPDATED]
+          description: SERVICE_CREDENTIALS_UPDATED replaces the stored credentials with these.
+        org_id:
+          type: string
+          description: >-
+            The ID of the organization of the path, in the identity provider. CDS keys the credentials by it. It has
+            to be the ID that the identity provider reports for the client.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+          format: password
 
     OrganizationEvent:
       type: object

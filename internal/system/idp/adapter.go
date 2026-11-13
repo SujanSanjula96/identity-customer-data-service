@@ -50,6 +50,26 @@ type Adapter interface {
 	IdentityAttributeSourceHandle(orgHandle, primaryHandle string) string
 }
 
+// ServiceCredentialsVerifier is implemented by the adapter of an identity provider that sends CDS
+// the service credentials CDS calls it with, one pair per primary organization. CDS stores a pair
+// only after the adapter verifies it, and refuses an encryption key for any other adapter.
+type ServiceCredentialsVerifier interface {
+	// VerifyServiceCredentials returns the primary organization that the identity provider issues
+	// a token for to the client, read with that token, and a client error when it refuses the
+	// client. CDS keys the credentials by the ID of that organization.
+	VerifyServiceCredentials(ctx context.Context, orgHandle, clientID, clientSecret string) (Organization,
+		error)
+}
+
+// TokenIntrospector is implemented by the adapter of an identity provider that
+// introspects tokens itself, as with the service credentials of the
+// organization. CDS introspects tokens through it when the adapter implements it.
+type TokenIntrospector interface {
+	// IntrospectToken returns the introspection response of the token, for the
+	// organization of the request path.
+	IntrospectToken(ctx context.Context, token, orgHandle string) (map[string]interface{}, error)
+}
+
 var (
 	adapterMu sync.RWMutex
 	adapter   Adapter

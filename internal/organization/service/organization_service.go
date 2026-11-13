@@ -51,6 +51,12 @@ func EnsurePrimary(ctx context.Context, primaryHandle string) (*model.Organizati
 	if err != nil {
 		return nil, err
 	}
+	return StorePrimary(ctx, primaryHandle, primaryInfo)
+}
+
+// StorePrimary stores a primary organization that the identity provider has returned.
+func StorePrimary(ctx context.Context, primaryHandle string, primaryInfo idp.Organization) (*model.Organization,
+	error) {
 	primary := model.Organization{
 		OrgId:        primaryInfo.Id,
 		OrgHandle:    primaryHandle,

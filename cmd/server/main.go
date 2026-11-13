@@ -41,6 +41,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/managers"
 	_ "github.com/wso2/identity-customer-data-service/internal/system/queue/activemq" // registers the ActiveMQ queue provider
+	"github.com/wso2/identity-customer-data-service/internal/system/servicecreds"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 
@@ -105,6 +106,15 @@ func main() {
 	}
 	idp.SetAdapter(adapter)
 
+	// A key that cannot seal the service credentials, or that the identity
+	// provider has no use for, stops the server here rather than at the first
+	// organization that sends credentials.
+	_, credentialsSupported := adapter.(idp.ServiceCredentialsVerifier)
+	if err := servicecreds.ValidateConfig(*cdsConfig, credentialsSupported); err != nil {
+		log.GetLogger().Error("Invalid service credentials configuration.", log.Error(err))
+		os.Exit(1)
+	}
+
 	// Resolve the shutdown deadline at start, so a refused value stops the
 	// server before anything runs.
 	shutdownGrace, err := config.ResolveShutdownGracePeriod(cdsConfig.Shutdown)
@@ -120,6 +130,13 @@ func main() {
 	if err := initDatabaseFromConfig(cdsConfig); err != nil {
 		log.GetLogger().Error("Failed to initialize the database.", log.Error(err))
 		os.Exit(1)
+	}
+
+	if servicecreds.Enabled() {
+		if err := servicecreds.CheckStore(context.Background()); err != nil {
+			log.GetLogger().Error("Invalid service credentials configuration.", log.Error(err))
+			os.Exit(1)
+		}
 	}
 
 	// Initialize Profile worker

@@ -168,6 +168,33 @@ type Config struct {
 type IdPConfig struct {
 	// Type is "wso2is", the default when it is empty.
 	Type string `yaml:"type"`
+	// ServiceCredentials governs the credentials CDS calls the identity
+	// provider with, which the identity provider sends per organization.
+	ServiceCredentials ServiceCredentialsConfig `yaml:"service_credentials"`
+}
+
+// ServiceCredentialsConfig governs the service-to-service credentials CDS calls
+// the identity provider's management APIs with, one pair per organization.
+//
+// auth_server.client_id/client_secret belong to one tenant and can only
+// authenticate at that tenant's token endpoint. Where CDS serves more than one
+// organization, the identity provider sends a pair for each organization as it
+// enables CDS, to POST /service-credentials/sync (WSO2 Identity Server creates
+// an application per organization for it). CDS keeps them in its database and
+// uses them in place of the configured pair.
+type ServiceCredentialsConfig struct {
+	// EncryptionKey seals the client secrets at rest: 32 bytes, base64
+	// encoded, as `openssl rand -base64 32` prints. Leaving it empty turns the
+	// feature off: CDS stores no credentials and uses the configured pair for
+	// every organization. A key that is set but not usable stops the server.
+	//
+	// Only an identity provider whose adapter verifies service credentials
+	// sends them, which today is wso2is. A key with any other identity
+	// provider stops the server.
+	//
+	// The secret cannot be hashed instead. CDS presents it to the token
+	// endpoint on every token request, and a hash cannot be presented.
+	EncryptionKey string `yaml:"encryption_key"`
 }
 
 // OrganizationManagementConfig enables organization management. The organization tables must exist

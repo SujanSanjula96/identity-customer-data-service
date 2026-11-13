@@ -108,6 +108,16 @@ var (
 		Message: "Error while resolving application information.",
 	}
 
+	GetServiceCredentialsFailed = ErrorMessage{
+		Code:    errorPrefix + "15114",
+		Message: "Error while reading the service credentials of the organization.",
+	}
+
+	SaveServiceCredentialsFailed = ErrorMessage{
+		Code:    errorPrefix + "15115",
+		Message: "Error while persisting the service credentials of the organization.",
+	}
+
 	ADD_UNIFICATION_RULE = ErrorMessage{
 		Code:    errorPrefix + "15201",
 		Message: "Error while adding unification rules.",
@@ -377,6 +387,18 @@ var (
 		Code:        errorPrefix + "16001",
 		Message:     "Not enabled.",
 		Description: "Customer data service is not enabled for the organization",
+	}
+
+	ServiceCredentialsRejected = ErrorMessage{
+		Code:    errorPrefix + "16003",
+		Message: "Service credentials rejected.",
+	}
+
+	ServiceCredentialsNotConfigured = ErrorMessage{
+		Code:    errorPrefix + "16004",
+		Message: "Service credentials are not accepted.",
+		Description: "CDS has no encryption key to store the credentials with. Set " +
+			"idp.service_credentials.encryption_key in deployment.yaml.",
 	}
 
 	IR_SEARCH_FAILED = ErrorMessage{

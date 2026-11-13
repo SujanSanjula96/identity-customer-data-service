@@ -30,6 +30,19 @@ server_url: "https://localhost:8900" # Public-facing base URL used for construct
 # identity provider.
 idp:
   type: "wso2is"
+  # The service-to-service credentials CDS calls the identity provider with, one
+  # pair per organization. auth_server.client_id/client_secret belong to one
+  # tenant, so where CDS serves more than one organization the Identity Server
+  # creates an application for each organization as it enables CDS and sends
+  # the credentials to CDS, which keeps them in its database.
+  #
+  # encryption_key seals those client secrets at rest. Leave it empty to keep
+  # the configured pair for every organization. Generate one with
+  # `openssl rand -base64 32`; a key that is set but not usable stops the server.
+  # Only for an identity provider that sends service credentials (wso2is); a key
+  # for any other stops the server.
+  service_credentials:
+    encryption_key: "${SERVICE_CREDENTIALS_ENCRYPTION_KEY}"
 
 # Organization management: the organization tree, sub organization paths, and sharing with child
 # organizations. Create the organization tables before you enable it.

@@ -528,6 +528,26 @@ var UpdateInitialSchemaSyncDoneConfig = newQuery("CDS-CFG-04",
                  ON CONFLICT (org_id, config) 
                  DO UPDATE SET value = EXCLUDED.value`)
 
+// GetOrgServiceCredentials reads the service credentials of an organization by its handle. They are
+// keyed by org ID; the organizations table resolves the handle, since token requests and introspection
+// name the organization by its handle.
+var GetOrgServiceCredentials = newQuery("CDS-SVC-01",
+	`SELECT c.org_id, c.client_id, c.client_secret, c.key_id
+                 FROM org_service_credentials c JOIN organizations o ON o.org_id = c.org_id
+                 WHERE o.org_handle = $1`)
+
+// CheckOrgServiceCredentials reads one row, to check at start that the table exists.
+var CheckOrgServiceCredentials = newQuery("CDS-SVC-03",
+	`SELECT org_id FROM org_service_credentials LIMIT 1`)
+
+// UpsertOrgServiceCredentials stores the service credentials of an organization, replacing any it had.
+var UpsertOrgServiceCredentials = newQuery("CDS-SVC-02",
+	`INSERT INTO org_service_credentials (org_id, client_id, client_secret, key_id)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (org_id)
+                 DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret,
+                               key_id = EXCLUDED.key_id`)
+
 // HealthCheckPing checks that the datasource answers.
 var HealthCheckPing = newQuery("CDS-SYS-01", `SELECT 1;`)
 

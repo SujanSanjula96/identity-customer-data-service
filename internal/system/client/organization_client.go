@@ -55,9 +55,19 @@ type isOrganizationList struct {
 // organization does not exist.
 func (c *IdentityClient) GetSelfOrganization(orgHandle string) (ISOrganization, bool, error) {
 
+	token, err := c.FetchToken(orgHandle)
+	if err != nil {
+		return ISOrganization{}, false, err
+	}
+	return c.GetSelfOrganizationWithToken(orgHandle, token)
+}
+
+// GetSelfOrganizationWithToken reads the organization of orgHandle with the given
+// token, as a token of a client that is not stored yet.
+func (c *IdentityClient) GetSelfOrganizationWithToken(orgHandle, token string) (ISOrganization, bool, error) {
 	var org ISOrganization
 	endpoint := fmt.Sprintf("https://%s/t/%s/api/server/v1/organizations/self", c.BaseURL, url.PathEscape(orgHandle))
-	status, err := c.getJSON(endpoint, orgHandle, &org)
+	status, err := c.getJSONWithToken(endpoint, token, &org)
 	if status == http.StatusNotFound {
 		return org, false, nil
 	}
@@ -117,6 +127,14 @@ func (c *IdentityClient) ListDescendantOrganizations(primaryHandle string) ([]IS
 // out. It returns the HTTP status.
 func (c *IdentityClient) getJSON(endpoint, orgHandle string, out interface{}) (int, error) {
 
+	token, err := c.FetchToken(orgHandle)
+	if err != nil {
+		return 0, err
+	}
+	return c.getJSONWithToken(endpoint, token, out)
+}
+
+func (c *IdentityClient) getJSONWithToken(endpoint, token string, out interface{}) (int, error) {
 	failed := func(desc string, cause error) error {
 		return errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.ORGANIZATION_SYNC.Code,
@@ -125,10 +143,6 @@ func (c *IdentityClient) getJSON(endpoint, orgHandle string, out interface{}) (i
 		}, cause)
 	}
 
-	token, err := c.FetchToken(orgHandle)
-	if err != nil {
-		return 0, err
-	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, failed("Failed to create the request: "+endpoint, err)
