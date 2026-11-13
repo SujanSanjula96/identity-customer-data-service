@@ -222,6 +222,13 @@ func unauthorizedError() error {
 	}, http.StatusUnauthorized)
 }
 
+// IntrospectToken asks the identity provider about the token of a request in the
+// organization orgHandle, whose primary organization is primaryHandle, the same way
+// as the authentication of the request does.
+func IntrospectToken(token, orgHandle, primaryHandle string) (map[string]interface{}, error) {
+	return introspect(client.NewIdentityClient(config.GetCDSRuntime().Config), token, orgHandle, primaryHandle)
+}
+
 // introspect asks the identity provider whether the token is active. The adapter
 // of the identity provider introspects it when it can, as with the service
 // credentials of the organization. Otherwise the configured introspection client
