@@ -1277,7 +1277,6 @@ func activeSharedAttributes(ctx context.Context, org orgModel.Organization) ([]m
 // attribute among them, at all levels. The sub-attributes of a shared complex attribute follow
 // the sharing policies of the parent.
 func withSubAttributes(ctx context.Context, ids []string) ([]model.ProfileSchemaAttribute, error) {
-
 	var result []model.ProfileSchemaAttribute
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -1339,13 +1338,12 @@ func selectActiveSharedAttributes(shared []shareModel.SharedResource, attrs,
 // sharedAttributeGroup returns the shared attribute and its sub-attributes at all levels, parent
 // first. A sub-attribute is in the group only when the owner of the parent owns it.
 func sharedAttributeGroup(attr model.ProfileSchemaAttribute,
-	byId map[string]model.ProfileSchemaAttribute) []model.ProfileSchemaAttribute {
-
+	byID map[string]model.ProfileSchemaAttribute) []model.ProfileSchemaAttribute {
 	group := []model.ProfileSchemaAttribute{attr}
 	inGroup := map[string]bool{attr.AttributeId: true}
 	for i := 0; i < len(group); i++ {
 		for _, ref := range group[i].SubAttributes {
-			sub, ok := byId[ref.AttributeId]
+			sub, ok := byID[ref.AttributeId]
 			if !ok || inGroup[sub.AttributeId] || sub.OwnerOrgId != attr.OwnerOrgId {
 				continue
 			}
@@ -1358,7 +1356,6 @@ func sharedAttributeGroup(attr model.ProfileSchemaAttribute,
 
 // anyKeyUsed reports whether the key of an attribute of the group is in the used keys.
 func anyKeyUsed(group []model.ProfileSchemaAttribute, usedKeys map[string]bool) bool {
-
 	for _, attr := range group {
 		if usedKeys[attributeKey(attr)] {
 			return true

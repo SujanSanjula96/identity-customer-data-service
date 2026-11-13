@@ -98,7 +98,6 @@ func complexAttribute(id, owner, name string, subs ...model.ProfileSchemaAttribu
 
 // A shared complex attribute comes with its sub-attributes at all levels, parent first.
 func TestSelectActiveSharedAttributesAddsSubAttributesOfComplexAttribute(t *testing.T) {
-
 	city := sharedAttribute("city", "r", "traits.address.city", "")
 	lat := sharedAttribute("lat", "r", "traits.address.geo.lat", "")
 	geo := complexAttribute("geo", "r", "traits.address.geo", lat)
@@ -120,7 +119,6 @@ func TestSelectActiveSharedAttributesAddsSubAttributesOfComplexAttribute(t *test
 // The parent and its sub-attributes are active or not active together. A conflict on a
 // sub-attribute name makes the whole complex attribute not active.
 func TestSelectActiveSharedAttributesComplexAttributeConflicts(t *testing.T) {
-
 	city := sharedAttribute("r-city", "r", "traits.address.city", "")
 	address := complexAttribute("r-address", "r", "traits.address", city)
 	plan := sharedAttribute("r-plan", "r", "traits.plan", "")
@@ -139,7 +137,7 @@ func TestSelectActiveSharedAttributesComplexAttributeConflicts(t *testing.T) {
 	// The complex attribute of a nearer owner wins as one unit.
 	aCity := sharedAttribute("a-city", "a", "traits.address.city", "")
 	aAddress := complexAttribute("a-address", "a", "traits.address", aCity)
-	attrs = append(attrs, aAddress, aCity)
+	attrs = []model.ProfileSchemaAttribute{address, city, plan, aAddress, aCity}
 	shared = append([]shareModel.SharedResource{{ResourceId: "a-address", OwnerOrgId: "a", OwnerDepth: 1}},
 		shareModel.SharedResource{ResourceId: "r-address", OwnerOrgId: "r", OwnerDepth: 2})
 	got = attributeIds(selectActiveSharedAttributes(shared, attrs, nil))
@@ -150,7 +148,6 @@ func TestSelectActiveSharedAttributesComplexAttributeConflicts(t *testing.T) {
 
 // A complex attribute can be shared. A sub-attribute cannot be shared alone.
 func TestIsShareableAttributeComplexAndSubAttribute(t *testing.T) {
-
 	ctx := context.Background()
 	address := complexAttribute("address", "r", "traits.address",
 		sharedAttribute("city", "r", "traits.address.city", ""))
