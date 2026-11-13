@@ -30,7 +30,6 @@ import (
 	adminConfigPkg "github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
 	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	appProvider "github.com/wso2/identity-customer-data-service/internal/application/provider"
-	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/pagination"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
@@ -1633,10 +1632,9 @@ func getCallerClientIDFromRequest(r *http.Request) string {
 		return extractAppIDFromClaims(claims)
 	}
 
-	// For opaque tokens, introspect to get the app ID
-	cfg := config.GetCDSRuntime().Config
-	identityClient := client.NewIdentityClient(cfg)
-	introspectionClaims, err := identityClient.IntrospectToken(token, utils.ExtractPrimaryOrgHandle(r))
+	// For opaque tokens, introspect to get the app ID, as the authentication of the request does
+	introspectionClaims, err := authn.IntrospectToken(token, utils.ExtractOrgHandleFromPath(r),
+		utils.ExtractPrimaryOrgHandle(r))
 	if err != nil {
 		logger.Debug("Failed to introspect token for app ID extraction", log.Error(err))
 		return ""
