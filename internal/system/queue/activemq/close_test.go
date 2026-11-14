@@ -52,6 +52,8 @@ type fakeBroker struct {
 	mu        sync.Mutex
 	accepted  []net.Conn
 	readEnded chan struct{}
+	// sends receives the headers of each SEND frame.
+	sends chan map[string]string
 }
 
 // startFakeBroker listens on a local port. When answerReceipt is false the
@@ -65,7 +67,8 @@ func startFakeBroker(t *testing.T, answerReceipt bool) *fakeBroker {
 		t.Fatalf("failed to listen: %v", err)
 	}
 
-	broker := &fakeBroker{listener: listener, readEnded: make(chan struct{}, 4)}
+	broker := &fakeBroker{listener: listener, readEnded: make(chan struct{}, 4),
+		sends: make(chan map[string]string, 16)}
 	t.Cleanup(func() {
 		_ = listener.Close()
 		broker.mu.Lock()
@@ -123,6 +126,8 @@ func (b *fakeBroker) serve(conn net.Conn, answerReceipt bool) {
 			if _, err := conn.Write([]byte("CONNECTED\nversion:1.2\n\n\x00")); err != nil {
 				return
 			}
+		case "SEND":
+			b.sends <- headers
 		case "DISCONNECT":
 			if !answerReceipt {
 				continue
