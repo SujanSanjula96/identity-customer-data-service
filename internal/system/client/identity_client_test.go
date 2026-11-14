@@ -482,6 +482,27 @@ func TestNewOutboundHTTPClient(t *testing.T) {
 	assert.Error(t, err, "a client certificate that cannot be loaded")
 }
 
+func TestSharedOutboundHTTPClient(t *testing.T) {
+	dir := t.TempDir()
+	tlsCfg := config.TLSConfig{CertDir: dir}
+
+	first, err := sharedOutboundHTTPClient(tlsCfg, "is.example.com")
+	require.NoError(t, err)
+	second, err := sharedOutboundHTTPClient(tlsCfg, "is.example.com")
+	require.NoError(t, err)
+	assert.Same(t, first, second, "the same TLS configuration shares one client and one connection pool")
+
+	other, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()}, "is.example.com")
+	require.NoError(t, err)
+	assert.NotSame(t, first, other, "a different TLS configuration gets its own client")
+
+	badCfg := config.TLSConfig{CertDir: dir, TrustStore: "missing.pem"}
+	_, err = sharedOutboundHTTPClient(badCfg, "is.example.com")
+	assert.Error(t, err)
+	_, err = sharedOutboundHTTPClient(badCfg, "is.example.com")
+	assert.Error(t, err, "a failed build is not cached")
+}
+
 func TestConvertSCIMClaimWithLocal(t *testing.T) {
 	require.NoError(t, log.Init("ERROR"))
 

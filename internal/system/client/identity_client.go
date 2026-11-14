@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	idpModel "github.com/wso2/identity-customer-data-service/internal/identity_provider/model"
@@ -80,7 +81,7 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 	}
 	log.GetLogger().Info("Creating IdentityClient with base URL: " + baseHostPort)
 
-	httpClient, err := newOutboundHTTPClient(cfg.TLS, cfg.AuthServer.Host)
+	httpClient, err := sharedOutboundHTTPClient(cfg.TLS, cfg.AuthServer.Host)
 	if err != nil {
 		log.GetLogger().Error("Failed to create outbound HTTPS client for IS", log.Error(err))
 		os.Exit(1)
@@ -90,6 +91,30 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 		BaseURL:    baseHostPort,
 		HTTPClient: httpClient,
 	}
+}
+
+var (
+	outboundHTTPClientsMu sync.Mutex
+	outboundHTTPClients   = map[config.TLSConfig]*http.Client{}
+)
+
+// sharedOutboundHTTPClient returns the outbound HTTP client for the given TLS configuration, and builds it on
+// first use. IdentityClient values are created per request, so they must share one client: a client per
+// IdentityClient gives every request its own connection pool, which costs a TLS handshake per call and leaves
+// an idle connection to the identity server open until IdleConnTimeout.
+func sharedOutboundHTTPClient(tlsCfg config.TLSConfig, serverHostForSNI string) (*http.Client, error) {
+	outboundHTTPClientsMu.Lock()
+	defer outboundHTTPClientsMu.Unlock()
+
+	if httpClient, ok := outboundHTTPClients[tlsCfg]; ok {
+		return httpClient, nil
+	}
+	httpClient, err := newOutboundHTTPClient(tlsCfg, serverHostForSNI)
+	if err != nil {
+		return nil, err
+	}
+	outboundHTTPClients[tlsCfg] = httpClient
+	return httpClient, nil
 }
 
 // Builds an HTTP client with TLS/mTLS configuration for outbound requests.
@@ -149,6 +174,7 @@ func newOutboundHTTPClient(tlsCfg config.TLSConfig, serverHostForSNI string) (*h
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     60 * time.Second,
 		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
 		MaxConnsPerHost:     100,
 	}
 	return &http.Client{
