@@ -36,6 +36,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/provider"
+	"github.com/wso2/identity-customer-data-service/internal/unification_rules/reindex"
 
 	"github.com/google/uuid"
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
@@ -346,6 +347,9 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 	wasActive := oldRule.IsActive
 
+	// A shared rule also runs in the sub organizations that it reaches.
+	subOrgsBefore := reindex.TakeForRule(ctx, org.ID, ruleId)
+
 	updatedRule := *oldRule
 
 	if ruleUpdateRequest.RuleName != nil {
@@ -455,6 +459,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 			worker.IndexNewAttribute(ctx, org.ID, *newRule)
 		})
 	}
+	reindex.ReconcileAsync(ctx, subOrgsBefore)
 
 	ruleResponse := toRuleResponse(*newRule)
 	utils.RespondJSON(w, http.StatusOK, ruleResponse, constants.UnificationRuleResource)
@@ -501,6 +506,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 		utils.HandleError(w, err)
 		return
 	}
+	subOrgsBefore := reindex.TakeForRule(ctx, org.ID, ruleId)
 	err = ruleService.DeleteUnificationRule(ctx, ruleId, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
@@ -511,6 +517,7 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	if rule != nil && rule.IsActive {
 		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, org.ID, rule.PropertyName) })
 	}
+	reindex.ReconcileAsync(ctx, subOrgsBefore)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNoContent)
@@ -547,11 +554,13 @@ func (h *UnificationRulesHandler) CreateSharingPolicy(w http.ResponseWriter, r *
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
+	before := reindex.TakeOrLog(r.Context(), org.PrimaryOrgId)
 	resp, err := ruleService.CreateSharingPolicy(r.Context(), *org, r.PathValue("ruleId"), req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	utils.RespondJSON(w, http.StatusCreated, resp, shareHandler.PolicyResource)
 }
 
@@ -603,12 +612,14 @@ func (h *UnificationRulesHandler) UpdateSharingPolicy(w http.ResponseWriter, r *
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
+	before := reindex.TakeOrLog(r.Context(), org.PrimaryOrgId)
 	resp, err := ruleService.UpdateSharingPolicy(r.Context(), *org,
 		r.PathValue("ruleId"), r.PathValue("policyId"), req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	utils.RespondJSON(w, http.StatusOK, resp, shareHandler.PolicyResource)
 }
 
@@ -621,11 +632,13 @@ func (h *UnificationRulesHandler) DeleteSharingPolicy(w http.ResponseWriter, r *
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
+	before := reindex.TakeOrLog(r.Context(), org.PrimaryOrgId)
 	if err := ruleService.DeleteSharingPolicy(r.Context(), *org,
 		r.PathValue("ruleId"), r.PathValue("policyId")); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -546,3 +546,20 @@ func GetAncestors(ctx context.Context, org model.Organization) ([]model.Ancestor
 	}
 	return store.GetAncestors(ctx, org.OrgId)
 }
+
+// GetSubOrganizationIds returns the IDs of the stored sub organizations in the tree of the primary
+// organization. The result includes the sub organizations that are not active.
+func GetSubOrganizationIds(ctx context.Context, primaryOrgId string) ([]string, error) {
+
+	orgs, err := store.GetOrganizationsByPrimaryOrg(ctx, primaryOrgId)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(orgs))
+	for _, org := range orgs {
+		if !org.IsPrimary() {
+			ids = append(ids, org.OrgId)
+		}
+	}
+	return ids, nil
+}

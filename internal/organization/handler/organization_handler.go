@@ -31,6 +31,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
+	"github.com/wso2/identity-customer-data-service/internal/unification_rules/reindex"
 )
 
 const (
@@ -113,11 +114,13 @@ func (h *OrganizationHandler) CreateOrgAccess(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	before := reindex.TakeOrLog(r.Context(), primary.OrgId)
 	resp, err := sharingService.CreateOrgAccess(r.Context(), *primary, req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	utils.RespondJSON(w, http.StatusCreated, resp, orgAccessResource)
 }
 
@@ -159,11 +162,13 @@ func (h *OrganizationHandler) UpdateOrgAccess(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	before := reindex.TakeOrLog(r.Context(), primary.OrgId)
 	resp, err := sharingService.UpdateOrgAccess(r.Context(), *primary, r.PathValue("orgPolicyId"), req)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
 }
 
@@ -173,10 +178,12 @@ func (h *OrganizationHandler) DeleteOrgAccess(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	before := reindex.TakeOrLog(r.Context(), primary.OrgId)
 	if err := sharingService.DeleteOrgAccess(r.Context(), *primary, r.PathValue("orgPolicyId")); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
+	reindex.ReconcileAsync(r.Context(), before)
 	w.WriteHeader(http.StatusNoContent)
 }
 
