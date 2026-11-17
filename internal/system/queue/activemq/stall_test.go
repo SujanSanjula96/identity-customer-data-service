@@ -21,6 +21,7 @@ package activemq
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -354,12 +355,13 @@ func Test_consumerKeepsUpWithABacklog(t *testing.T) {
 			_ = q.Close(ctx)
 		})
 		var pauseOnce sync.Once
-		if err := q.Start(func(p profileModel.Profile) {
+		if err := q.Start(func(p profileModel.Profile) error {
 			if n == 0 {
 				pauseOnce.Do(func() { time.Sleep(handlerPause) })
 			}
 			time.Sleep(20 * time.Millisecond)
 			handled.add(p.ProfileID)
+			return nil
 		}); err != nil {
 			t.Fatalf("failed to start the consumer of node %d: %v", n, err)
 		}
@@ -378,7 +380,7 @@ func Test_consumerKeepsUpWithABacklog(t *testing.T) {
 						Traits:    map[string]any{"padding": padding},
 					}
 					if err := q.Enqueue(profile); err != nil {
-						t.Logf("enqueue of %s failed: %v", profile.ProfileID, err)
+						t.Errorf("enqueue of %s failed: %v", profile.ProfileID, err)
 					}
 				}
 			}(q, n, p)
@@ -430,7 +432,10 @@ func Test_consumerRecoversFromAStalledConnection(t *testing.T) {
 	broker.mu.Unlock()
 
 	handled := &handledSet{}
-	if err := q.Start(func(p profileModel.Profile) { handled.add(p.ProfileID) }); err != nil {
+	if err := q.Start(func(p profileModel.Profile) error {
+		handled.add(p.ProfileID)
+		return nil
+	}); err != nil {
 		t.Fatalf("failed to start the consumer: %v", err)
 	}
 
@@ -452,4 +457,60 @@ func waitFor(t *testing.T, condition func() bool, within time.Duration, what str
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out after %s waiting for %s", within, what)
+}
+
+// Test_messageIsNotAcknowledgedWhenTheWorkerStops checks that a message the
+// handler refuses because its worker stops goes back to the broker. The
+// consumer of another node then receives it.
+func Test_messageIsNotAcknowledgedWhenTheWorkerStops(t *testing.T) {
+	shortenTimeouts(t)
+	broker := startDispatchBroker(t)
+
+	stopping, err := NewProfileQueue(broker.addr(), "", "", "queue/profiles", config.TLSConfig{})
+	if err != nil {
+		t.Fatalf("failed to connect to the fake broker: %v", err)
+	}
+	refused := &handledSet{}
+	if err := stopping.Start(func(p profileModel.Profile) error {
+		refused.add(p.ProfileID)
+		return errors.New("the worker is stopping")
+	}); err != nil {
+		t.Fatalf("failed to start the consumer: %v", err)
+	}
+
+	const messages = 5
+	for i := 0; i < messages; i++ {
+		if err := stopping.Enqueue(profileModel.Profile{ProfileID: fmt.Sprintf("p-%d", i)}); err != nil {
+			t.Fatalf("enqueue failed: %v", err)
+		}
+	}
+	waitForCount(t, refused, 1, 5*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := stopping.Close(ctx); err != nil {
+		t.Fatalf("expected a graceful close, got %v", err)
+	}
+	if got := refused.count(); got != 1 {
+		t.Errorf("the handler received %d messages after it refused one, want 1", got)
+	}
+
+	other, err := NewProfileQueue(broker.addr(), "", "", "queue/profiles", config.TLSConfig{})
+	if err != nil {
+		t.Fatalf("failed to connect the second node to the fake broker: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = other.Close(ctx)
+	})
+	handled := &handledSet{}
+	if err := other.Start(func(p profileModel.Profile) error {
+		handled.add(p.ProfileID)
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to start the second consumer: %v", err)
+	}
+
+	waitForCount(t, handled, messages, 5*time.Second)
 }

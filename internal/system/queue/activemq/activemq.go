@@ -539,7 +539,7 @@ func newQueueConns(
 
 // start opens the consumer connection, subscribes to the destination and
 // launches the consumer goroutine. handle receives the body of each message.
-func (qc *queueConns) start(handle func(body []byte)) error {
+func (qc *queueConns) start(handle func(body []byte) error) error {
 	qc.mu.Lock()
 	defer qc.mu.Unlock()
 
@@ -577,11 +577,18 @@ func (qc *queueConns) close(ctx context.Context) error {
 	consumerConn := qc.consumerConn
 	qc.mu.Unlock()
 
-	var consumerErr error
-	if consumerConn != nil {
-		consumerErr = consumerConn.closeWithin(ctx)
-	}
-	return errors.Join(consumerErr, qc.producer.closeWithin(ctx))
+	// Close the two connections at the same time, so that a connection that
+	// overruns the deadline does not delay the other one.
+	consumerErr := make(chan error, 1)
+	go func() {
+		if consumerConn == nil {
+			consumerErr <- nil
+			return
+		}
+		consumerErr <- consumerConn.closeWithin(ctx)
+	}()
+	producerErr := qc.producer.closeWithin(ctx)
+	return errors.Join(<-consumerErr, producerErr)
 }
 
 // -----------------------------------------------------------------------
@@ -593,11 +600,13 @@ type consumer struct {
 	mc          *managedConn
 	destination string
 	name        string
-	handle      func(body []byte)
+	handle      func(body []byte) error
 }
 
 // run receives messages until shutdown, and acknowledges each message after
-// the handler returns.
+// the handler returns. When the handler returns an error, the worker stops: the
+// loop ends without the acknowledgement, and the broker gives the message and
+// the prefetched messages to another consumer when the connection closes.
 //
 // Retry policy: the loop retries forever (maxAttempts=0) with exponential
 // backoff when the subscription is lost, because the consumer is a long-lived
@@ -664,7 +673,12 @@ func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 			continue
 		}
 
-		c.handle(msg.Body)
+		if err := c.handle(msg.Body); err != nil {
+			logger.Info(fmt.Sprintf(
+				"activemq: %s consumer stopped without an acknowledgement, so the broker sends the message again: %v",
+				c.name, err))
+			return
+		}
 
 		if err := msg.Conn.Ack(msg); err != nil {
 			if c.mc.isShuttingDown() {
@@ -733,15 +747,17 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 
 // Start opens the consumer connection, subscribes to the destination and
 // launches a consumer goroutine. See consumer.run for the retry policy.
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
-	return q.start(func(body []byte) {
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
+	return q.start(func(body []byte) error {
 		var profile profileModel.Profile
 		if err := json.Unmarshal(body, &profile); err != nil {
 			log.GetLogger().Error(fmt.Sprintf("activemq: failed to unmarshal profile message: %v", err))
-			return
+			return nil
 		}
+		// A recovered panic returns nil, so the message is acknowledged and
+		// does not come back.
 		defer utils.RecoverPanic("activemq profile unification handler")
-		handler(profile)
+		return handler(profile)
 	})
 }
 
@@ -785,15 +801,17 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 
 // Start opens the consumer connection, subscribes to the destination and
 // launches a consumer goroutine. See consumer.run for the retry policy.
-func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) error {
-	return q.start(func(body []byte) {
+func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) error) error {
+	return q.start(func(body []byte) error {
 		var sync schemaModel.ProfileSchemaSync
 		if err := json.Unmarshal(body, &sync); err != nil {
 			log.GetLogger().Error(fmt.Sprintf("activemq: failed to unmarshal schema sync message: %v", err))
-			return
+			return nil
 		}
+		// A recovered panic returns nil, so the message is acknowledged and
+		// does not come back.
 		defer utils.RecoverPanic("activemq schema sync handler")
-		handler(sync)
+		return handler(sync)
 	})
 }
 

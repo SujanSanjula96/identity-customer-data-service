@@ -70,15 +70,16 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 
 // Start launches a goroutine that reads profiles from the channel and
 // forwards each one to handler. The goroutine runs until the channel is
-// closed. Always returns nil.
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
+// closed. Always returns nil. The queue holds nothing after a process stops,
+// so it ignores the error of the handler.
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error) error {
 	go func() {
 		defer utils.RecoverPanic("in-memory profile unification consumer")
 		for profile := range q.ch {
 			// Recover per message so one bad profile cannot stop the queue being drained.
 			func() {
 				defer utils.RecoverPanic("in-memory profile unification handler")
-				handler(profile)
+				_ = handler(profile)
 			}()
 		}
 	}()
@@ -135,12 +136,13 @@ func (q *SchemaSyncQueue) Enqueue(sync schemaModel.ProfileSchemaSync) error {
 
 // Start launches a goroutine that reads schema sync jobs from the channel and
 // forwards each one to handler. The goroutine runs until the channel is
-// closed. Always returns nil.
-func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) error {
+// closed. Always returns nil. The queue holds nothing after a process stops,
+// so it ignores the error of the handler.
+func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync) error) error {
 	go func() {
 		defer utils.RecoverPanic("in-memory schema sync consumer")
 		for sync := range q.ch {
-			handler(sync)
+			_ = handler(sync)
 		}
 	}()
 	return nil

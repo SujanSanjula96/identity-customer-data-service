@@ -59,15 +59,15 @@ func TestAnUnknownProviderIsRefused(t *testing.T) {
 
 type fakeProfileQueue struct{}
 
-func (fakeProfileQueue) Enqueue(profileModel.Profile) error     { return nil }
-func (fakeProfileQueue) Start(func(profileModel.Profile)) error { return nil }
-func (fakeProfileQueue) Close(context.Context) error            { return nil }
+func (fakeProfileQueue) Enqueue(profileModel.Profile) error           { return nil }
+func (fakeProfileQueue) Start(func(profileModel.Profile) error) error { return nil }
+func (fakeProfileQueue) Close(context.Context) error                  { return nil }
 
 type fakeSchemaQueue struct{}
 
-func (fakeSchemaQueue) Enqueue(schemaModel.ProfileSchemaSync) error     { return nil }
-func (fakeSchemaQueue) Start(func(schemaModel.ProfileSchemaSync)) error { return nil }
-func (fakeSchemaQueue) Close(context.Context) error                     { return nil }
+func (fakeSchemaQueue) Enqueue(schemaModel.ProfileSchemaSync) error           { return nil }
+func (fakeSchemaQueue) Start(func(schemaModel.ProfileSchemaSync) error) error { return nil }
+func (fakeSchemaQueue) Close(context.Context) error                           { return nil }
 
 func TestARegisteredProviderIsUsedWithTheBrokerAndTLSConfig(t *testing.T) {
 	var gotBroker config.ExternalBrokerConfig

@@ -68,7 +68,10 @@ func (l *jobLifecycle) begin() bool {
 
 // run executes one job under the worker context and counts it as active until
 // the handler returns. It refuses a job that arrives after the worker has
-// started to stop.
+// started to stop, and returns ErrWorkerStopping.
+//
+// It returns ErrShutdownIncomplete when the shutdown deadline cancelled the job
+// context while the job ran, because the work may not be complete.
 func (l *jobLifecycle) run(work func(ctx context.Context)) error {
 	if !l.begin() {
 		return ErrWorkerStopping
@@ -76,6 +79,9 @@ func (l *jobLifecycle) run(work func(ctx context.Context)) error {
 	defer l.active.Done()
 
 	work(l.ctx)
+	if l.ctx.Err() != nil {
+		return ErrShutdownIncomplete
+	}
 	return nil
 }
 

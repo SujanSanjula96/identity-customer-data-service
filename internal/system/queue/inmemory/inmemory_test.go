@@ -46,7 +46,7 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 func TestProfileQueueDeliversEveryProfileInOrder(t *testing.T) {
 	queue := NewProfileQueue(10)
 	received := make(chan profileModel.Profile, 10)
-	require.NoError(t, queue.Start(func(p profileModel.Profile) { received <- p }))
+	require.NoError(t, queue.Start(func(p profileModel.Profile) error { received <- p; return nil }))
 
 	for _, id := range []string{"p-1", "p-2", "p-3"} {
 		require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: id}))
@@ -92,9 +92,10 @@ func TestProfileQueueKeepsDrainingAfterAHandlerPanics(t *testing.T) {
 	queue := NewProfileQueue(10)
 	var once sync.Once
 	received := make(chan string, 10)
-	require.NoError(t, queue.Start(func(p profileModel.Profile) {
+	require.NoError(t, queue.Start(func(p profileModel.Profile) error {
 		once.Do(func() { panic("a bad profile") })
 		received <- p.ProfileID
+		return nil
 	}))
 
 	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "bad"}))
@@ -107,7 +108,7 @@ func TestProfileQueueKeepsDrainingAfterAHandlerPanics(t *testing.T) {
 func TestSchemaSyncQueueDeliversEveryJob(t *testing.T) {
 	queue := NewSchemaSyncQueue(10)
 	received := make(chan schemaModel.ProfileSchemaSync, 10)
-	require.NoError(t, queue.Start(func(s schemaModel.ProfileSchemaSync) { received <- s }))
+	require.NoError(t, queue.Start(func(s schemaModel.ProfileSchemaSync) error { received <- s; return nil }))
 
 	require.NoError(t, queue.Enqueue(schemaModel.ProfileSchemaSync{OrgHandle: "acme",
 		Event: "POST_ADD_EXTERNAL_CLAIM"}))

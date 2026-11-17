@@ -90,7 +90,7 @@ func StartProfileWorker() error {
 	// the work one message causes.
 	lifecycle := newJobLifecycle()
 
-	if err := q.Start(func(profile profileModel.Profile) {
+	if err := q.Start(func(profile profileModel.Profile) error {
 		err := lifecycle.run(func(ctx context.Context) {
 			// The queue message carries the org ID. Read the org once for the job.
 			org, found, err := orgService.LookupOrganizationByID(ctx, profile.OrgID)
@@ -120,6 +120,7 @@ func StartProfileWorker() error {
 				"workers: the profile worker is stopping, so profile %s was not unified: %v",
 				profile.ProfileID, err))
 		}
+		return err
 	}); err != nil {
 		_ = q.Close(context.Background())
 		return fmt.Errorf("workers: failed to start profile unification queue: %w", err)

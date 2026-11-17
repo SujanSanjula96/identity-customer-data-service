@@ -58,7 +58,7 @@ func StartSchemaSyncWorker() error {
 	// the work one message causes.
 	lifecycle := newJobLifecycle()
 
-	if err := q.Start(func(schemaSync model.ProfileSchemaSync) {
+	if err := q.Start(func(schemaSync model.ProfileSchemaSync) error {
 		err := lifecycle.run(func(ctx context.Context) {
 			processSchemaSyncJob(ctx, schemaSync)
 		})
@@ -67,6 +67,7 @@ func StartSchemaSyncWorker() error {
 				"workers: the schema sync worker is stopping, so the job for tenant %s did not run: %v",
 				schemaSync.OrgHandle, err))
 		}
+		return err
 	}); err != nil {
 		_ = q.Close(context.Background())
 		return fmt.Errorf("workers: failed to start schema sync queue: %w", err)
