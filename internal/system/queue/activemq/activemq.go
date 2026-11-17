@@ -67,13 +67,16 @@ var (
 	// retireTimeout is the time that a replaced connection gets for a graceful
 	// disconnect before its socket is closed by force.
 	retireTimeout = 5 * time.Second
-	// stallCheckInterval is the interval at which a consumer that waits for a
-	// message examines its connection.
+	// stallCheckInterval is the time without a message after which a consumer
+	// probes its connection.
 	stallCheckInterval = 15 * time.Second
-	// stallChecks is the number of checks in sequence that must find the
-	// connection stalled before the consumer replaces it.
-	stallChecks = 2
+	// probeTimeout is the time that the broker gets to answer a probe before
+	// the consumer replaces the connection.
+	probeTimeout = 15 * time.Second
 )
+
+// errProbeTimeout says the broker did not answer a probe in time.
+var errProbeTimeout = errors.New("activemq: the broker did not answer the probe in time")
 
 func init() {
 	queue.RegisterProfileQueueProvider(queue.TypeActiveMQ,
@@ -234,24 +237,24 @@ func (mc *managedConn) dial() error {
 	mc.mu.Unlock()
 
 	if oldConn != nil {
-		go retire(oldConn, oldNetConn)
+		go retire(oldConn, oldNetConn, retireTimeout)
 	}
 	return nil
 }
 
 // retire ends a connection that a reconnect replaced. It asks for a graceful
 // disconnect, but closes the socket by force when the disconnect does not
-// finish inside retireTimeout. The I/O loop of a stalled connection never
+// finish inside timeout. The I/O loop of a stalled connection never
 // answers, and the socket must close so that the broker drops the consumer of
 // the connection and gives its unacknowledged messages to another consumer.
-func retire(conn *stomp.Conn, netConn net.Conn) {
+func retire(conn *stomp.Conn, netConn net.Conn, timeout time.Duration) {
 	disconnected := make(chan struct{})
 	go func() {
 		_ = conn.Disconnect()
 		close(disconnected)
 	}()
 
-	timer := time.NewTimer(retireTimeout)
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-disconnected:
@@ -464,21 +467,52 @@ func (mc *managedConn) subscribeCurrent(destination string) (*stomp.Subscription
 	return sub, generation, nil
 }
 
-// looksStalled reports whether the connection of generation holds frames that
-// its I/O loop does not move, while the consumer of sub waits for a message.
+// probe makes a round trip to the broker on the connection of generation: an
+// empty transaction that the broker must abort and confirm with a receipt. The
+// result arrives on the returned channel, which has room for it, so the probe
+// does not block when nobody reads the result.
 //
-// go-stomp runs one goroutine per connection that both writes frames and hands
-// received frames to the subscriptions. When that goroutine is blocked on a
-// socket write that the broker does not read, received frames wait in its read
-// channel and ACK frames wait in its write channel. A healthy loop empties both
-// channels at once while the consumer is idle.
-func (mc *managedConn) looksStalled(generation uint64, sub *stomp.Subscription) bool {
+// The broker reads the frames of a connection in order, so the receipt comes
+// only after the broker has read every ACK that the consumer sent before. A
+// broker that stops reading the connection, or stops processing its frames,
+// does not answer. So does a client whose go-stomp I/O loop is blocked: the
+// loop writes frames and hands received frames to the subscriptions on the same
+// goroutine. Neither case closes the socket, and TCP keepalive sees a live
+// peer.
+//
+// A transaction needs no permission on a destination.
+func (mc *managedConn) probe(generation uint64) <-chan error {
+	result := make(chan error, 1)
+	timeout := probeTimeout
 	conn, current := mc.getConnAndGeneration()
-	if conn == nil || current != generation || len(sub.C) > 0 {
-		return false
+	if conn == nil || current != generation {
+		result <- nil
+		return result
 	}
-	stats := conn.Stats()
-	return stats.CurrentReadChanSize > 0 || stats.CurrentWriteChanSize > 0
+
+	go func() {
+		answered := make(chan error, 1)
+		go func() {
+			// go-stomp waits for the receipt without a time limit. When the probe
+			// times out, the connection is replaced, and the closed socket ends
+			// this wait.
+			tx, err := conn.BeginWithError()
+			if err == nil {
+				err = tx.AbortWithReceipt()
+			}
+			answered <- err
+		}()
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case err := <-answered:
+			result <- err
+		case <-timer.C:
+			result <- errProbeTimeout
+		}
+	}()
+	return result
 }
 
 // abandon reads a subscription that the consumer no longer uses until go-stomp
@@ -612,9 +646,9 @@ type consumer struct {
 // backoff when the subscription is lost, because the consumer is a long-lived
 // background goroutine that must stay alive for the lifetime of the process.
 // It replaces the connection when the subscription closes, when an ACK fails,
-// and when the connection stalls with frames that it does not move. The loop
-// exits cleanly when Close is called, which signals shutdown via the done
-// channel.
+// and when the broker does not answer a probe. The consumer sends a probe after
+// stallCheckInterval without a message. The loop exits cleanly when Close is
+// called, which signals shutdown via the done channel.
 func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 	defer utils.RecoverPanic("activemq consumer loop")
 	// After the loop ends, nothing else reads the subscription. go-stomp can
@@ -624,7 +658,10 @@ func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 
 	ticker := time.NewTicker(stallCheckInterval)
 	defer ticker.Stop()
-	suspectChecks := 0
+	// received is true when a message arrived since the last tick.
+	received := false
+	// probing is the result channel of the probe that runs, or nil.
+	var probing <-chan error
 
 	for {
 		var msg *stomp.Message
@@ -635,24 +672,26 @@ func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 			logger.Info(fmt.Sprintf("activemq: %s consumer stopped (shutdown)", c.name))
 			return
 		case <-ticker.C:
-			if !c.mc.looksStalled(generation, sub) {
-				suspectChecks = 0
+			if received || probing != nil {
+				received = false
 				continue
 			}
-			suspectChecks++
-			if suspectChecks < stallChecks {
+			probing = c.mc.probe(generation)
+			continue
+		case err := <-probing:
+			probing = nil
+			if err == nil {
 				continue
 			}
-			suspectChecks = 0
 			logger.Error(fmt.Sprintf(
-				"activemq: %s consumer connection stopped moving frames, reconnecting…", c.name))
+				"activemq: %s consumer connection did not answer a probe, reconnecting: %v", c.name, err))
 			if sub, generation, ok = c.replace(sub, generation); !ok {
 				return
 			}
 			continue
 		case msg, ok = <-sub.C:
 		}
-		suspectChecks = 0
+		received = true
 
 		if !ok {
 			if c.mc.isShuttingDown() {
@@ -663,6 +702,8 @@ func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 			if sub, generation, ok = c.replace(sub, generation); !ok {
 				return
 			}
+			// A probe of the replaced connection must not replace the new one.
+			probing = nil
 			continue
 		}
 
@@ -690,6 +731,8 @@ func (c *consumer) run(sub *stomp.Subscription, generation uint64) {
 			if sub, generation, ok = c.replace(sub, generation); !ok {
 				return
 			}
+			// A probe of the replaced connection must not replace the new one.
+			probing = nil
 		}
 	}
 }

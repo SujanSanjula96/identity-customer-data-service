@@ -53,9 +53,10 @@ type dispatchBroker struct {
 	seq     int
 	conns   []*brokerConn
 	// wedgeNextConsumer makes the next connection that subscribes stop
-	// reading after the SUBSCRIBE, ignore the prefetch, and pad the ack header
-	// of each MESSAGE. The client's ACK frames then fill the socket, which
-	// wedges the I/O goroutine of the client.
+	// processing frames after the SUBSCRIBE. The broker still reads the socket,
+	// so the client's ACK frames do not fill it, but it does not process the
+	// ACKs and does not answer receipts. The prefetch then stays full, and no
+	// further message arrives.
 	wedgeNextConsumer bool
 	subscribes        int
 	// subscribeHeaders holds the headers of each SUBSCRIBE frame.
@@ -74,11 +75,8 @@ type brokerSub struct {
 	id       string
 	auto     bool
 	prefetch int
-	wedged   bool
 	inflight map[string]string
 }
-
-const ackPadding = 256 << 10
 
 func startDispatchBroker(t *testing.T) *dispatchBroker {
 	t.Helper()
@@ -140,10 +138,14 @@ func (b *dispatchBroker) serve(conn *brokerConn) {
 	defer b.drop(conn)
 
 	reader := bufio.NewReader(conn)
+	wedged := false
 	for {
 		raw, err := readFrame(reader)
 		if err != nil {
 			return
+		}
+		if wedged {
+			continue
 		}
 		command, headers := parseFrame(raw)
 		_, body, _ := strings.Cut(raw, "\n\n")
@@ -166,18 +168,13 @@ func (b *dispatchBroker) serve(conn *brokerConn) {
 				id:       headers["id"],
 				auto:     headers["ack"] == "" || headers["ack"] == "auto",
 				prefetch: prefetch,
-				wedged:   b.wedgeNextConsumer,
 				inflight: map[string]string{},
 			}
+			wedged = b.wedgeNextConsumer
 			b.wedgeNextConsumer = false
 			b.subs = append(b.subs, sub)
 			b.mu.Unlock()
 			b.dispatch()
-			if sub.wedged {
-				// Stop reading until the client closes the connection.
-				<-conn.dead
-				return
-			}
 		case "SEND":
 			b.mu.Lock()
 			b.pending = append(b.pending, body)
@@ -190,8 +187,10 @@ func (b *dispatchBroker) serve(conn *brokerConn) {
 			}
 			b.mu.Unlock()
 			b.dispatch()
-		case "DISCONNECT":
-			_ = conn.write(fmt.Sprintf("RECEIPT\nreceipt-id:%s\n\n\x00", headers["receipt"]))
+		case "DISCONNECT", "ABORT", "COMMIT":
+			if receipt := headers["receipt"]; receipt != "" {
+				_ = conn.write(fmt.Sprintf("RECEIPT\nreceipt-id:%s\n\n\x00", receipt))
+			}
 		}
 	}
 }
@@ -225,7 +224,7 @@ func (b *dispatchBroker) dispatch() {
 		if len(b.pending) > 0 {
 			for i := range b.subs {
 				sub := b.subs[(b.next+i)%len(b.subs)]
-				if sub.auto || sub.wedged || len(sub.inflight) < sub.prefetch {
+				if sub.auto || len(sub.inflight) < sub.prefetch {
 					target = sub
 					b.next = (b.next + i + 1) % len(b.subs)
 					break
@@ -241,9 +240,6 @@ func (b *dispatchBroker) dispatch() {
 		b.seq++
 		messageID := fmt.Sprintf("msg-%d", b.seq)
 		ackID := messageID
-		if target.wedged {
-			ackID += strings.Repeat("p", ackPadding)
-		}
 		if !target.auto {
 			target.inflight[ackID] = body
 		}
@@ -277,10 +273,13 @@ func (b *dispatchBroker) queued() int {
 // shortenTimeouts makes the timeouts of the package short for one test.
 func shortenTimeouts(t *testing.T) {
 	t.Helper()
-	send, retireAfter, interval := sendTimeout, retireTimeout, stallCheckInterval
-	sendTimeout, retireTimeout, stallCheckInterval = time.Second, 200*time.Millisecond, 100*time.Millisecond
+	send, retireAfter, interval, probeAfter := sendTimeout, retireTimeout, stallCheckInterval, probeTimeout
+	// The send timeout stays long enough for a slow CI runner with the race
+	// detector and coverage.
+	sendTimeout, retireTimeout = 3*time.Second, 200*time.Millisecond
+	stallCheckInterval, probeTimeout = 100*time.Millisecond, 300*time.Millisecond
 	t.Cleanup(func() {
-		sendTimeout, retireTimeout, stallCheckInterval = send, retireAfter, interval
+		sendTimeout, retireTimeout, stallCheckInterval, probeTimeout = send, retireAfter, interval, probeAfter
 	})
 }
 
@@ -336,12 +335,17 @@ func waitForCount(t *testing.T, handled *handledSet, want int, within time.Durat
 // client to read a MESSAGE, and the consumer stopped for good.
 func Test_consumerKeepsUpWithABacklog(t *testing.T) {
 	shortenTimeouts(t)
+	// Large messages through the fake broker are slow under the race detector
+	// and coverage, so the sends of this test get more time.
+	sendTimeout = 5 * time.Second
 	broker := startDispatchBroker(t)
 
 	const nodes, producers, perProducer = 2, 4, 25
 	handlerPause := sendTimeout + time.Second
 	padding := strings.Repeat("x", 256<<10)
 	handled := &handledSet{}
+	accepted := &handledSet{}
+	failed := &handledSet{}
 
 	queues := make([]*ProfileQueue, nodes)
 	for n := range queues {
@@ -380,15 +384,25 @@ func Test_consumerKeepsUpWithABacklog(t *testing.T) {
 						Traits:    map[string]any{"padding": padding},
 					}
 					if err := q.Enqueue(profile); err != nil {
-						t.Errorf("enqueue of %s failed: %v", profile.ProfileID, err)
+						t.Logf("enqueue of %s failed: %v", profile.ProfileID, err)
+						failed.add(profile.ProfileID)
+						continue
 					}
+					accepted.add(profile.ProfileID)
 				}
 			}(q, n, p)
 		}
 	}
 
-	waitForCount(t, handled, nodes*producers*perProducer, handlerPause+30*time.Second)
 	wg.Wait()
+	// A failed send is a producer problem, and the consumer cannot receive
+	// that message. Report it as such, and check the consumer only against the
+	// messages that the broker accepted.
+	if n := failed.count(); n > 0 {
+		t.Errorf("%d of %d sends failed, so the producers did not keep up with the backlog",
+			n, nodes*producers*perProducer)
+	}
+	waitForCount(t, handled, accepted.count(), handlerPause+30*time.Second)
 
 	for _, headers := range broker.subscriptions() {
 		if headers["ack"] != "client-individual" {
@@ -401,10 +415,11 @@ func Test_consumerKeepsUpWithABacklog(t *testing.T) {
 	}
 }
 
-// Test_consumerRecoversFromAStalledConnection wedges the I/O loop of the
-// consumer connection: the broker stops reading it, and large ACK frames fill
-// the socket. The consumer must notice that frames wait on the connection,
-// replace the connection, and receive the messages again on a new one.
+// Test_consumerRecoversFromAStalledConnection makes the broker stop processing
+// the frames of the consumer connection after it sent the prefetch. The small
+// ACK frames fit in the socket, the client's channels stay empty, and no
+// further message arrives. The broker does not answer the probe, so the
+// consumer must replace the connection and receive the messages on a new one.
 func Test_consumerRecoversFromAStalledConnection(t *testing.T) {
 	shortenTimeouts(t)
 	broker := startDispatchBroker(t)
