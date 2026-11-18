@@ -69,7 +69,7 @@ func newIdentityServer(t *testing.T, systemAppGrant bool) (*identityServer, *Ide
 		IntrospectionEndPoint:     "/oauth2/introspect",
 		ClientID:                  clientID,
 		ClientSecret:              clientPass,
-		IntrospectionClientId:     "introspect-client",
+		IntrospectionClientID:     "introspect-client",
 		IntrospectionClientSecret: "introspect-secret",
 		IsSystemAppGrantEnabled:   systemAppGrant,
 	}})
@@ -166,7 +166,7 @@ func TestFetchTokenFailures(t *testing.T) {
 		_, err := c.FetchToken("denied")
 
 		requireServerError(t, err)
-		assert.Contains(t, err.Error(), errors2.TOKEN_FETCH_FAILED.Code)
+		assert.Contains(t, err.Error(), errors2.TokenFetchFailed.Code)
 	})
 	t.Run("a body that is not JSON", func(t *testing.T) {
 		is, c := newIdentityServer(t, false)
@@ -256,7 +256,7 @@ func TestGetApplication(t *testing.T) {
 	app, found, err := c.GetApplication("app-1", "acme")
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, "client-1", app.ClientId)
+	assert.Equal(t, "client-1", app.ClientID)
 
 	_, found, err = c.GetApplication("missing", "acme")
 	require.NoError(t, err, "an application that does not exist is not an error")
@@ -345,7 +345,7 @@ func TestGetProfileSchemaFromTheClaimDialects(t *testing.T) {
 	byName := map[string]string{}
 	for _, attribute := range attributes {
 		byName[attribute.AttributeName] = attribute.ValueType
-		assert.Equal(t, "acme", attribute.OrgId)
+		assert.Equal(t, "acme", attribute.OrgID)
 	}
 	assert.Equal(t, "string", byName["identity_attributes.givenname"])
 	assert.Equal(t, "integer", byName["identity_attributes.age"])
@@ -466,19 +466,19 @@ func TestOrgEndpointRefusesURLsThatLeaveTheHost(t *testing.T) {
 func TestNewOutboundHTTPClient(t *testing.T) {
 	dir := t.TempDir()
 
-	client, err := newOutboundHTTPClient(config.TLSConfig{CertDir: dir}, "is.example.com")
+	client, err := newOutboundHTTPClient(config.TLSConfig{CertDir: dir})
 	require.NoError(t, err)
 	assert.NotNil(t, client.Transport)
 
-	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, TrustStore: "missing.pem"}, "is.example.com")
+	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, TrustStore: "missing.pem"})
 	assert.Error(t, err, "a trust store that cannot be read")
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.pem"), []byte("not a certificate"), 0o600))
-	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, TrustStore: "bad.pem"}, "is.example.com")
+	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, TrustStore: "bad.pem"})
 	assert.Error(t, err, "a trust store without certificates")
 
 	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, MTLSEnabled: true, CDSPublicCert: "a.crt",
-		CDSPrivateKey: "a.key"}, "is.example.com")
+		CDSPrivateKey: "a.key"})
 	assert.Error(t, err, "a client certificate that cannot be loaded")
 }
 
@@ -486,20 +486,20 @@ func TestSharedOutboundHTTPClient(t *testing.T) {
 	dir := t.TempDir()
 	tlsCfg := config.TLSConfig{CertDir: dir}
 
-	first, err := sharedOutboundHTTPClient(tlsCfg, "is.example.com")
+	first, err := sharedOutboundHTTPClient(tlsCfg)
 	require.NoError(t, err)
-	second, err := sharedOutboundHTTPClient(tlsCfg, "is.example.com")
+	second, err := sharedOutboundHTTPClient(tlsCfg)
 	require.NoError(t, err)
 	assert.Same(t, first, second, "the same TLS configuration shares one client and one connection pool")
 
-	other, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()}, "is.example.com")
+	other, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()})
 	require.NoError(t, err)
 	assert.NotSame(t, first, other, "a different TLS configuration gets its own client")
 
 	badCfg := config.TLSConfig{CertDir: dir, TrustStore: "missing.pem"}
-	_, err = sharedOutboundHTTPClient(badCfg, "is.example.com")
+	_, err = sharedOutboundHTTPClient(badCfg)
 	assert.Error(t, err)
-	_, err = sharedOutboundHTTPClient(badCfg, "is.example.com")
+	_, err = sharedOutboundHTTPClient(badCfg)
 	assert.Error(t, err, "a failed build is not cached")
 }
 
@@ -519,8 +519,8 @@ func TestConvertSCIMClaimWithLocal(t *testing.T) {
 		assert.Equal(t, "readWrite", attr.Mutability)
 		assert.Equal(t, "overwrite", attr.MergeStrategy)
 		assert.Equal(t, "urn:x", attr.SCIMDialect)
-		assert.Equal(t, "acme", attr.OrgId)
-		assert.NotEmpty(t, attr.AttributeId)
+		assert.Equal(t, "acme", attr.OrgID)
+		assert.NotEmpty(t, attr.AttributeID)
 		assert.Nil(t, sub)
 		assert.Empty(t, parent)
 	})
@@ -557,7 +557,7 @@ func TestConvertSCIMClaimWithLocal(t *testing.T) {
 		assert.Equal(t, "identity_attributes.addresses.work", attr.AttributeName)
 		require.NotNil(t, sub)
 		assert.Equal(t, "identity_attributes.addresses.work", sub.AttributeName)
-		assert.Equal(t, attr.AttributeId, sub.AttributeId)
+		assert.Equal(t, attr.AttributeID, sub.AttributeID)
 		assert.Equal(t, "identity_attributes.addresses", parent)
 	})
 	t.Run("a claim with children is complex", func(t *testing.T) {

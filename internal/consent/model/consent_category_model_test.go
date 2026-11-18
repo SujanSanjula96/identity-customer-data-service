@@ -15,7 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package models
+package model
 
 import (
 	"testing"
@@ -35,7 +35,7 @@ func TestToCategoryInjectsTheOrganizationAndTheIdentifier(t *testing.T) {
 
 	assert.Equal(t, "Analytics", category.CategoryName)
 	assert.Equal(t, "cat-1", category.CategoryIdentifier)
-	assert.Equal(t, "org-1", category.OrgId)
+	assert.Equal(t, "org-1", category.OrgID)
 	assert.Equal(t, "profiling", category.Purpose)
 	assert.Equal(t, []string{"warehouse"}, category.Destinations)
 	assert.Equal(t, request.Attributes, category.Attributes)
@@ -46,12 +46,12 @@ func TestToResponseLeavesOutInternalFields(t *testing.T) {
 	category := ConsentCategory{
 		CategoryName:       "Analytics",
 		CategoryIdentifier: "cat-1",
-		OrgId:              "org-1",
+		OrgID:              "org-1",
 		Purpose:            "profiling",
 		IsMandatory:        true,
 		Attributes: []ConsentAttribute{
-			{Scope: "traits", AttributeName: "traits.age", AttributeId: "attr-1"},
-			{Scope: "application_data", AttributeName: "application_data.x", AttributeId: "attr-2",
+			{Scope: "traits", AttributeName: "traits.age", AttributeID: "attr-1"},
+			{Scope: "application_data", AttributeName: "application_data.x", AttributeID: "attr-2",
 				ApplicationIdentifier: "crm"},
 		},
 	}

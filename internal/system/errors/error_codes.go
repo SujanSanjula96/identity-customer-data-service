@@ -20,6 +20,7 @@ package errors
 
 const errorPrefix = "CDS-"
 
+// The error messages of CDS. Server errors use 15xxx codes and client errors use the 1xxxx ranges below.
 var (
 
 	// Server (15xxx) sub-grouping
@@ -30,80 +31,80 @@ var (
 	//   154xx - Profiles & Cookie Management
 	//   159xx - Other Server Errors
 
-	GET_ADMIN_CONFIG = ErrorMessage{
+	GetAdminConfig = ErrorMessage{
 		Code:    errorPrefix + "15001",
 		Message: "Error while fetching tenant configurations.",
 	}
-	UPDATE_ADMIN_CONFIG = ErrorMessage{
+	UpdateAdminConfig = ErrorMessage{
 		Code:    errorPrefix + "15002",
 		Message: "Error while updating tenant configurations.",
 	}
-	ENCODE_ERROR = ErrorMessage{
+	EncodeError = ErrorMessage{
 		Code:    errorPrefix + "15003",
 		Message: "Error while encoding data.",
 	}
 
-	ADD_PROFILE_SCHEMA = ErrorMessage{
+	AddProfileSchema = ErrorMessage{
 		Code:    errorPrefix + "15101",
 		Message: "Error while adding profile schema.",
 	}
 
-	GET_PROFILE_SCHEMA = ErrorMessage{
+	GetProfileSchema = ErrorMessage{
 		Code:    errorPrefix + "15102",
 		Message: "Error while fetching profile schema.",
 	}
 
-	UPDATE_PROFILE_SCHEMA = ErrorMessage{
+	UpdateProfileSchema = ErrorMessage{
 		Code:    errorPrefix + "15103",
 		Message: "Error while updating profile schema.",
 	}
 
-	DELETE_PROFILE_SCHEMA = ErrorMessage{
+	DeleteProfileSchema = ErrorMessage{
 		Code:    errorPrefix + "15104",
 		Message: "Error while deleting profile schema attribute(s).",
 	}
 
-	SYNC_PROFILE_SCHEMA = ErrorMessage{
+	SyncProfileSchema = ErrorMessage{
 		Code:    errorPrefix + "15105",
 		Message: "Error while syncing identity attributes of profile schema.",
 	}
 
-	TOKEN_FETCH_FAILED = ErrorMessage{
+	TokenFetchFailed = ErrorMessage{
 		Code:    errorPrefix + "15106",
 		Message: "Fetching token failed.",
 	}
 
-	GET_SCIM_DIALECTS = ErrorMessage{
+	GetSCIMDialects = ErrorMessage{
 		Code:    errorPrefix + "15107",
 		Message: "Error while fetching SCIM dialects.",
 	}
 
-	GET_DIALECT_CLAIMS = ErrorMessage{
+	GetDialectClaims = ErrorMessage{
 		Code:    errorPrefix + "15108",
 		Message: "Error while fetching dialect claims.",
 	}
 
-	GET_LOCAL_CLAIMS_FAILED = ErrorMessage{
+	GetLocalClaimsFailed = ErrorMessage{
 		Code:    errorPrefix + "15109",
 		Message: "Error while fetching local claims.",
 	}
 
-	GET_SCIM_USER_FAILED = ErrorMessage{
+	GetSCIMUserFailed = ErrorMessage{
 		Code:    errorPrefix + "15110",
 		Message: "Error while fetching SCIM user.",
 	}
 
-	GET_APPLICATIONS_FAILED = ErrorMessage{
+	GetApplicationsFailed = ErrorMessage{
 		Code:    errorPrefix + "15111",
 		Message: "Error while fetching applications.",
 	}
 
-	UPSERT_APPLICATION_FAILED = ErrorMessage{
+	UpsertApplicationFailed = ErrorMessage{
 		Code:    errorPrefix + "15112",
 		Message: "Error while persisting application information.",
 	}
 
-	GET_APPLICATION_FAILED = ErrorMessage{
+	GetApplicationFailed = ErrorMessage{
 		Code:    errorPrefix + "15113",
 		Message: "Error while resolving application information.",
 	}
@@ -118,67 +119,67 @@ var (
 		Message: "Error while persisting the service credentials of the organization.",
 	}
 
-	ADD_UNIFICATION_RULE = ErrorMessage{
+	AddUnificationRule = ErrorMessage{
 		Code:    errorPrefix + "15201",
 		Message: "Error while adding unification rules.",
 	}
 
-	GET_UNIFICATION_RULE = ErrorMessage{
+	GetUnificationRule = ErrorMessage{
 		Code:    errorPrefix + "15202",
 		Message: "Error while fetching unification rules.",
 	}
 
-	UPDATE_UNIFICATION_RULE = ErrorMessage{
+	UpdateUnificationRule = ErrorMessage{
 		Code:    errorPrefix + "15203",
 		Message: "Error while updating unification rules.",
 	}
 
-	DELETE_UNIFICATION_RULE = ErrorMessage{
+	DeleteUnificationRule = ErrorMessage{
 		Code:    errorPrefix + "15204",
 		Message: "Error while deleting unification rule(s).",
 	}
 
-	ADD_CONSENT_CATEGORY = ErrorMessage{
+	AddConsentCategory = ErrorMessage{
 		Code:    errorPrefix + "15301",
 		Message: "Adding consent category failed.",
 	}
 
-	ADD_CONSENT_CATEGORY_BAD_REQUEST = ErrorMessage{
+	AddConsentCategoryBadRequest = ErrorMessage{
 		Code:    errorPrefix + "15302",
 		Message: "Invalid request payload for adding consent category.",
 	}
 
-	FETCH_CONSENT_CATEGORIES = ErrorMessage{
+	FetchConsentCategories = ErrorMessage{
 		Code:    errorPrefix + "15303",
 		Message: "Fetching consent category failed.",
 	}
 
-	UPDATE_CONSENT_CATEGORY = ErrorMessage{
+	UpdateConsentCategory = ErrorMessage{
 		Code:    errorPrefix + "15304",
 		Message: "Updating consent category failed.",
 	}
 
-	GET_COOKIE = ErrorMessage{
+	GetCookie = ErrorMessage{
 		Code:    errorPrefix + "15401",
 		Message: "Fetching profile cookie failed.",
 	}
 
-	UPDATE_COOKIE = ErrorMessage{
+	UpdateCookie = ErrorMessage{
 		Code:    errorPrefix + "15402",
 		Message: "Updating profile cookie failed.",
 	}
 
-	DELETE_COOKIE = ErrorMessage{
+	DeleteCookie = ErrorMessage{
 		Code:    errorPrefix + "15403",
 		Message: "Updating profile cookie failed.",
 	}
 
-	GET_PROFILE_SERVER_ERROR = ErrorMessage{
+	GetProfileServerError = ErrorMessage{
 		Code:    errorPrefix + "15404",
 		Message: "Fetching profile(s) failed.",
 	}
 
-	PARSING_ERROR = ErrorMessage{
+	ParsingError = ErrorMessage{
 		Code:    errorPrefix + "15901",
 		Message: "Parsing token failed.",
 	}
@@ -190,12 +191,12 @@ var (
 	//   140xx - Consent Management
 	//   160xx - Admin Configurations
 	//   190xx - Other Client Errors
-	BAD_REQUEST = ErrorMessage{
+	BadRequest = ErrorMessage{
 		Code:    errorPrefix + "10001",
 		Message: "Invalid request.",
 	}
 
-	UN_AUTHORIZED = ErrorMessage{
+	Unauthorized = ErrorMessage{
 		Code:        errorPrefix + "10002",
 		Message:     "Unauthorized",
 		Description: "Authorization failure. Authorization information was invalid or missing from your request.",
@@ -207,183 +208,183 @@ var (
 		Description: "You do not have enough permission to access this resource.",
 	}
 
-	PROFILE_NOT_FOUND = ErrorMessage{
+	ProfileNotFound = ErrorMessage{
 		Code:        errorPrefix + "11001",
 		Message:     "Profile not found.",
 		Description: "No user profile record found for the given profile_id",
 	}
 
-	ADD_PROFILE = ErrorMessage{
+	AddProfile = ErrorMessage{
 		Code:    errorPrefix + "11002",
 		Message: "Profile addition failed.",
 	}
 
-	GET_PROFILE = ErrorMessage{
+	GetProfile = ErrorMessage{
 		Code:    errorPrefix + "11003",
 		Message: "Fetching profile(s) failed.",
 	}
 
-	GET_PROFILE_CONSENT = ErrorMessage{
+	GetProfileConsent = ErrorMessage{
 		Code:    errorPrefix + "11004",
 		Message: "Fetching profile consent failed.",
 	}
 
-	CREATE_PROFILE_COOKIE = ErrorMessage{
+	CreateProfileCookie = ErrorMessage{
 		Code:    errorPrefix + "11005",
 		Message: "Creating profile cookie failed.",
 	}
-	GET_PROFILE_COOKIE = ErrorMessage{
+	GetProfileCookie = ErrorMessage{
 		Code:    errorPrefix + "11006",
 		Message: "Fetching profile cookie failed.",
 	}
 
-	UPDATE_PROFILE_COOKIE = ErrorMessage{
+	UpdateProfileCookie = ErrorMessage{
 		Code:    errorPrefix + "11007",
 		Message: "Updating profile cookie failed.",
 	}
 
-	PROFILE_COOKIE_NOT_FOUND = ErrorMessage{
+	ProfileCookieNotFound = ErrorMessage{
 		Code:    errorPrefix + "11008",
 		Message: "Profile cookie not found.",
 	}
 
-	DELETE_PROFILE_COOKIE = ErrorMessage{
+	DeleteProfileCookie = ErrorMessage{
 		Code:    errorPrefix + "11009",
 		Message: "Deleting profile cookie failed.",
 	}
 
-	FILTER_PROFILE = ErrorMessage{
+	FilterProfile = ErrorMessage{
 		Code:    errorPrefix + "11010",
 		Message: "Filtering profiles failed.",
 	}
 
-	UPDATE_PROFILE = ErrorMessage{
+	UpdateProfile = ErrorMessage{
 		Code:    errorPrefix + "11011",
 		Message: "Profile update failed.",
 	}
 
-	DELETE_PROFILE = ErrorMessage{
+	DeleteProfile = ErrorMessage{
 		Code:    errorPrefix + "11012",
 		Message: "Profile deletion failed.",
 	}
 
-	ADD_APP_DATA = ErrorMessage{
+	AddAppData = ErrorMessage{
 		Code:    errorPrefix + "11013",
 		Message: "Add app data failed.",
 	}
 
-	GET_APP_DATA = ErrorMessage{
+	GetAppData = ErrorMessage{
 		Code:    errorPrefix + "11014",
 		Message: "Fetching app data failed.",
 	}
 
-	UPDATE_APP_DATA = ErrorMessage{
+	UpdateAppData = ErrorMessage{
 		Code:    errorPrefix + "11015",
 		Message: "Updating app data failed.",
 	}
 
-	MULTIPLE_PROFILE_FOUND = ErrorMessage{
+	MultipleProfileFound = ErrorMessage{
 		Code:        errorPrefix + "11016",
 		Message:     "Multiple Profiles found.",
 		Description: "Multiple user profiles record found for the given user_id",
 	}
 
-	PROFILE_ALREADY_LINKED = ErrorMessage{
+	ProfileAlreadyLinked = ErrorMessage{
 		Code:        errorPrefix + "11017",
 		Message:     "Profile already linked.",
 		Description: "The profile is already linked to a different user",
 	}
 
-	UNIFICATION_RULE_NOT_FOUND = ErrorMessage{
+	UnificationRuleNotFound = ErrorMessage{
 		Code:    errorPrefix + "12001",
 		Message: "No unification rule found.",
 	}
 
-	UNIFICATION_UPDATE_FAILED = ErrorMessage{
+	UnificationUpdateFailed = ErrorMessage{
 		Code:    errorPrefix + "12002",
 		Message: "Validation failed for unification rule update.",
 	}
 
-	UNIFICATION_RULE_ALREADY_EXISTS = ErrorMessage{
+	UnificationRuleAlreadyExists = ErrorMessage{
 		Code:    errorPrefix + "12003",
 		Message: "Unification rule with same attribute already exists.",
 	}
-	UNIFICATION_RULE_PRIORITY_EXISTS = ErrorMessage{
+	UnificationRulePriorityExists = ErrorMessage{
 		Code:    errorPrefix + "12004",
 		Message: "Unification rule priority already taken.",
 	}
 
-	GET_UNIFICATION_RULE_WITHOUT_ID = ErrorMessage{
+	GetUnificationRuleWithoutID = ErrorMessage{
 		Code:    errorPrefix + "12005",
 		Message: "Unification rule Id is required.",
 	}
 
-	PROFILE_SCHEMA_ADD_BAD_REQUEST = ErrorMessage{
+	ProfileSchemaAddBadRequest = ErrorMessage{
 		Code:    errorPrefix + "13001",
 		Message: "Invalid request payload.",
 	}
 
-	INVALID_ATTRIBUTE = ErrorMessage{
+	InvalidAttribute = ErrorMessage{
 		Code:    errorPrefix + "13002",
 		Message: "Invalid attribute.",
 	}
 
-	SCHEMA_ATTRIBUTE_ALREADY_EXISTS = ErrorMessage{
+	SchemaAttributeAlreadyExists = ErrorMessage{
 		Code:    errorPrefix + "13003",
 		Message: "Schema attribute already exists.",
 	}
 
-	ATTRIBUTE_NOT_FOUND = ErrorMessage{
+	AttributeNotFound = ErrorMessage{
 		Code:    errorPrefix + "13004",
 		Message: "Attribute not found.",
 	}
 
-	INVALID_APP_IDENTIFIER = ErrorMessage{
+	InvalidAppIdentifier = ErrorMessage{
 		Code:    errorPrefix + "13005",
 		Message: "Invalid application identifier.",
 	}
 
-	ATTRIBUTE_UPATE_NOT_SUPPORTED = ErrorMessage{
+	AttributeUpdateNotSupported = ErrorMessage{
 		Code:    errorPrefix + "13006",
 		Message: "Attribute add/update not supported.",
 	}
 
-	CONSENT_CAT_VALIDATION = ErrorMessage{
+	ConsentCatValidation = ErrorMessage{
 		Code:    errorPrefix + "14001",
 		Message: "Consent category validation failed",
 	}
 
-	CONSENT_CAT_ALREADY_EXISTS = ErrorMessage{
+	ConsentCatAlreadyExists = ErrorMessage{
 		Code:    errorPrefix + "14002",
 		Message: "Consent category already exist.",
 	}
 
-	CONSENT_CAT_NOT_FOUND = ErrorMessage{
+	ConsentCatNotFound = ErrorMessage{
 		Code:    errorPrefix + "14003",
 		Message: "Consent category not found.",
 	}
 
-	CONSENT_CAT_ID = ErrorMessage{
+	ConsentCatID = ErrorMessage{
 		Code:    errorPrefix + "14004",
 		Message: "Consent category Id is required.",
 	}
 
-	UPDATE_CONSENT_CATEGORY_BAD_REQUEST = ErrorMessage{
+	UpdateConsentCategoryBadRequest = ErrorMessage{
 		Code:    errorPrefix + "14005",
 		Message: "Invalid request payload for updating consent category.",
 	}
 
-	CONSENT_CAT_MANDATORY = ErrorMessage{
+	ConsentCatMandatory = ErrorMessage{
 		Code:    errorPrefix + "14006",
 		Message: "Consent category is mandatory and cannot be modified or deleted.",
 	}
 
-	UPDATE_CONFIG_BAD_REQUEST = ErrorMessage{
+	UpdateConfigBadRequest = ErrorMessage{
 		Code:    errorPrefix + "16002",
 		Message: "Invalid request payload for updating admin configuration.",
 	}
 
-	CDS_NOT_ENABLED = ErrorMessage{
+	CDSNotEnabled = ErrorMessage{
 		Code:        errorPrefix + "16001",
 		Message:     "Not enabled.",
 		Description: "Customer data service is not enabled for the organization",
@@ -401,52 +402,52 @@ var (
 			"idp.service_credentials.encryption_key in deployment.yaml.",
 	}
 
-	IR_SEARCH_FAILED = ErrorMessage{
+	IRSearchFailed = ErrorMessage{
 		Code:    errorPrefix + "15501",
 		Message: "Identity resolution failed.",
 	}
 
-	IR_MERGE_FAILED = ErrorMessage{
+	IRMergeFailed = ErrorMessage{
 		Code:    errorPrefix + "15502",
 		Message: "Merge failed.",
 	}
 
-	IR_REVIEW_TASK_FAILED = ErrorMessage{
+	IRReviewTaskFailed = ErrorMessage{
 		Code:    errorPrefix + "15503",
 		Message: "Review task operation failed.",
 	}
 
-	IR_BLOCKING_KEYS_FAILED = ErrorMessage{
+	IRBlockingKeysFailed = ErrorMessage{
 		Code:    errorPrefix + "15504",
 		Message: "Blocking key operation failed.",
 	}
 
-	IR_AUDIT_LOG = ErrorMessage{
+	IRAuditLog = ErrorMessage{
 		Code:    errorPrefix + "15505",
 		Message: "Merge audit log failed.",
 	}
 
-	IR_SAMPLE_VALUES = ErrorMessage{
+	IRSampleValues = ErrorMessage{
 		Code:    errorPrefix + "15506",
 		Message: "Attribute sampling failed.",
 	}
 
-	IR_WORKER_FAILED = ErrorMessage{
+	IRWorkerFailed = ErrorMessage{
 		Code:    errorPrefix + "15507",
 		Message: "Identity resolution worker failed.",
 	}
 
-	IR_CANNOT_MERGE = ErrorMessage{
+	IRCannotMerge = ErrorMessage{
 		Code:    errorPrefix + "17001",
 		Message: "Cannot merge profiles.",
 	}
 
-	IR_REVIEW_TASK_NOT_FOUND = ErrorMessage{
+	IRReviewTaskNotFound = ErrorMessage{
 		Code:    errorPrefix + "17002",
 		Message: "Review task not found.",
 	}
 
-	IR_REVIEW_TASK_RESOLVED = ErrorMessage{
+	IRReviewTaskResolved = ErrorMessage{
 		Code:    errorPrefix + "17003",
 		Message: "Review task already resolved.",
 	}
@@ -455,89 +456,89 @@ var (
 	//   156xx - Server errors
 	//   17xxx - Client errors
 
-	ORGANIZATION_STORE = ErrorMessage{
+	OrganizationStore = ErrorMessage{
 		Code:    errorPrefix + "15601",
 		Message: "Error while accessing organizations.",
 	}
 
-	ORGANIZATION_SYNC = ErrorMessage{
+	OrganizationSync = ErrorMessage{
 		Code:    errorPrefix + "15602",
 		Message: "Error while syncing organizations with the identity provider.",
 	}
 
-	SHARE_STORE = ErrorMessage{
+	ShareStore = ErrorMessage{
 		Code:    errorPrefix + "15603",
 		Message: "Error while accessing share policies.",
 	}
 
-	SHARE_BAD_REQUEST = ErrorMessage{
+	ShareBadRequest = ErrorMessage{
 		Code:    errorPrefix + "17014",
 		Message: "Invalid share request.",
 	}
 
-	SHARED_RESOURCE_READ_ONLY = ErrorMessage{
+	SharedResourceReadOnly = ErrorMessage{
 		Code:        errorPrefix + "17015",
 		Message:     "Shared resource is read-only.",
 		Description: "Only the owner organization can change a shared resource.",
 	}
 
-	SHARE_POLICY_NOT_FOUND = ErrorMessage{
+	SharePolicyNotFound = ErrorMessage{
 		Code:    errorPrefix + "17016",
 		Message: "Share policy not found.",
 	}
 
-	SHARED_NAME_CONFLICT = ErrorMessage{
+	SharedNameConflict = ErrorMessage{
 		Code:    errorPrefix + "17004",
 		Message: "Name is used by a shared resource.",
 	}
 
-	ORGANIZATION_NOT_FOUND = ErrorMessage{
+	OrganizationNotFound = ErrorMessage{
 		Code:    errorPrefix + "17006",
 		Message: "Organization not found.",
 	}
 
-	SUB_ORG_CONFIG_NOT_ALLOWED = ErrorMessage{
+	SubOrgConfigNotAllowed = ErrorMessage{
 		Code:        errorPrefix + "17007",
 		Message:     "Configuration is inherited.",
 		Description: "A child organization inherits the CDS enablement from its primary organization.",
 	}
 
-	SHARE_POLICY_EXISTS = ErrorMessage{
+	SharePolicyExists = ErrorMessage{
 		Code:    errorPrefix + "17008",
 		Message: "Policy already exists.",
 	}
 
-	ORGANIZATION_PATH_NOT_SUPPORTED = ErrorMessage{
+	OrganizationPathNotSupported = ErrorMessage{
 		Code:        errorPrefix + "17009",
 		Message:     "Organization path not supported.",
 		Description: "The requested organization cannot be accessed using this API path.",
 	}
-	SUB_ORG_WRITE_NOT_ALLOWED = ErrorMessage{
+	SubOrgWriteNotAllowed = ErrorMessage{
 		Code:    errorPrefix + "17013",
 		Message: "Child organization is read-only.",
 		Description: "A child organization cannot change the profile schema, the unification rules, the consent " +
 			"categories, the sharing policies, or the configuration.",
 	}
 
-	INHERITED_ATTRIBUTE_READ_ONLY = ErrorMessage{
+	InheritedAttributeReadOnly = ErrorMessage{
 		Code:        errorPrefix + "17010",
 		Message:     "Inherited attribute is read-only.",
 		Description: "A child organization only inherits the identity attributes from its primary organization.",
 	}
 
-	ORGANIZATIONS_NOT_SYNCED = ErrorMessage{
+	OrganizationsNotSynced = ErrorMessage{
 		Code:        errorPrefix + "17011",
 		Message:     "Organizations are not synced.",
 		Description: "Sync the organizations with POST /organizations/sync, and wait until it completes.",
 	}
 
-	TREE_SYNC_RUNNING = ErrorMessage{
+	TreeSyncRunning = ErrorMessage{
 		Code:        errorPrefix + "17012",
 		Message:     "Organization sync is running.",
 		Description: "Wait until the running sync completes. GET /organizations/sync-status returns its state.",
 	}
 
-	INVALID_FILTER_FORMAT = ErrorMessage{
+	InvalidFilterFormat = ErrorMessage{
 		Code:    errorPrefix + "19001",
 		Message: "Invalid filter format.",
 	}

@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package handler holds the request helpers shared by the endpoints that manage sharing policies.
 package handler
 
 import (
@@ -37,14 +38,13 @@ const PolicyResource = "share policy"
 
 // DecodePolicyRequest decodes the body of a policy request.
 func DecodePolicyRequest(w http.ResponseWriter, r *http.Request) (model.PolicyRequest, bool) {
-
 	var req model.PolicyRequest
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.SHARE_BAD_REQUEST.Code,
-			Message:     errors2.SHARE_BAD_REQUEST.Message,
+			Code:        errors2.ShareBadRequest.Code,
+			Message:     errors2.ShareBadRequest.Message,
 			Description: utils.HandleDecodeError(err, "policy request"),
 		}, http.StatusBadRequest))
 		return req, false
@@ -55,7 +55,6 @@ func DecodePolicyRequest(w http.ResponseWriter, r *http.Request) (model.PolicyRe
 // InitiatorOf authenticates the request and returns the organization of the path. It writes an
 // error response when CDS is not enabled or the organization is not known.
 func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*orgModel.Organization, bool) {
-
 	if err := security.AuthnAndAuthz(r, operation); err != nil {
 		utils.HandleError(w, err)
 		return nil, false
@@ -67,9 +66,9 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 	}
 	if !adminConfigService.GetAdminConfigService().IsCDSEnabled(r.Context(), ref.ID) {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest))
 		return nil, false
 	}
@@ -84,15 +83,14 @@ func InitiatorOf(w http.ResponseWriter, r *http.Request, operation string) (*org
 // knownOrg returns the stored organization. It stores the primary organization if it is not
 // stored yet.
 func knownOrg(ctx context.Context, ref orgModel.Ref) (*orgModel.Organization, error) {
-
 	org, err := orgService.GetOrStoreOrganization(ctx, ref.Handle)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
 		return nil, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
-			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+			Code:        errors2.OrganizationNotFound.Code,
+			Message:     errors2.OrganizationNotFound.Message,
 			Description: "CDS does not know the organization '" + ref.ID + "'.",
 		}, http.StatusNotFound)
 	}

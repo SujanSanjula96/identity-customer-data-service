@@ -157,7 +157,7 @@ func TestShouldResolveAfterUpdate(t *testing.T) {
 
 	withEmail := func(userID, email, city string) profileModel.Profile {
 		return profileModel.Profile{
-			UserId:             userID,
+			UserID:             userID,
 			IdentityAttributes: map[string]interface{}{"email": email},
 			Traits:             map[string]interface{}{"city": city},
 			UpdatedAt:          profileWrittenAt,

@@ -20,11 +20,13 @@ package integration
 
 import (
 	"context"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/google/uuid"
+
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/engine/algorithms"
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
 	irWorker "github.com/wso2/identity-customer-data-service/internal/identity_resolution/worker"
@@ -58,11 +60,11 @@ func insertFuzzyNameRule(t *testing.T, org string) {
 	if err != nil {
 		t.Fatalf("db client: %v", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	now := time.Now().UTC()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		uuid.New().String(), resolveOrgId(t, org), "name", "traits.name", 1, true,
+		uuid.New().String(), resolveOrgID(t, org), "name", "traits.name", 1, true,
 		constants.AttributeTypeName, constants.UnificationMethodFuzzy, now, now)
 	if err != nil {
 		t.Fatalf("store fuzzy rule: %v", err)
@@ -71,10 +73,10 @@ func insertFuzzyNameRule(t *testing.T, org string) {
 
 // findableUnder reports whether the profile can be reached through one blocking key value.
 // The org is a handle.
-func findableUnder(t *testing.T, org, attribute, keyValue, profileID string) bool {
+func findableUnder(t *testing.T, org, keyValue, profileID string) bool {
 	t.Helper()
 
-	ids, err := irStore.FindCandidateIDsByKeys(context.Background(), setup.TestOrg(t, org).ID, attribute,
+	ids, err := irStore.FindCandidateIDsByKeys(context.Background(), setup.TestOrg(t, org).ID, "traits.name",
 		[]string{keyValue}, "none", 100)
 	if err != nil {
 		t.Fatalf("candidate lookup: %v", err)
@@ -116,10 +118,10 @@ func Test_FuzzyMatchingSwitch(t *testing.T) {
 
 		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
-		if !findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId) {
+		if !findableUnder(t, org, "jonathan smith", profile.ProfileID) {
 			t.Error("the exact key was not written")
 		}
-		if !findableUnder(t, org, "traits.name", phonetic, profile.ProfileId) {
+		if !findableUnder(t, org, phonetic, profile.ProfileID) {
 			t.Errorf("no phonetic key %q: tolerant matching is on but the index was not widened", phonetic)
 		}
 	})
@@ -135,10 +137,10 @@ func Test_FuzzyMatchingSwitch(t *testing.T) {
 
 		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
-		if !findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId) {
+		if !findableUnder(t, org, "jonathan smith", profile.ProfileID) {
 			t.Error("the exact key must still be written; the rule is not disabled, only narrowed")
 		}
-		if findableUnder(t, org, "traits.name", phonetic, profile.ProfileId) {
+		if findableUnder(t, org, phonetic, profile.ProfileID) {
 			t.Errorf("phonetic key %q written while tolerant matching is switched off", phonetic)
 		}
 	})
@@ -174,7 +176,7 @@ func Test_FuzzyMatchingSwitch_SearchPath(t *testing.T) {
 		irWorker.ResolveProfileAsync(context.Background(), setup.TestOrg(t, org).ID, profile)
 
 		phonetic, _ := algorithms.DoubleMetaphonePhrase(stored)
-		if !findableUnder(t, org, "traits.name", phonetic, profile.ProfileId) {
+		if !findableUnder(t, org, phonetic, profile.ProfileID) {
 			t.Fatal("setup failed: the profile was not indexed for tolerant matching, " +
 				"so a search finding nothing below would prove nothing")
 		}
@@ -221,7 +223,7 @@ func Test_FuzzyMatchingSwitch_SearchPath(t *testing.T) {
 // straight from the rule rather than through the evaluation path.
 //
 // Activating a rule rebuilds that attribute's keys across every profile in the org. The
-// backfill therefore has its own reading of the rule's method, and has to honour the server
+// backfill therefore has its own reading of the rule's method, and has to honor the server
 // switch like the rest — otherwise an org on a server with tolerant matching switched off
 // still has its whole index widened the moment a fuzzy-stored rule is toggled on.
 func Test_FuzzyMatchingSwitch_Backfill(t *testing.T) {
@@ -247,8 +249,8 @@ func Test_FuzzyMatchingSwitch_Backfill(t *testing.T) {
 		}
 		irWorker.IndexNewAttribute(context.Background(), setup.TestOrg(t, org).ID, rules[0])
 
-		return findableUnder(t, org, "traits.name", "jonathan smith", profile.ProfileId),
-			findableUnder(t, org, "traits.name", phonetic, profile.ProfileId)
+		return findableUnder(t, org, "jonathan smith", profile.ProfileID),
+			findableUnder(t, org, phonetic, profile.ProfileID)
 	}
 
 	t.Run("on — the backfill widens the index", func(t *testing.T) {

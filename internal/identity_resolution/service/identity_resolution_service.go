@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package service implements the identity resolution review task operations: listing pending tasks and
+// resolving them by merging or rejecting the pair.
 package service
 
 import (
@@ -36,24 +38,32 @@ import (
 	urService "github.com/wso2/identity-customer-data-service/internal/unification_rules/service"
 )
 
+// IdentityResolutionServiceInterface lists and resolves identity resolution review tasks.
 type IdentityResolutionServiceInterface interface {
-	GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) (*model.ReviewTaskListResponse, error)
+	GetPendingReviewTasks(ctx context.Context, orgID string, pageSize int) (*model.ReviewTaskListResponse, error)
 
-	GetPendingReviewTasksByProfile(ctx context.Context, orgId string, profileID string,
+	GetPendingReviewTasksByProfile(ctx context.Context, orgID string, profileID string,
 		pageSize int) (*model.ReviewTaskListResponse, error)
 
-	ResolveReviewTask(ctx context.Context, orgId string, taskID string, approved bool,
+	ResolveReviewTask(ctx context.Context, orgID string, taskID string, approved bool,
 		resolvedBy string, notes string) error
 }
 
+// IdentityResolutionService implements IdentityResolutionServiceInterface.
 type IdentityResolutionService struct{}
 
+// GetIdentityResolutionService returns a new IdentityResolutionService.
 func GetIdentityResolutionService() IdentityResolutionServiceInterface {
 	return &IdentityResolutionService{}
 }
 
-func (s *IdentityResolutionService) GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) (*model.ReviewTaskListResponse, error) {
-	tasks, totalCount, err := irStore.GetPendingReviewTasks(ctx, orgId, pageSize)
+// GetPendingReviewTasks returns a page of the organization's pending review tasks with their total count.
+func (s *IdentityResolutionService) GetPendingReviewTasks(
+	ctx context.Context,
+	orgID string,
+	pageSize int,
+) (*model.ReviewTaskListResponse, error) {
+	tasks, totalCount, err := irStore.GetPendingReviewTasks(ctx, orgID, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +77,15 @@ func (s *IdentityResolutionService) GetPendingReviewTasks(ctx context.Context, o
 	}, nil
 }
 
-func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(ctx context.Context, orgId string, profileID string, pageSize int) (*model.ReviewTaskListResponse, error) {
-
-	tasks, totalCount, err := irStore.GetPendingReviewTasksByProfile(ctx, orgId, profileID, pageSize)
+// GetPendingReviewTasksByProfile returns a page of the pending review tasks raised for the profile, with the
+// total count of pending tasks that involve it.
+func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(
+	ctx context.Context,
+	orgID string,
+	profileID string,
+	pageSize int,
+) (*model.ReviewTaskListResponse, error) {
+	tasks, totalCount, err := irStore.GetPendingReviewTasksByProfile(ctx, orgID, profileID, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +99,8 @@ func (s *IdentityResolutionService) GetPendingReviewTasksByProfile(ctx context.C
 	}, nil
 }
 
-func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId string, taskID string,
+// ResolveReviewTask approves or rejects a review task of the organization, recording who resolved it and why.
+func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgID string, taskID string,
 	approved bool, resolvedBy string, notes string) error {
 	logger := log.GetLogger()
 
@@ -98,28 +115,28 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 	}
 	if task == nil {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_NOT_FOUND.Code,
-			Message:     errors2.IR_REVIEW_TASK_NOT_FOUND.Message,
+			Code:        errors2.IRReviewTaskNotFound.Code,
+			Message:     errors2.IRReviewTaskNotFound.Message,
 			Description: fmt.Sprintf("No review task found with ID %s", taskID),
 		}, http.StatusNotFound)
 	}
 	// The task is fetched by ID alone, so ownership has to be checked here. Reported as
 	// not-found rather than forbidden: confirming that someone else's task ID exists is
 	// itself a leak.
-	if task.OrgId != orgId {
+	if task.OrgID != orgID {
 		logger.Warn(fmt.Sprintf("Service: org '%s' attempted to resolve task '%s' owned by org '%s'",
-			orgId, taskID, task.OrgId))
+			orgID, taskID, task.OrgID))
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_NOT_FOUND.Code,
-			Message:     errors2.IR_REVIEW_TASK_NOT_FOUND.Message,
+			Code:        errors2.IRReviewTaskNotFound.Code,
+			Message:     errors2.IRReviewTaskNotFound.Message,
 			Description: fmt.Sprintf("No review task found with ID %s", taskID),
 		}, http.StatusNotFound)
 	}
 
 	if task.Status != constants.ReviewStatusPending {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_RESOLVED.Code,
-			Message:     errors2.IR_REVIEW_TASK_RESOLVED.Message,
+			Code:        errors2.IRReviewTaskResolved.Code,
+			Message:     errors2.IRReviewTaskResolved.Message,
 			Description: fmt.Sprintf("Review task %s has already been %s", taskID, task.Status),
 		}, http.StatusConflict)
 	}
@@ -128,7 +145,7 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 		// Store the rejection pair before marking the task rejected.
 		// Keep the evidence the administrator decided against, so a later, materially
 		// stronger match can be reconsidered while ordinary edits leave the decision alone.
-		if err := irStore.InsertRejectionPair(ctx, orgId, task.IncomingProfileID,
+		if err := irStore.InsertRejectionPair(ctx, orgID, task.IncomingProfileID,
 			task.CandidateProfileID, resolvedBy, task.MatchScore, task.ScoreBreakdown); err != nil {
 			logger.Error(fmt.Sprintf("Service: failed to store rejection pair for task %s", taskID), log.Error(err))
 			return err
@@ -139,59 +156,59 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 		return nil
 	}
 
-	incomingProfile, err := profileStore.GetProfile(ctx, task.IncomingProfileID, orgId)
+	incomingProfile, err := profileStore.GetProfile(ctx, task.IncomingProfileID, orgID)
 	if err != nil {
 		logger.Error("Service: failed to load incoming profile for review merge", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_MERGE_FAILED.Code,
-			Message:     errors2.IR_MERGE_FAILED.Message,
+			Code:        errors2.IRMergeFailed.Code,
+			Message:     errors2.IRMergeFailed.Message,
 			Description: fmt.Sprintf("Failed to load incoming profile: %s", task.IncomingProfileID),
 		}, err)
 	}
 	if incomingProfile == nil {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.PROFILE_NOT_FOUND.Code,
-			Message:     errors2.PROFILE_NOT_FOUND.Message,
+			Code:        errors2.ProfileNotFound.Code,
+			Message:     errors2.ProfileNotFound.Message,
 			Description: fmt.Sprintf("incoming profile %s no longer exists", task.IncomingProfileID),
 		}, http.StatusNotFound)
 	}
 
-	candidate, err := profileStore.GetProfile(ctx, task.CandidateProfileID, orgId)
+	candidate, err := profileStore.GetProfile(ctx, task.CandidateProfileID, orgID)
 	if err != nil {
 		logger.Error("Service: failed to load candidate profile for review merge", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_MERGE_FAILED.Code,
-			Message:     errors2.IR_MERGE_FAILED.Message,
+			Code:        errors2.IRMergeFailed.Code,
+			Message:     errors2.IRMergeFailed.Message,
 			Description: fmt.Sprintf("Failed to load candidate profile: %s", task.CandidateProfileID),
 		}, err)
 	}
 	if candidate == nil {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.PROFILE_NOT_FOUND.Code,
-			Message:     errors2.PROFILE_NOT_FOUND.Message,
+			Code:        errors2.ProfileNotFound.Code,
+			Message:     errors2.ProfileNotFound.Message,
 			Description: fmt.Sprintf("Candidate profile %s no longer exists", task.CandidateProfileID),
 		}, http.StatusNotFound)
 	}
 
 	// Redirect to master if either profile is a child (may have been merged since the task was created).
-	incomingProfile, err = redirectToMasterIfChild(ctx, orgId, incomingProfile, logger)
+	incomingProfile, err = redirectToMasterIfChild(ctx, orgID, incomingProfile)
 	if err != nil {
 		return err
 	}
-	candidate, err = redirectToMasterIfChild(ctx, orgId, candidate, logger)
+	candidate, err = redirectToMasterIfChild(ctx, orgID, candidate)
 	if err != nil {
 		return err
 	}
 
 	// After redirect both might now point to the same master — already merged.
-	if incomingProfile.ProfileId == candidate.ProfileId {
+	if incomingProfile.ProfileID == candidate.ProfileID {
 		return nil
 	}
 
-	if incomingProfile.UserId != "" && candidate.UserId != "" && incomingProfile.UserId != candidate.UserId {
+	if incomingProfile.UserID != "" && candidate.UserID != "" && incomingProfile.UserID != candidate.UserID {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.IR_CANNOT_MERGE.Code,
-			Message:     errors2.IR_CANNOT_MERGE.Message,
+			Code:        errors2.IRCannotMerge.Code,
+			Message:     errors2.IRCannotMerge.Message,
 			Description: "Two permanent profiles with different user IDs cannot be merged.",
 		}, http.StatusConflict)
 	}
@@ -207,36 +224,37 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 	// Not coerced by the server's fuzzy setting, unlike the evaluation path: these rules are
 	// read to name the rule that drove a match already made, and reading a fuzzy rule as
 	// exact here would attribute the merge to a different rule than the one responsible.
-	if rawRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgId); rulesErr == nil {
+	if rawRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgID); rulesErr == nil {
 		rules := urModel.ActiveSortedByPriority(rawRules, constants.AttributeTypePrimitiveExact,
 			constants.UnificationMethodDeterministic, constants.DefaultMatchStrength,
 			constants.DefaultMismatchStrength)
-		thresholds := model.LoadThresholds(ctx, orgId)
-		if ruleName, found := urModel.PrimaryRuleName(task.ScoreBreakdown, rules, thresholds.ManualReview, thresholds.DeterministicMatchDecisive); found {
+		thresholds := model.LoadThresholds(ctx, orgID)
+		if ruleName, found := urModel.PrimaryRuleName(task.ScoreBreakdown, rules, thresholds.ManualReview,
+			thresholds.DeterministicMatchDecisive); found {
 			mergeReason = ruleName
 		}
 	}
 
-	survivingMaster, mergeErr := workers.MergeMatchedProfiles(ctx, orgId, *candidate, *incomingProfile, mergeReason)
+	survivingMaster, mergeErr := workers.MergeMatchedProfiles(ctx, orgID, *candidate, *incomingProfile, mergeReason)
 	if mergeErr != nil {
 		logger.Error(fmt.Sprintf("Service: review merge failed for task %s — '%s' and '%s'",
-			taskID, incomingProfile.ProfileId, candidate.ProfileId), log.Error(mergeErr))
+			taskID, incomingProfile.ProfileID, candidate.ProfileID), log.Error(mergeErr))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:    errors2.IR_MERGE_FAILED.Code,
-			Message: errors2.IR_MERGE_FAILED.Message,
+			Code:    errors2.IRMergeFailed.Code,
+			Message: errors2.IRMergeFailed.Message,
 			Description: fmt.Sprintf("Failed to merge profiles '%s' and '%s' for review task %s",
-				incomingProfile.ProfileId, candidate.ProfileId, taskID),
+				incomingProfile.ProfileID, candidate.ProfileID, taskID),
 		}, mergeErr)
 	}
 	if survivingMaster == nil {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.IR_CANNOT_MERGE.Code,
-			Message:     errors2.IR_CANNOT_MERGE.Message,
+			Code:        errors2.IRCannotMerge.Code,
+			Message:     errors2.IRCannotMerge.Message,
 			Description: "The two profiles in this review task cannot be merged.",
 		}, http.StatusConflict)
 	}
 
-	// Cascade cancel only after the merge has actually happened. Cancelling first meant a
+	// Cascade cancel only after the merge has actually happened. Canceling first meant a
 	// failed merge left the sibling tasks cancelled while this one stayed pending, and a
 	// cancelled pair cannot be re-proposed while a row for it already exists.
 	cancelledIncomingIDs, cancelErr := irStore.CancelRelatedReviewTasks(ctx, taskID,
@@ -247,14 +265,16 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 
 	// Re-enqueue the affected profiles so they are re-evaluated against the new master.
 	for _, incomingID := range cancelledIncomingIDs {
-		affected, loadErr := profileStore.GetProfile(ctx, incomingID, orgId)
+		affected, loadErr := profileStore.GetProfile(ctx, incomingID, orgID)
 		if loadErr != nil || affected == nil {
-			logger.Warn(fmt.Sprintf("Service: skipping re-evaluation for '%s' — profile not found or error", incomingID))
+			logger.Warn(
+				fmt.Sprintf("Service: skipping re-evaluation for '%s' — profile not found or error", incomingID),
+			)
 			continue
 		}
 
-		if affected.ProfileStatus != nil && affected.ProfileStatus.ReferenceProfileId != "" {
-			master, masterErr := profileStore.GetProfile(ctx, affected.ProfileStatus.ReferenceProfileId, orgId)
+		if affected.ProfileStatus != nil && affected.ProfileStatus.ReferenceProfileID != "" {
+			master, masterErr := profileStore.GetProfile(ctx, affected.ProfileStatus.ReferenceProfileID, orgID)
 			if masterErr == nil && master != nil {
 				workers.EnqueueProfileForProcessing(*master)
 			}
@@ -274,18 +294,18 @@ func (s *IdentityResolutionService) ResolveReviewTask(ctx context.Context, orgId
 	return nil
 }
 
-func redirectToMasterIfChild(ctx context.Context, orgId string, p *profileModel.Profile,
-	logger *log.Logger) (*profileModel.Profile, error) {
-	if p.ProfileStatus == nil || p.ProfileStatus.ReferenceProfileId == "" {
+func redirectToMasterIfChild(ctx context.Context, orgID string, p *profileModel.Profile) (*profileModel.Profile,
+	error) {
+	if p.ProfileStatus == nil || p.ProfileStatus.ReferenceProfileID == "" {
 		return p, nil
 	}
-	masterID := p.ProfileStatus.ReferenceProfileId
+	masterID := p.ProfileStatus.ReferenceProfileID
 
-	master, err := profileStore.GetProfile(ctx, masterID, orgId)
+	master, err := profileStore.GetProfile(ctx, masterID, orgID)
 	if err != nil || master == nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_MERGE_FAILED.Code,
-			Message:     errors2.IR_MERGE_FAILED.Message,
+			Code:        errors2.IRMergeFailed.Code,
+			Message:     errors2.IRMergeFailed.Message,
 			Description: fmt.Sprintf("Failed to load master profile '%s' for redirect", masterID),
 		}, err)
 	}

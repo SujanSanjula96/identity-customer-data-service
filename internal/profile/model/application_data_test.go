@@ -27,7 +27,7 @@ import (
 
 func TestApplicationDataMarshalJSONFlattensAppData(t *testing.T) {
 	data := ApplicationData{
-		AppId:           "app-1",
+		AppID:           "app-1",
 		AppSpecificData: map[string]interface{}{"theme": "dark", "visits": 3},
 	}
 
@@ -40,7 +40,7 @@ func TestApplicationDataMarshalJSONFlattensAppData(t *testing.T) {
 }
 
 func TestApplicationDataMarshalJSONWithoutAppData(t *testing.T) {
-	out, err := json.Marshal(ApplicationData{AppId: "app-1"})
+	out, err := json.Marshal(ApplicationData{AppID: "app-1"})
 
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"application_id":"app-1"}`, string(out))

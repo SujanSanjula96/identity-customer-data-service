@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package queue defines the queues that carry profile unification and schema sync jobs, and selects
+// the configured provider.
 package queue
 
 import (
@@ -55,7 +57,7 @@ type ProfileUnificationQueue interface {
 	Close(ctx context.Context) error
 }
 
-// SchemaSyncQueue defines the contract for enqueuing schema synchronisation
+// SchemaSyncQueue defines the contract for enqueuing schema synchronization
 // jobs for asynchronous processing.
 type SchemaSyncQueue interface {
 	// Enqueue adds a schema sync job to the queue. It returns nil on

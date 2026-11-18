@@ -22,11 +22,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	"testing"
 	"time"
 
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+
 	"github.com/stretchr/testify/require"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
@@ -60,7 +62,7 @@ func candidateWorkerDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	provider.SetTestDB(db.DB, database.TypeSQLite)
 	t.Cleanup(func() { provider.SetTestDB(nil, ""); db.Terminate() })
-	require.NoError(t, setup.InsertTestOrganization(db.DB, setup.TestOrgId("tenant"), "tenant"))
+	require.NoError(t, setup.InsertTestOrganization(db.DB, setup.TestOrgID("tenant"), "tenant"))
 	return db.DB
 }
 
@@ -86,7 +88,8 @@ func workerRule(t *testing.T, db *sql.DB, id, property string, priority int, act
 	_, err := db.Exec(`INSERT INTO profile_schema
 		(attribute_id, org_id, attribute_name, display_name, value_type, merge_strategy,
 		application_identifier, mutability, scope)
-		VALUES (?, 'org-id-tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`, id, property, property)
+		VALUES (?, 'org-id-tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`,
+		id, property, property)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO unification_rules
 		(rule_id, org_id, rule_name, property_name, property_id, priority, is_active)
@@ -106,20 +109,29 @@ func TestUnificationUserIDPrecedesRulesAndPreservesApplicationData(t *testing.T)
 		{"user-match", "existing-app", `{"app_specific_data":{"language":"en"}}`},
 		{"incoming", "new-app", `{"app_specific_data":{"theme":"dark"}}`},
 	} {
-		_, err = db.Exec(`INSERT INTO application_data (profile_id, app_id, application_data) VALUES (?, ?, ?)`, row.profile, row.app, row.data)
+		_, err = db.Exec(
+			`INSERT INTO application_data (profile_id, app_id, application_data) VALUES (?, ?, ?)`,
+			row.profile,
+			row.app,
+			row.data,
+		)
 		require.NoError(t, err)
 	}
 	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var parent, reason string
-	require.NoError(t, db.QueryRow(`SELECT reference_profile_id, reference_reason FROM profile_reference WHERE profile_id='incoming'`).Scan(&parent, &reason))
+	require.NoError(
+		t,
+		db.QueryRow(`SELECT reference_profile_id, reference_reason FROM profile_reference WHERE profile_id='incoming'`).
+			Scan(&parent, &reason),
+	)
 	require.Equal(t, "user-match", parent)
-	require.Equal(t, constants.SystemUserIdMatchReason, reason)
+	require.Equal(t, constants.SystemUserIDMatchReason, reason)
 	apps, err := profileStore.FetchApplicationData(context.Background(), "user-match")
 	require.NoError(t, err)
 	require.Len(t, apps, 2)
 	data := map[string]interface{}{}
 	for _, app := range apps {
-		data[app.AppId] = app.AppSpecificData
+		data[app.AppID] = app.AppSpecificData
 	}
 	require.Equal(t, map[string]interface{}{"language": "en"}, data["existing-app"])
 	require.Equal(t, map[string]interface{}{"theme": "dark"}, data["new-app"])
@@ -132,7 +144,7 @@ func TestUnificationUserIDPrecedesRulesAndPreservesApplicationData(t *testing.T)
 // resolution pipeline, which scores every rule against each candidate rather than stopping
 // at the first, and can route a pair to review instead of merging it. The worker only
 // delegates. Driving the pipeline from here would mean importing it, and it imports the
-// worker, so its behaviour is covered in test/integration instead.
+// worker, so its behavior is covered in test/integration instead.
 //
 // The user-ID invariant above is unaffected and still merges in the worker.
 func TestRuleMatchingIsDelegatedToIdentityResolution(t *testing.T) {
@@ -146,7 +158,7 @@ func TestRuleMatchingIsDelegatedToIdentityResolution(t *testing.T) {
 
 	var delegated []string
 	RegisterFuzzyResolveFunc(func(_ context.Context, _ string, p profileModel.Profile) {
-		delegated = append(delegated, p.ProfileId)
+		delegated = append(delegated, p.ProfileID)
 	})
 
 	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
@@ -199,11 +211,11 @@ func TestCandidateDiscoveryDoesNotRequireApplicationDataTable(t *testing.T) {
 	incoming := workerProfile(t, db, "incoming", "", `{"email":"b"}`, 0)
 	_, err := db.Exec(`DROP TABLE application_data`)
 	require.NoError(t, err)
-	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileId, tenantOrg.ID,
+	_, err = profileStore.GetProfileWithOptions(context.Background(), incoming.ProfileID, tenantOrg.ID,
 		profileStore.GetProfileOptions{IncludeApplicationData: false})
 	require.NoError(t, err)
 	id, err := profileStore.FindOldestReferenceProfileIDByAttributeValues(context.Background(), tenantOrg.ID,
-		"identity_attributes.email", []string{"a"}, incoming.ProfileId, incoming.UserId)
+		"identity_attributes.email", []string{"a"}, incoming.ProfileID, incoming.UserID)
 	require.NoError(t, err)
 	require.Equal(t, "master", id)
 	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
@@ -212,6 +224,9 @@ func TestCandidateDiscoveryDoesNotRequireApplicationDataTable(t *testing.T) {
 	incoming.IdentityAttributes["email"] = "a"
 	unifyProfiles(context.Background(), tenantOrg.ID, incoming)
 	var status string
-	require.NoError(t, db.QueryRow(`SELECT profile_status FROM profile_reference WHERE profile_id='incoming'`).Scan(&status))
+	require.NoError(
+		t,
+		db.QueryRow(`SELECT profile_status FROM profile_reference WHERE profile_id='incoming'`).Scan(&status),
+	)
 	require.Equal(t, "REFERENCE_PROFILE", status)
 }

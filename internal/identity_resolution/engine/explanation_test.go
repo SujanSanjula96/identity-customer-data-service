@@ -31,7 +31,7 @@ import (
 // idRule is a rule whose ID and name are both id, so a reason's rule IDs read as rule names.
 func idRule(id, property, attrType, method string, priority int) urModel.UnificationRule {
 	rule := namedRule(id, property, attrType, method, priority)
-	rule.RuleId = id
+	rule.RuleID = id
 	return rule
 }
 
@@ -39,7 +39,6 @@ func idRule(id, property, attrType, method string, priority int) urModel.Unifica
 // reports, since the two must never drift apart.
 func evaluatePair(t *testing.T, rules []urModel.UnificationRule, ctx ScoringContext,
 	incoming, candidate map[string]interface{}) CandidateEvaluation {
-
 	t.Helper()
 	profile := &model.ProfileData{ProfileID: "candidate", Attributes: candidate}
 	evaluation := EvaluateCandidate(incoming, profile, rules, ctx)
@@ -91,11 +90,23 @@ func TestExplanationSameNameDifferentEmail(t *testing.T) {
 	}
 
 	rules := []urModel.UnificationRule{
-		idRule("email", "identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodDeterministic, 1),
+		idRule(
+			"email",
+			"identity_attributes.email",
+			constants.AttributeTypeEmail,
+			constants.UnificationMethodDeterministic,
+			1,
+		),
 		idRule("name", "identity_attributes.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 10),
-		idRule("mobile", "identity_attributes.mobile", constants.AttributeTypePhone, constants.UnificationMethodFuzzy, 2),
+		idRule(
+			"mobile",
+			"identity_attributes.mobile",
+			constants.AttributeTypePhone,
+			constants.UnificationMethodFuzzy,
+			2,
+		),
 	}
-	evaluation := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds},
+	evaluation := evaluatePair(t, rules, ScoringContext{OrgID: "acme", Thresholds: defaultTestThresholds},
 		map[string]interface{}{
 			"identity_attributes.email":  "mdelacroix@othermail.io",
 			"identity_attributes.name":   "Marcus Delacroix",
@@ -112,10 +123,16 @@ func TestExplanationSameNameDifferentEmail(t *testing.T) {
 	if evaluation.Similarity != 1.0 {
 		t.Errorf("similarity is %.4f, want 1.0: the name matched exactly, and the cap is policy", evaluation.Similarity)
 	}
-	if want := []string{model.ReasonConflictingEvidence, model.ReasonWeakSoleEvidence}; !reflect.DeepEqual(reasonCodes(evaluation), want) {
+	if want := []string{model.ReasonConflictingEvidence, model.ReasonWeakSoleEvidence}; !reflect.DeepEqual(
+		reasonCodes(evaluation),
+		want,
+	) {
 		t.Errorf("reasons %v, want %v", reasonCodes(evaluation), want)
 	}
-	if reason, _ := reasonFor(evaluation, model.ReasonConflictingEvidence); !reflect.DeepEqual(reason.RuleIDs, []string{"email"}) {
+	if reason, _ := reasonFor(evaluation, model.ReasonConflictingEvidence); !reflect.DeepEqual(
+		reason.RuleIDs,
+		[]string{"email"},
+	) {
 		t.Errorf("conflicting evidence names %v, want the email rule", reason.RuleIDs)
 	}
 
@@ -139,21 +156,31 @@ func TestExplanationNamesEveryReasonThatHolds(t *testing.T) {
 	if err := log.Init("error"); err != nil {
 		t.Fatalf("init logger: %v", err)
 	}
-	ctx := ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds}
+	ctx := ScoringContext{OrgID: "acme", Thresholds: defaultTestThresholds}
 
 	t.Run("a similar name on its own", func(t *testing.T) {
 		rules := []urModel.UnificationRule{
-			idRule("name", "identity_attributes.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 1),
+			idRule(
+				"name",
+				"identity_attributes.name",
+				constants.AttributeTypeName,
+				constants.UnificationMethodFuzzy,
+				1,
+			),
 		}
 		evaluation := evaluatePair(t, rules, ctx,
 			map[string]interface{}{"identity_attributes.name": "Jonathan Albright"},
 			map[string]interface{}{"identity_attributes.name": "Jonathon Albrite"})
 
-		if want := []string{model.ReasonBelowAutoMerge, model.ReasonWeakSoleEvidence}; !reflect.DeepEqual(reasonCodes(evaluation), want) {
+		if want := []string{model.ReasonBelowAutoMerge, model.ReasonWeakSoleEvidence}; !reflect.DeepEqual(
+			reasonCodes(evaluation),
+			want,
+		) {
 			t.Errorf("reasons %v, want %v", reasonCodes(evaluation), want)
 		}
 		// The threshold is recorded as it was, since the organization can change it later.
-		if reason, _ := reasonFor(evaluation, model.ReasonBelowAutoMerge); reason.Threshold == nil || *reason.Threshold != 1.0 {
+		if reason, _ := reasonFor(evaluation, model.ReasonBelowAutoMerge); reason.Threshold == nil ||
+			*reason.Threshold != 1.0 {
 			t.Errorf("the reason does not carry the auto-merge threshold the match fell short of")
 		}
 		// Nothing capped this pair, so its similarity and routing score are the same.
@@ -164,12 +191,34 @@ func TestExplanationNamesEveryReasonThatHolds(t *testing.T) {
 
 	t.Run("a discriminating attribute disagrees", func(t *testing.T) {
 		rules := []urModel.UnificationRule{
-			idRule("name", "identity_attributes.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 1),
-			idRule("dob", "identity_attributes.dob", constants.AttributeTypeDate, constants.UnificationMethodDeterministic, 2),
+			idRule(
+				"name",
+				"identity_attributes.name",
+				constants.AttributeTypeName,
+				constants.UnificationMethodFuzzy,
+				1,
+			),
+			idRule(
+				"dob",
+				"identity_attributes.dob",
+				constants.AttributeTypeDate,
+				constants.UnificationMethodDeterministic,
+				2,
+			),
 		}
-		evaluation := evaluatePair(t, rules, ctx,
-			map[string]interface{}{"identity_attributes.name": "Katherine Jones", "identity_attributes.dob": "1990-01-01"},
-			map[string]interface{}{"identity_attributes.name": "Katherine Jones", "identity_attributes.dob": "1985-06-12"})
+		evaluation := evaluatePair(
+			t,
+			rules,
+			ctx,
+			map[string]interface{}{
+				"identity_attributes.name": "Katherine Jones",
+				"identity_attributes.dob":  "1990-01-01",
+			},
+			map[string]interface{}{
+				"identity_attributes.name": "Katherine Jones",
+				"identity_attributes.dob":  "1985-06-12",
+			},
+		)
 
 		reason, found := reasonFor(evaluation, model.ReasonDiscriminatingMismatch)
 		if !found || !reflect.DeepEqual(reason.RuleIDs, []string{"dob"}) {
@@ -179,9 +228,15 @@ func TestExplanationNamesEveryReasonThatHolds(t *testing.T) {
 
 	t.Run("a common value", func(t *testing.T) {
 		rules := []urModel.UnificationRule{
-			idRule("email", "identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodFuzzy, 1),
+			idRule(
+				"email",
+				"identity_attributes.email",
+				constants.AttributeTypeEmail,
+				constants.UnificationMethodFuzzy,
+				1,
+			),
 		}
-		common := ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds,
+		common := ScoringContext{OrgID: "acme", Thresholds: defaultTestThresholds,
 			ValueFrequency: func(string, string, string) (int, error) {
 				return constants.RarityCommonMinProfiles + 30, nil
 			}}
@@ -207,12 +262,30 @@ func TestExplanationOfAConclusiveMatch(t *testing.T) {
 
 	rules := []urModel.UnificationRule{
 		idRule("name", "identity_attributes.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 1),
-		idRule("email", "identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodDeterministic, 2),
+		idRule(
+			"email",
+			"identity_attributes.email",
+			constants.AttributeTypeEmail,
+			constants.UnificationMethodDeterministic,
+			2,
+		),
 	}
-	incoming := map[string]interface{}{"identity_attributes.name": "Jon Smith", "identity_attributes.email": "jon@acme.com"}
-	candidate := map[string]interface{}{"identity_attributes.name": "John Smith", "identity_attributes.email": "jon@acme.com"}
+	incoming := map[string]interface{}{
+		"identity_attributes.name":  "Jon Smith",
+		"identity_attributes.email": "jon@acme.com",
+	}
+	candidate := map[string]interface{}{
+		"identity_attributes.name":  "John Smith",
+		"identity_attributes.email": "jon@acme.com",
+	}
 
-	merged := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: defaultTestThresholds}, incoming, candidate)
+	merged := evaluatePair(
+		t,
+		rules,
+		ScoringContext{OrgID: "acme", Thresholds: defaultTestThresholds},
+		incoming,
+		candidate,
+	)
 	if model.Decide(merged.Score, defaultTestThresholds) != constants.DecisionAutoMerge {
 		t.Fatalf("expected the exact email to merge the pair, score %.4f", merged.Score)
 	}
@@ -225,7 +298,7 @@ func TestExplanationOfAConclusiveMatch(t *testing.T) {
 
 	manual := defaultTestThresholds
 	manual.AutoMergeEnabled = false
-	held := evaluatePair(t, rules, ScoringContext{OrgId: "acme", Thresholds: manual}, incoming, candidate)
+	held := evaluatePair(t, rules, ScoringContext{OrgID: "acme", Thresholds: manual}, incoming, candidate)
 	if want := []string{model.ReasonAutoMergeDisabled}; !reflect.DeepEqual(reasonCodes(held), want) {
 		t.Errorf("reasons %v, want %v", reasonCodes(held), want)
 	}

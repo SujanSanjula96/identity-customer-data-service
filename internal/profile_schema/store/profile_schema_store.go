@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package store persists the profile schema attributes.
 package store
 
 import (
@@ -28,6 +29,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
@@ -35,39 +37,50 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
+func valueTuples(rows [][]interface{}) (string, []interface{}) {
+	tuples := make([]string, len(rows))
+	var args []interface{}
+	for i, row := range rows {
+		placeholders := make([]string, len(row))
+		for j := range row {
+			placeholders[j] = "$" + strconv.Itoa(len(args)+j+1)
+		}
+		tuples[i] = "(" + strings.Join(placeholders, ", ") + ")"
+		args = append(args, row...)
+	}
+	return strings.Join(tuples, ", "), args
+}
+
 // AddProfileSchemaAttributesForScope adds multiple profile schema attributes.
 func AddProfileSchemaAttributesForScope(ctx context.Context,
-	attrs []model.ProfileSchemaAttribute, scope, orgId string) error {
-
+	attrs []model.ProfileSchemaAttribute, scope, orgID string) error {
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		errorMsg := "Error occurred while initializing DB client for adding profile schema attributes"
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.ADD_PROFILE_SCHEMA.Code,
-			Message:     errors.ADD_PROFILE_SCHEMA.Message,
+			Code:        errors.AddProfileSchema.Code,
+			Message:     errors.AddProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	if len(attrs) == 0 {
 		return nil // nothing to insert
 	}
 
-	valueStrings := make([]string, 0, len(attrs))
-	valueArgs := make([]interface{}, 0, len(attrs)*12)
+	rows := make([][]interface{}, 0, len(attrs))
 
-	for i, attr := range attrs {
-		idx := i * 12
+	for _, attr := range attrs {
 		subAttrsJSON, err := json.Marshal(attr.SubAttributes)
 		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeId)
+			errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.ADD_PROFILE_SCHEMA.Code,
-				Message:     errors.ADD_PROFILE_SCHEMA.Message,
+				Code:        errors.AddProfileSchema.Code,
+				Message:     errors.AddProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 		}
@@ -75,75 +88,75 @@ func AddProfileSchemaAttributesForScope(ctx context.Context,
 
 		if err != nil {
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.ADD_PROFILE_SCHEMA.Code,
-				Message:     errors.ADD_PROFILE_SCHEMA.Message,
-				Description: fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeId),
+				Code:        errors.AddProfileSchema.Code,
+				Message:     errors.AddProfileSchema.Message,
+				Description: fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeID),
 			}, err)
 		}
 
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d,  $%d, $%d,  $%d, $%d, $%d, $%d) ",
-			idx+1, idx+2, idx+3, idx+4, idx+5, idx+6, idx+7, idx+8, idx+9, idx+10, idx+11, idx+12))
-		valueArgs = append(valueArgs, orgId, attr.AttributeId, attr.AttributeName, attr.ValueType,
+		rows = append(rows, []interface{}{orgID, attr.AttributeID, attr.AttributeName, attr.ValueType,
 			attr.MergeStrategy, attr.ApplicationIdentifier, attr.Mutability, attr.MultiValued, subAttrsJSON,
-			canonicalJSON, scope, attr.DisplayName)
-
+			canonicalJSON, scope, attr.DisplayName})
 	}
 
-	query := scripts.InsertProfileSchemaAttributesForScope.Append(strings.Join(valueStrings, ", "))
-	_, err = dbClient.ExecuteQueryContext(ctx, query, valueArgs...)
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to insert profile schema attributes for org: %s", attrs[0].OrgId)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.ADD_PROFILE_SCHEMA.Code,
-			Message:     errors.ADD_PROFILE_SCHEMA.Message,
-			Description: errorMsg,
-		}, err)
+	batchSize := min(len(rows), database.MaxRowsPerStatement(dbClient.DBType(), 12))
+	for start := 0; start < len(rows); start += batchSize {
+		tuples, valueArgs := valueTuples(rows[start:min(start+batchSize, len(rows))])
+		query := scripts.InsertProfileSchemaAttributesForScope.Append(tuples)
+		_, err = dbClient.ExecuteQueryContext(ctx, query, valueArgs...)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Failed to insert profile schema attributes for org: %s", attrs[0].OrgID)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors.NewServerError(errors.ErrorMessage{
+				Code:        errors.AddProfileSchema.Code,
+				Message:     errors.AddProfileSchema.Message,
+				Description: errorMsg,
+			}, err)
+		}
 	}
 	logger.Info(fmt.Sprintf("Successfully added %d profile schema attributes for organization: %s",
-		len(attrs), attrs[0].OrgId))
+		len(attrs), attrs[0].OrgID))
 	return nil
 }
 
-// GetProfileSchemaAttributeById retrieves a profile schema attribute by its ID for a given organization.
-func GetProfileSchemaAttributeById(ctx context.Context,
-	orgId, attributeId string) (model.ProfileSchemaAttribute, error) {
-
+// GetProfileSchemaAttributeByID retrieves a profile schema attribute by its ID for a given organization.
+func GetProfileSchemaAttributeByID(ctx context.Context,
+	orgID, attributeID string) (model.ProfileSchemaAttribute, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s and attribute: %s",
-			orgId, attributeId)
+			orgID, attributeID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return model.ProfileSchemaAttribute{}, serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	query := scripts.GetProfileSchemaAttributeById
+	query := scripts.GetProfileSchemaAttributeByID
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, attributeId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, attributeID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for the org:%s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for the org:%s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return model.ProfileSchemaAttribute{}, serverError
 	}
 	if len(results) == 0 {
 		clientError := errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.ATTRIBUTE_NOT_FOUND.Code,
-			Message:     errors.ATTRIBUTE_NOT_FOUND.Message,
-			Description: "Profile schema attribute not found for org: " + orgId + " and attribute: " + attributeId,
+			Code:        errors.AttributeNotFound.Code,
+			Message:     errors.AttributeNotFound.Message,
+			Description: "Profile schema attribute not found for org: " + orgID + " and attribute: " + attributeID,
 		}, http.StatusNotFound)
 		return model.ProfileSchemaAttribute{}, clientError
 	}
@@ -153,38 +166,37 @@ func GetProfileSchemaAttributeById(ctx context.Context,
 
 // GetProfileSchemaAttributesByScope retrieves all profile schema attributes for a given organization and scope.
 func GetProfileSchemaAttributesByScope(ctx context.Context,
-	orgId, scope string) ([]model.ProfileSchemaAttribute, error) {
-
+	orgID, scope string) ([]model.ProfileSchemaAttribute, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error initializing DB client for org: %s and scope: %s", orgId, scope)
+		errorMsg := fmt.Sprintf("Error initializing DB client for org: %s and scope: %s", orgID, scope)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.GetProfileSchemaAttributeByScope
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, scope)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, scope)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error fetching profile schema attributes for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error fetching profile schema attributes for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
 
 	if len(results) == 0 {
-		logger.Debug(fmt.Sprintf("No profile schema attributes found for org: %s and scope: %s", orgId, scope))
+		logger.Debug(fmt.Sprintf("No profile schema attributes found for org: %s and scope: %s", orgID, scope))
 		return []model.ProfileSchemaAttribute{}, nil
 	}
 
@@ -198,8 +210,7 @@ func GetProfileSchemaAttributesByScope(ctx context.Context,
 
 // GetProfileSchemaAttributeByName retrieves a profile schema attribute by its name for a given organization.
 func GetProfileSchemaAttributeByName(ctx context.Context,
-	orgId, attributeName string) (*model.ProfileSchemaAttribute, error) {
-
+	orgID, attributeName string) (*model.ProfileSchemaAttribute, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -209,31 +220,31 @@ func GetProfileSchemaAttributeByName(ctx context.Context,
 		errorMsg := fmt.Sprintf("Failed to get database client for fetching schema attribute: %s", attributeName)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return nil, serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.GetProfileSchemaAttributeByName
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, attributeName)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, attributeName)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed in fetching schema attribute '%s' for organization '%s'", attributeName,
-			orgId)
+			orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return nil, serverError
 	}
 
 	if len(results) == 0 {
-		logger.Debug(fmt.Sprintf("No profile schema found for attribute: %s in org: %s", attributeName, orgId))
+		logger.Debug(fmt.Sprintf("No profile schema found for attribute: %s in org: %s", attributeName, orgID))
 		return nil, nil
 	}
 
@@ -242,11 +253,11 @@ func GetProfileSchemaAttributeByName(ctx context.Context,
 	if raw, ok := row["sub_attributes"].(string); ok && raw != "" {
 		if err := json.Unmarshal([]byte(raw), &subAttrs); err != nil {
 			errorMsg := fmt.Sprintf("Failed to unmarshal sub_attributes for attribute '%s' in org '%s'",
-				attributeName, orgId)
+				attributeName, orgID)
 			logger.Debug(errorMsg, log.Error(err))
 			serverError := errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.GET_PROFILE_SCHEMA.Code,
-				Message:     errors.GET_PROFILE_SCHEMA.Message,
+				Code:        errors.GetProfileSchema.Code,
+				Message:     errors.GetProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 			return nil, serverError
@@ -257,11 +268,11 @@ func GetProfileSchemaAttributeByName(ctx context.Context,
 	if raw, ok := row["canonical_values"].(string); ok && raw != "" {
 		if err := json.Unmarshal([]byte(raw), &canonicalValues); err != nil {
 			errorMsg := fmt.Sprintf("Failed to unmarshal canonical_values for attribute '%s' in organization '%s'",
-				attributeName, orgId)
+				attributeName, orgID)
 			logger.Debug(errorMsg, log.Error(err))
 			serverError := errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.GET_PROFILE_SCHEMA.Code,
-				Message:     errors.GET_PROFILE_SCHEMA.Message,
+				Code:        errors.GetProfileSchema.Code,
+				Message:     errors.GetProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 			return nil, serverError
@@ -269,10 +280,10 @@ func GetProfileSchemaAttributeByName(ctx context.Context,
 	}
 
 	attr := &model.ProfileSchemaAttribute{
-		OrgId:                 orgId,
+		OrgID:                 orgID,
 		AttributeName:         row["attribute_name"].(string),
 		DisplayName:           row["display_name"].(string),
-		AttributeId:           row["attribute_id"].(string),
+		AttributeID:           row["attribute_id"].(string),
 		ValueType:             row["value_type"].(string),
 		MergeStrategy:         row["merge_strategy"].(string),
 		Mutability:            row["mutability"].(string),
@@ -283,38 +294,37 @@ func GetProfileSchemaAttributeByName(ctx context.Context,
 	}
 
 	logger.Info(fmt.Sprintf("Successfully fetched profile schema attribute '%s' for organizaton '%s'",
-		attributeName, orgId))
+		attributeName, orgID))
 	return attr, nil
 }
 
 // GetProfileSchemaAttributesForOrg retrieves all profile schema attributes for a given organization.
-func GetProfileSchemaAttributesForOrg(ctx context.Context, orgId string) ([]model.ProfileSchemaAttribute, error) {
-
+func GetProfileSchemaAttributesForOrg(ctx context.Context, orgID string) ([]model.ProfileSchemaAttribute, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return nil, serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.GetProfileSchemaByOrg
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while fetching profile schema for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return nil, serverError
@@ -328,18 +338,17 @@ func GetProfileSchemaAttributesForOrg(ctx context.Context, orgId string) ([]mode
 	return schema, nil
 }
 
-// GetProfileSchemaAttributesByIds returns the attributes with the IDs. OwnerOrgId of each
+// GetProfileSchemaAttributesByIDs returns the attributes with the IDs. OwnerOrgID of each
 // attribute is set.
-func GetProfileSchemaAttributesByIds(ctx context.Context,
-	attributeIds []string) ([]model.ProfileSchemaAttribute, error) {
-
-	if len(attributeIds) == 0 {
+func GetProfileSchemaAttributesByIDs(ctx context.Context,
+	attributeIDs []string) ([]model.ProfileSchemaAttribute, error) {
+	if len(attributeIDs) == 0 {
 		return nil, nil
 	}
 	serverError := func(description string, err error) error {
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: description,
 		}, err)
 	}
@@ -347,46 +356,49 @@ func GetProfileSchemaAttributesByIds(ctx context.Context,
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read attributes by ID.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	placeholders := make([]string, len(attributeIds))
-	args := make([]interface{}, len(attributeIds))
-	for i, id := range attributeIds {
+	placeholders := make([]string, len(attributeIDs))
+	args := make([]interface{}, len(attributeIDs))
+	for i, id := range attributeIDs {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 		args[i] = id
 	}
 	results, err := dbClient.ExecuteQueryContext(ctx,
-		scripts.GetProfileSchemaAttributesByIds.Format(strings.Join(placeholders, ", ")), args...)
+		scripts.GetProfileSchemaAttributesByIDs.Format(strings.Join(placeholders, ", ")), args...)
 	if err != nil {
 		return nil, serverError("Failed to read attributes by ID.", err)
 	}
 	attrs := make([]model.ProfileSchemaAttribute, 0, len(results))
 	for _, row := range results {
 		attr := mapRowToProfileAttribute(row)
-		attr.OwnerOrgId = rows.String(row, "org_id")
+		attr.OwnerOrgID = rows.String(row, "org_id")
 		attrs = append(attrs, attr)
 	}
 	return attrs, nil
 }
 
-// PatchProfileSchemaAttributeById updates a specific profile schema attribute for a given organization.
-func PatchProfileSchemaAttributeById(ctx context.Context,
-	orgId, attributeId string, updates map[string]interface{}) error {
-
+// PatchProfileSchemaAttributeByID updates a specific profile schema attribute for a given organization.
+func PatchProfileSchemaAttributeByID(ctx context.Context,
+	orgID, attributeID string, updates map[string]interface{}) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while patching profile schema for org: %s and attribute: %s", orgId, attributeId)
+		errorMsg := fmt.Sprintf(
+			"Error occurred while patching profile schema for org: %s and attribute: %s",
+			orgID,
+			attributeID,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	setClauses := []string{}
 	args := []interface{}{}
@@ -398,11 +410,12 @@ func PatchProfileSchemaAttributeById(ctx context.Context,
 			// Marshal slices/maps to JSON
 			jsonBytes, err := json.Marshal(v)
 			if err != nil {
-				errorMsg := fmt.Sprintf("Error marshalling value for key '%s' in profile schema update for org: %s", key, orgId)
+				errorMsg := fmt.Sprintf("Error marshaling value for key '%s' in profile schema update for org: %s",
+					key, orgID)
 				logger.Debug(errorMsg, log.Error(err))
 				return errors.NewServerError(errors.ErrorMessage{
-					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+					Code:        errors.UpdateProfileSchema.Code,
+					Message:     errors.UpdateProfileSchema.Message,
 					Description: errorMsg,
 				}, err)
 			}
@@ -421,18 +434,18 @@ func PatchProfileSchemaAttributeById(ctx context.Context,
 	}
 
 	// Append WHERE clause parameters
-	args = append(args, orgId, attributeId)
+	args = append(args, orgID, attributeID)
 
 	query := scripts.UpdateProfileSchemaAttributeFields.Append(strings.Join(setClauses, ", ") +
 		` WHERE org_id = $` + strconv.Itoa(argIndex) + ` AND attribute_id = $` + strconv.Itoa(argIndex+1))
 
 	_, err = dbClient.ExecuteQueryContext(ctx, query, args...)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while executing update for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while executing update for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
@@ -440,101 +453,111 @@ func PatchProfileSchemaAttributeById(ctx context.Context,
 	return nil
 }
 
-// DeleteProfileSchemaAttributeById deletes a specific profile schema attribute by its ID for a given organization.
-func DeleteProfileSchemaAttributeById(ctx context.Context, orgId, attributeId string) error {
-
+// DeleteProfileSchemaAttributeByID deletes a specific profile schema attribute by its ID for a given organization.
+func DeleteProfileSchemaAttributeByID(ctx context.Context, orgID, attributeID string) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema for org: %s and attribute: %s", orgId, attributeId)
+		errorMsg := fmt.Sprintf(
+			"Error occurred while deleting profile schema for org: %s and attribute: %s",
+			orgID,
+			attributeID,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	query := scripts.DeleteProfileSchemaAttributeById
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, attributeId)
+	query := scripts.DeleteProfileSchemaAttributeByID
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgID, attributeID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema attribute with id: %s", attributeId)
+		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema attribute with id: %s", attributeID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	logger.Info(fmt.Sprintf("Profile schema attribute: %s deleted: ", attributeId))
+	logger.Info(fmt.Sprintf("Profile schema attribute: %s deleted: ", attributeID))
 	return nil
 }
 
 // DeleteProfileSchemaAttributes deletes all profile schema attributes for a given organization and scope.
-func DeleteProfileSchemaAttributes(ctx context.Context, orgId, scope string) error {
-
+func DeleteProfileSchemaAttributes(ctx context.Context, orgID, scope string) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema for org: %s and attribute: %s", orgId, scope)
+		errorMsg := fmt.Sprintf(
+			"Error occurred while deleting profile schema for org: %s and attribute: %s",
+			orgID,
+			scope,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.DeleteProfileSchemaAttributeForScope
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, scope)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgID, scope)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while deleting profile schema attribute with scope: %s", scope)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	logger.Info(fmt.Sprintf("Profile schema attributes with scope:%s deleted for the organization:%s ", scope, orgId))
+	logger.Info(fmt.Sprintf("Profile schema attributes with scope:%s deleted for the organization:%s ", scope, orgID))
 	return nil
 }
 
+// PatchProfileSchemaAttributesForScope updates the given attributes of the scope, matched by ID, in one
+// transaction.
 func PatchProfileSchemaAttributesForScope(ctx context.Context,
-	orgId string, scope string, updates []model.ProfileSchemaAttribute) error {
-
+	orgID string, scope string, updates []model.ProfileSchemaAttribute) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error initializing DB client for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error initializing DB client for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for update of profile schema attributes for organization: %s", orgId)
+		errorMsg := fmt.Sprintf(
+			"Failed to begin transaction for update of profile schema attributes for organization: %s",
+			orgID,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
@@ -544,22 +567,22 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 	for _, attr := range updates {
 		subAttrsJSON, err := json.Marshal(attr.SubAttributes)
 		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeId)
+			errorMsg := fmt.Sprintf("Failed to marshal sub attributes for attribute %s", attr.AttributeID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+				Code:        errors.UpdateProfileSchema.Code,
+				Message:     errors.UpdateProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 		}
 		canonicalJSON, err := json.Marshal(attr.CanonicalValues)
 
 		if err != nil {
-			errorMsg := fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeId)
+			errorMsg := fmt.Sprintf("Failed to marshal canonical values for attribute %s", attr.AttributeID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+				Code:        errors.UpdateProfileSchema.Code,
+				Message:     errors.UpdateProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 		}
@@ -573,84 +596,96 @@ func PatchProfileSchemaAttributesForScope(ctx context.Context,
 			canonicalJSON,
 			subAttrsJSON,
 			attr.DisplayName,
-			orgId,
-			attr.AttributeId,
+			orgID,
+			attr.AttributeID,
 			scope,
 		}
 
 		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
 			err := tx.Rollback()
 			if err != nil {
-				errorMsg := fmt.Sprintf("Failed to rollback updating attribute %s for organization %s", attr.AttributeId, orgId)
+				errorMsg := fmt.Sprintf(
+					"Failed to rollback updating attribute %s for organization %s",
+					attr.AttributeID,
+					orgID,
+				)
 				logger.Debug(errorMsg, log.Error(err))
 				return errors.NewServerError(errors.ErrorMessage{
-					Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-					Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+					Code:        errors.UpdateProfileSchema.Code,
+					Message:     errors.UpdateProfileSchema.Message,
 					Description: errorMsg,
 				}, err)
 			}
-			errorMsg := fmt.Sprintf("Failed to update attribute %s for organization %s", attr.AttributeId, orgId)
+			errorMsg := fmt.Sprintf("Failed to update attribute %s for organization %s", attr.AttributeID, orgID)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-				Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+				Code:        errors.UpdateProfileSchema.Code,
+				Message:     errors.UpdateProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		errorMsg := fmt.Sprintf("Failed to commit transaction for updating profile schema attributes for organization: %s", orgId)
+		errorMsg := fmt.Sprintf(
+			"Failed to commit transaction for updating profile schema attributes for organization: %s",
+			orgID,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
 
-	logger.Info(fmt.Sprintf("Update completed for %d profile schema attributes of scope: %s of organization: %s )", len(updates), scope, orgId))
+	logger.Info(
+		fmt.Sprintf(
+			"Update completed for %d profile schema attributes of scope: %s of organization: %s )",
+			len(updates),
+			scope,
+			orgID,
+		),
+	)
 	return nil
 }
 
 // DeleteProfileSchema deletes all profile schema attributes for a given organization.
-func DeleteProfileSchema(ctx context.Context, orgId string) error {
-
+func DeleteProfileSchema(ctx context.Context, orgID string) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while deleting all of profile schema attributes for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while deleting all of profile schema attributes for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.DeleteProfileSchemaForOrg
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while deleting all of profile schema attributes for org: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while deleting all of profile schema attributes for org: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.DELETE_PROFILE_SCHEMA.Code,
-			Message:     errors.DELETE_PROFILE_SCHEMA.Message,
+			Code:        errors.DeleteProfileSchema.Code,
+			Message:     errors.DeleteProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	logger.Info("Profile schema cleared for org: " + orgId)
+	logger.Info("Profile schema cleared for org: " + orgID)
 	return nil
 }
 
 // mapRowToProfileAttribute converts database row to a ProfileSchemaAttribute model.
 func mapRowToProfileAttribute(row map[string]interface{}) model.ProfileSchemaAttribute {
-
 	var subAttrs []model.SubAttribute
 	if raw, ok := row["sub_attributes"].(string); ok && raw != "" {
 		if err := json.Unmarshal([]byte(raw), &subAttrs); err != nil {
@@ -671,7 +706,7 @@ func mapRowToProfileAttribute(row map[string]interface{}) model.ProfileSchemaAtt
 	}
 
 	return model.ProfileSchemaAttribute{
-		AttributeId:           fmt.Sprint(row["attribute_id"]),
+		AttributeID:           fmt.Sprint(row["attribute_id"]),
 		AttributeName:         row["attribute_name"].(string),
 		Scope:                 scope,
 		DisplayName:           row["display_name"].(string),
@@ -685,29 +720,31 @@ func mapRowToProfileAttribute(row map[string]interface{}) model.ProfileSchemaAtt
 	}
 }
 
-func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.ProfileSchemaAttribute) error {
-
+// UpsertIdentityAttributes replaces the organization's identity attributes with the given ones in one
+// transaction: it updates existing rows in place, so their IDs and dependent rows stay, inserts new ones and
+// deletes the attributes that are no longer present.
+func UpsertIdentityAttributes(ctx context.Context, orgID string, attrs []model.ProfileSchemaAttribute) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error initializing DB client for organization: %s ", orgId)
+		errorMsg := fmt.Sprintf("Error initializing DB client for organization: %s ", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.UPDATE_PROFILE_SCHEMA.Code,
-			Message:     errors.UPDATE_PROFILE_SCHEMA.Message,
+			Code:        errors.UpdateProfileSchema.Code,
+			Message:     errors.UpdateProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 		return serverError
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to begin transaction for organization: %s", orgId)
+		errorMsg := fmt.Sprintf("Failed to begin transaction for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
+			Code:        errors.SyncProfileSchema.Code,
+			Message:     errors.SyncProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
@@ -720,9 +757,7 @@ func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.P
 	// Step 1: Upsert incoming attributes in-place so that existing attribute_id rows
 	// are updated rather than deleted and re-created. This preserves FK references
 	// in unification_rules (ON DELETE CASCADE) and any other dependent tables.
-	var valueStrings []string
-	var valueArgs []interface{}
-	argIndex := 1
+	var rows [][]interface{}
 	incomingIDs := make([]string, 0, len(attrs))
 
 	for _, attr := range attrs {
@@ -730,14 +765,11 @@ func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.P
 		subAttrJSON, _ := json.Marshal(attr.SubAttributes)
 		attrKey := extractClaimKeyFromURI(attr.AttributeName)
 		attr.AttributeName = attrKey
-		incomingIDs = append(incomingIDs, attr.AttributeId)
+		incomingIDs = append(incomingIDs, attr.AttributeID)
 
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-			argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6,
-			argIndex+7, argIndex+8, argIndex+9, argIndex+10, argIndex+11, argIndex+12))
-		valueArgs = append(valueArgs,
-			orgId,
-			attr.AttributeId,
+		rows = append(rows, []interface{}{
+			orgID,
+			attr.AttributeID,
 			attr.AttributeName,
 			attr.ValueType,
 			attr.MergeStrategy,
@@ -749,19 +781,23 @@ func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.P
 			attr.SCIMDialect,
 			constants.IdentityAttributes,
 			attr.DisplayName,
-		)
-		argIndex += 13
+		})
 	}
 
-	upsertQuery := scripts.UpsertIdentityClaimsForProfileSchema.Format(strings.Join(valueStrings, ","))
-	if _, err = tx.ExecContext(ctx, upsertQuery, valueArgs...); err != nil {
-		errorMsg := fmt.Sprintf("Failed to upsert identity attributes of profile schema for organization: %s", orgId)
-		logger.Debug(errorMsg, log.Error(err))
-		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
-			Description: errorMsg,
-		}, err)
+	batchSize := min(max(len(rows), 1), database.MaxRowsPerStatement(tx.DBType(), 13))
+	for start := 0; start < len(rows); start += batchSize {
+		tuples, valueArgs := valueTuples(rows[start:min(start+batchSize, len(rows))])
+		upsertQuery := scripts.UpsertIdentityClaimsForProfileSchema.Format(tuples)
+		if _, err = tx.ExecContext(ctx, upsertQuery, valueArgs...); err != nil {
+			errorMsg := fmt.Sprintf(
+				"Failed to upsert identity attributes of profile schema for organization: %s", orgID)
+			logger.Debug(errorMsg, log.Error(err))
+			return errors.NewServerError(errors.ErrorMessage{
+				Code:        errors.SyncProfileSchema.Code,
+				Message:     errors.SyncProfileSchema.Message,
+				Description: errorMsg,
+			}, err)
+		}
 	}
 
 	// Step 2: Delete only attributes that are no longer present in the identity server.
@@ -770,7 +806,7 @@ func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.P
 	if len(incomingIDs) > 0 {
 		notInPlaceholders := make([]string, len(incomingIDs))
 		deleteArgs := make([]interface{}, 0, len(incomingIDs)+1)
-		deleteArgs = append(deleteArgs, orgId)
+		deleteArgs = append(deleteArgs, orgID)
 		for i, id := range incomingIDs {
 			notInPlaceholders[i] = fmt.Sprintf("$%d", i+2)
 			deleteArgs = append(deleteArgs, id)
@@ -778,22 +814,25 @@ func UpsertIdentityAttributes(ctx context.Context, orgId string, attrs []model.P
 		staleDeleteQuery := scripts.DeleteStaleIdentityClaimsForProfileSchema.Format(
 			strings.Join(notInPlaceholders, ","))
 		if _, err = tx.ExecContext(ctx, staleDeleteQuery, deleteArgs...); err != nil {
-			errorMsg := fmt.Sprintf("Failed to remove stale identity attributes of profile schema for organization: %s", orgId)
+			errorMsg := fmt.Sprintf(
+				"Failed to remove stale identity attributes of profile schema for organization: %s",
+				orgID,
+			)
 			logger.Debug(errorMsg, log.Error(err))
 			return errors.NewServerError(errors.ErrorMessage{
-				Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-				Message:     errors.SYNC_PROFILE_SCHEMA.Message,
+				Code:        errors.SyncProfileSchema.Code,
+				Message:     errors.SyncProfileSchema.Message,
 				Description: errorMsg,
 			}, err)
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
-		errorMsg := fmt.Sprintf("Failed to commit transaction for organization: %s", orgId)
+		errorMsg := fmt.Sprintf("Failed to commit transaction for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.SYNC_PROFILE_SCHEMA.Code,
-			Message:     errors.SYNC_PROFILE_SCHEMA.Message,
+			Code:        errors.SyncProfileSchema.Code,
+			Message:     errors.SyncProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
@@ -808,31 +847,48 @@ func extractClaimKeyFromURI(uri string) string {
 	return parts[len(parts)-1]
 }
 
+// GetProfileSchemaAttributesByScopeAndFilter returns the organization's schema attributes that match all
+// filters. Filters in the form "field op value" with op eq, co or sw are applied and others are skipped. The
+// field is put into the SQL as is, so callers must validate it. The scope is used only in error messages.
 func GetProfileSchemaAttributesByScopeAndFilter(ctx context.Context,
-	orgId, scope string, filters []string) ([]model.ProfileSchemaAttribute, error) {
-
+	orgID, scope string, filters []string) ([]model.ProfileSchemaAttribute, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while initializing DB client for filtering profile schema attributes for org: %s and scope: %s", orgId, scope)
+		errorMsg := fmt.Sprintf(
+			"Error occurred while initializing DB client for filtering profile schema attributes "+
+				"for org: %s and scope: %s",
+			orgID,
+			scope,
+		)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	// The dialect is needed here for the LIKE operator, not to select a
 	// statement.
 	dbType := dbClient.DBType()
 	baseSQL := scripts.FilterProfileSchemaAttributes.GetQuery(dbType)
-	likeOperator := scripts.LikeOperator(dbType)
+	likeOperator, err := scripts.LikeOperator(dbType)
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to prepare the profile schema filter query for org: %s and scope: %s",
+			orgID, scope)
+		logger.Debug(errorMsg, log.Error(err))
+		return nil, errors.NewServerError(errors.ErrorMessage{
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
+			Description: errorMsg,
+		}, err)
+	}
 	conditions := []string{}
-	args := []interface{}{orgId}
+	args := []interface{}{orgID}
 	argID := 2
 
 	for _, f := range filters {
@@ -866,11 +922,11 @@ func GetProfileSchemaAttributesByScopeAndFilter(ctx context.Context,
 
 	results, err := dbClient.ExecuteQueryContext(ctx, scripts.FilterProfileSchemaAttributes.WithSQL(baseSQL), args...)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to execute profile schema filter query for org: %s and scope: %s", orgId, scope)
+		errorMsg := fmt.Sprintf("Failed to execute profile schema filter query for org: %s and scope: %s", orgID, scope)
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors.NewServerError(errors.ErrorMessage{
-			Code:        errors.GET_PROFILE_SCHEMA.Code,
-			Message:     errors.GET_PROFILE_SCHEMA.Message,
+			Code:        errors.GetProfileSchema.Code,
+			Message:     errors.GetProfileSchema.Message,
 			Description: errorMsg,
 		}, err)
 	}

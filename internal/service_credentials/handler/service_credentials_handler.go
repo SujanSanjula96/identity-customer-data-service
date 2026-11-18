@@ -53,10 +53,10 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		utils.HandleError(w, err)
 		return
 	}
-	if pathOrgID, _ := r.Context().Value(constants.OrgIdContextKey).(string); pathOrgID != "" {
+	if pathOrgID, _ := r.Context().Value(constants.OrgIDContextKey).(string); pathOrgID != "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Code,
-			Message:     errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Message,
+			Code:        errors2.SubOrgConfigNotAllowed.Code,
+			Message:     errors2.SubOrgConfigNotAllowed.Message,
 			Description: "Only a primary organization has service credentials.",
 		}, http.StatusBadRequest))
 		return
@@ -74,8 +74,8 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 	if err := decoder.Decode(&event); err != nil || event.Event != model.EventServiceCredentialsUpdated ||
 		event.OrgID == "" || event.ClientID == "" || event.ClientSecret == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:    errors2.BAD_REQUEST.Code,
-			Message: errors2.BAD_REQUEST.Message,
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
 			Description: fmt.Sprintf("The body must have 'event' %s, 'org_id', 'client_id' and 'client_secret'.",
 				model.EventServiceCredentialsUpdated),
 		}, http.StatusBadRequest))
@@ -90,7 +90,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		utils.HandleError(w, err)
 		return
 	}
-	if org.Id != event.OrgID {
+	if org.ID != event.OrgID {
 		utils.HandleError(w, badRequest(fmt.Sprintf("'org_id' is not the ID of the organization %s in the "+
 			"identity provider.", orgHandle)))
 		return
@@ -102,7 +102,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		utils.HandleError(w, err)
 		return
 	}
-	if known && ref.ID != org.Id {
+	if known && ref.ID != org.ID {
 		utils.HandleError(w, badRequest(fmt.Sprintf("CDS knows the organization %s under another ID.", orgHandle)))
 		return
 	}
@@ -113,7 +113,7 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 		}
 	}
 	err = servicecreds.Save(r.Context(), servicecreds.Credentials{
-		OrgID:        org.Id,
+		OrgID:        org.ID,
 		OrgHandle:    orgHandle,
 		ClientID:     event.ClientID,
 		ClientSecret: event.ClientSecret,
@@ -129,8 +129,8 @@ func (h *ServiceCredentialsHandler) SyncServiceCredentials(w http.ResponseWriter
 
 func badRequest(description string) error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.BAD_REQUEST.Code,
-		Message:     errors2.BAD_REQUEST.Message,
+		Code:        errors2.BadRequest.Code,
+		Message:     errors2.BadRequest.Message,
 		Description: description,
 	}, http.StatusBadRequest)
 }

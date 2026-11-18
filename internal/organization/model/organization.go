@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package model defines the organizations that CDS stores and the organization tree sync.
 package model
 
 import (
@@ -31,11 +32,11 @@ const (
 
 // Organization holds the details of an organization.
 type Organization struct {
-	OrgId        string    `json:"org_id"`
+	OrgID        string    `json:"org_id"`
 	OrgHandle    string    `json:"org_handle"`
 	OrgName      string    `json:"org_name,omitempty"`
-	ParentOrgId  string    `json:"parent_org_id,omitempty"`
-	PrimaryOrgId string    `json:"primary_org_id"`
+	ParentOrgID  string    `json:"parent_org_id,omitempty"`
+	PrimaryOrgID string    `json:"primary_org_id"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -43,7 +44,7 @@ type Organization struct {
 
 // IsPrimary reports whether the organization is a primary organization.
 func (o Organization) IsPrimary() bool {
-	return o.OrgId == o.PrimaryOrgId
+	return o.OrgID == o.PrimaryOrgID
 }
 
 // Ref is an organization as the request handlers, the services and the workers pass it on: its org ID,
@@ -56,7 +57,7 @@ type Ref struct {
 
 // Ref returns the org ID and the org handle of the organization.
 func (o Organization) Ref() Ref {
-	return Ref{ID: o.OrgId, Handle: o.OrgHandle}
+	return Ref{ID: o.OrgID, Handle: o.OrgHandle}
 }
 
 // IsActive reports whether the organization is active.
@@ -74,7 +75,7 @@ type Ancestor struct {
 // SyncEvent is an organization lifecycle event.
 type SyncEvent struct {
 	Event string `json:"event"`
-	OrgId string `json:"org_id"`
+	OrgID string `json:"org_id"`
 }
 
 // Organization lifecycle event types.

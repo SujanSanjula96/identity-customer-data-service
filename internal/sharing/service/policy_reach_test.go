@@ -35,10 +35,9 @@ import (
 //	│   └── A2 (disabled)
 //	└── B
 func testTree() []orgModel.Organization {
-
 	org := func(id, parent, status string) orgModel.Organization {
-		return orgModel.Organization{OrgId: id, OrgHandle: strings.ToLower(id), ParentOrgId: parent,
-			PrimaryOrgId: "R", Status: status}
+		return orgModel.Organization{OrgID: id, OrgHandle: strings.ToLower(id), ParentOrgID: parent,
+			PrimaryOrgID: "R", Status: status}
 	}
 	return []orgModel.Organization{
 		org("R", "", orgModel.StatusActive),
@@ -51,54 +50,51 @@ func testTree() []orgModel.Organization {
 }
 
 // ancestorsIn returns the ancestors of the organization in the tree, the parent first.
-func ancestorsIn(tree []orgModel.Organization, orgId string) []orgModel.Ancestor {
-
-	byId := map[string]orgModel.Organization{}
+func ancestorsIn(tree []orgModel.Organization, orgID string) []orgModel.Ancestor {
+	byID := map[string]orgModel.Organization{}
 	for _, o := range tree {
-		byId[o.OrgId] = o
+		byID[o.OrgID] = o
 	}
 	var result []orgModel.Ancestor
-	for id := byId[orgId].ParentOrgId; id != ""; id = byId[id].ParentOrgId {
-		result = append(result, orgModel.Ancestor{Organization: byId[id], Depth: len(result) + 1})
+	for id := byID[orgID].ParentOrgID; id != ""; id = byID[id].ParentOrgID {
+		result = append(result, orgModel.Ancestor{Organization: byID[id], Depth: len(result) + 1})
 	}
 	return result
 }
 
 // reachedOrgs returns the organizations of the tree that the policy reaches, in tree order.
 func reachedOrgs(p model.Policy) []string {
-
 	tree := testTree()
 	reached := []string{}
 	for _, org := range tree {
-		if policyReachesOrg(p, org, ancestorsIn(tree, org.OrgId)) {
-			reached = append(reached, org.OrgId)
+		if policyReachesOrg(p, org, ancestorsIn(tree, org.OrgID)) {
+			reached = append(reached, org.OrgID)
 		}
 	}
 	return reached
 }
 
 func policy(initiator string, targets ...model.Target) model.Policy {
-	return model.Policy{PolicyId: "p", ResourceType: "TEST_RESOURCE", ResourceId: "x", OwningOrgId: initiator,
-		InitiatingOrgId: initiator, Targets: targets}
+	return model.Policy{PolicyID: "p", ResourceType: "TEST_RESOURCE", ResourceID: "x", OwningOrgID: initiator,
+		InitiatingOrgID: initiator, Targets: targets}
 }
 
 func TestPolicyReachesOrg(t *testing.T) {
-
 	cases := []struct {
 		name     string
 		policy   model.Policy
 		expected []string
 	}{
-		{"all children", policy("R", model.Target{Scope: model.ScopeAllChildren, OrgId: "R"}),
+		{"all children", policy("R", model.Target{Scope: model.ScopeAllChildren, OrgID: "R"}),
 			[]string{"A", "B", "A1", "A2", "A1x"}},
-		{"one child only", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A"}), []string{"A"}},
-		{"child subtree", policy("R", model.Target{Scope: model.ScopeOrgSubtree, OrgId: "A"}),
+		{"one child only", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A"}), []string{"A"}},
+		{"child subtree", policy("R", model.Target{Scope: model.ScopeOrgSubtree, OrgID: "A"}),
 			[]string{"A", "A1", "A2", "A1x"}},
-		{"a child and a child subtree", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A"},
-			model.Target{Scope: model.ScopeOrgSubtree, OrgId: "B"}), []string{"A", "B"}},
+		{"a child and a child subtree", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A"},
+			model.Target{Scope: model.ScopeOrgSubtree, OrgID: "B"}), []string{"A", "B"}},
 		{"a named target that is not a direct child reaches nothing",
-			policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A1"}), []string{}},
-		{"a sub org shares with its own subtree", policy("A", model.Target{Scope: model.ScopeAllChildren, OrgId: "A"}),
+			policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A1"}), []string{}},
+		{"a sub org shares with its own subtree", policy("A", model.Target{Scope: model.ScopeAllChildren, OrgID: "A"}),
 			[]string{"A1", "A2", "A1x"}},
 	}
 	for _, c := range cases {
@@ -111,22 +107,21 @@ func TestPolicyReachesOrg(t *testing.T) {
 }
 
 func TestTargetProblems(t *testing.T) {
-
 	cases := []struct {
 		name    string
 		policy  model.Policy
 		problem string
 	}{
-		{"a child subtree", policy("R", model.Target{Scope: model.ScopeOrgSubtree, OrgId: "A"}), ""},
-		{"a child", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A"}), ""},
+		{"a child subtree", policy("R", model.Target{Scope: model.ScopeOrgSubtree, OrgID: "A"}), ""},
+		{"a child", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A"}), ""},
 		{"no targets", policy("R"), "at least one target"},
-		{"not a direct child", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A1"}), "not a direct child"},
-		{"a grandchild with its parent", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "A"},
-			model.Target{Scope: model.ScopeOrg, OrgId: "A1"}), "'A1' is not a direct child"},
-		{"inactive child", policy("A", model.Target{Scope: model.ScopeOrg, OrgId: "A2"}), "not active"},
-		{"unknown organization", policy("R", model.Target{Scope: model.ScopeOrg, OrgId: "C"}), "'C' is not known"},
+		{"not a direct child", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A1"}), "not a direct child"},
+		{"a grandchild with its parent", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "A"},
+			model.Target{Scope: model.ScopeOrg, OrgID: "A1"}), "'A1' is not a direct child"},
+		{"inactive child", policy("A", model.Target{Scope: model.ScopeOrg, OrgID: "A2"}), "not active"},
+		{"unknown organization", policy("R", model.Target{Scope: model.ScopeOrg, OrgID: "C"}), "'C' is not known"},
 		{"unknown scope", policy("R", model.Target{Scope: "ALL_OUS"}), "not supported"},
-		{"all children of another org", policy("R", model.Target{Scope: model.ScopeAllChildren, OrgId: "A"}),
+		{"all children of another org", policy("R", model.Target{Scope: model.ScopeAllChildren, OrgID: "A"}),
 			"must name the initiating organization"},
 	}
 	tree := testTree()
@@ -134,7 +129,7 @@ func TestTargetProblems(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var initiator orgModel.Organization
 			for _, o := range tree {
-				if o.OrgId == c.policy.InitiatingOrgId {
+				if o.OrgID == c.policy.InitiatingOrgID {
 					initiator = o
 				}
 			}

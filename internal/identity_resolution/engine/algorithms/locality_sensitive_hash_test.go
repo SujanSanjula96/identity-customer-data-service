@@ -105,7 +105,7 @@ func TestLSHRecallForNearDuplicates(t *testing.T) {
 	pairs := [][2]string{
 		{"jonathan smith", "jonathon smith"},
 		{"j.smith@acme.com", "j.smith@acme.co"},
-		{"12 main street colombo", "12 main street colomba"},
+		{"12 main street colombo", "12 main street colomba"}, //nolint:misspell // a deliberate typo for the fuzzy match
 		{"kandy road peradeniya", "kandy rd peradeniya"},
 	}
 

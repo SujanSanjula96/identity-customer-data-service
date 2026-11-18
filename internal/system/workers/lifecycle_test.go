@@ -39,7 +39,6 @@ type recordingQueue struct {
 }
 
 func (q *recordingQueue) close(context.Context) error {
-
 	q.closes.Add(1)
 	q.activeAtClose.Store(q.active.Load())
 	return nil
@@ -48,7 +47,6 @@ func (q *recordingQueue) close(context.Context) error {
 // Test_stop_returnsWhenNoJobIsActive covers the ordinary case: nothing is at
 // work, so the stop returns at once and reports a clean stop.
 func Test_stop_returnsWhenNoJobIsActive(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -65,7 +63,6 @@ func Test_stop_returnsWhenNoJobIsActive(t *testing.T) {
 
 // Test_stop_waitsForAnActiveJob blocks a handler, so the stop must not return.
 func Test_stop_waitsForAnActiveJob(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -113,7 +110,6 @@ func Test_stop_waitsForAnActiveJob(t *testing.T) {
 // close depends on. The queue close stands where provider.CloseDB stands in
 // the server, so no handler may be at work when it runs.
 func Test_stop_closesTheQueueAfterEveryHandlerReturns(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -141,7 +137,6 @@ func Test_stop_closesTheQueueAfterEveryHandlerReturns(t *testing.T) {
 // Test_run_refusesAJobAfterTheWorkerStops checks that a worker which is
 // stopping takes no new work.
 func Test_run_refusesAJobAfterTheWorkerStops(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -166,7 +161,6 @@ func Test_run_refusesAJobAfterTheWorkerStops(t *testing.T) {
 // Test_stop_cancelsTheJobAtTheDeadline checks that a handler which does not
 // return inside the deadline has its context cancelled.
 func Test_stop_cancelsTheJobAtTheDeadline(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -200,7 +194,6 @@ func Test_stop_cancelsTheJobAtTheDeadline(t *testing.T) {
 // Test_stop_reportsAnIncompleteShutdownAsSuch checks that a forced shutdown
 // is never reported as a clean stop, even when the handler ignores its context.
 func Test_stop_reportsAnIncompleteShutdownAsSuch(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -234,7 +227,6 @@ func Test_stop_reportsAnIncompleteShutdownAsSuch(t *testing.T) {
 
 // Test_stop_isSafeWhenCalledMoreThanOnce covers a repeated shutdown.
 func Test_stop_isSafeWhenCalledMoreThanOnce(t *testing.T) {
-
 	lifecycle := newJobLifecycle()
 	queue := &recordingQueue{active: &atomic.Int64{}}
 
@@ -251,7 +243,6 @@ func Test_stop_isSafeWhenCalledMoreThanOnce(t *testing.T) {
 // Test_StopCookieCleanupWorker_isSafeWithoutAStart checks the stop of a worker
 // the configuration disabled, and a repeated stop.
 func Test_StopCookieCleanupWorker_isSafeWithoutAStart(t *testing.T) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -266,7 +257,6 @@ func Test_StopCookieCleanupWorker_isSafeWithoutAStart(t *testing.T) {
 // reports success only when the goroutine has returned. The sweep needs a
 // database, so the state is installed here.
 func Test_StopCookieCleanupWorker_waitsForItsGoroutine(t *testing.T) {
-
 	done := make(chan struct{})
 	installCookieCleanupWorker(t, done)
 
@@ -298,7 +288,6 @@ func Test_StopCookieCleanupWorker_waitsForItsGoroutine(t *testing.T) {
 // path. A sweep that has not returned at the deadline is reported, not called
 // a success.
 func Test_StopCookieCleanupWorker_reportsAnIncompleteShutdown(t *testing.T) {
-
 	// The channel is never closed, so the goroutine never returns.
 	installCookieCleanupWorker(t, make(chan struct{}))
 
@@ -313,7 +302,6 @@ func Test_StopCookieCleanupWorker_reportsAnIncompleteShutdown(t *testing.T) {
 // installCookieCleanupWorker puts the worker into the state a start leaves
 // behind, with done standing for the goroutine that has not returned yet.
 func installCookieCleanupWorker(t *testing.T, done chan struct{}) {
-
 	t.Helper()
 
 	cookieCleanupMu.Lock()

@@ -26,12 +26,13 @@ import (
 )
 
 // BuildProfileLocation returns the location of a profile, relative to the server URL.
-func BuildProfileLocation(orgHandle, profileId string) string {
-	return fmt.Sprintf("%s/cds/api/v1/profiles/%s", orgHandle, profileId)
+func BuildProfileLocation(orgHandle, profileID string) string {
+	return fmt.Sprintf("%s/cds/api/v1/profiles/%s", orgHandle, profileID)
 }
 
-// ResolveDisplayNameFromAttribute takes an attribute name (potentially in dot notation) and converts it to a human-readable display name.
-// The result is guaranteed to comply with the display name character rules and is truncated to MaxAttributeDisplayNameLength characters.
+// ResolveDisplayNameFromAttribute takes an attribute name (potentially in dot notation) and converts it to a
+// human-readable display name. The result is guaranteed to comply with the display name character rules and is
+// truncated to MaxAttributeDisplayNameLength characters.
 func ResolveDisplayNameFromAttribute(attributeName string) string {
 	parts := strings.Split(attributeName, ".")
 	if len(parts) == 0 {

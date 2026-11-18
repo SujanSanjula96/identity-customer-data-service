@@ -27,7 +27,6 @@ import (
 
 // String returns the column as a string, or "" when it is NULL.
 func String(row map[string]interface{}, column string) string {
-
 	switch v := row[column].(type) {
 	case nil:
 		return ""
@@ -42,7 +41,6 @@ func String(row map[string]interface{}, column string) string {
 
 // Int returns the column as an int, or 0 when it is NULL.
 func Int(row map[string]interface{}, column string) int {
-
 	switch v := row[column].(type) {
 	case int64:
 		return int(v)
@@ -59,7 +57,6 @@ func Int(row map[string]interface{}, column string) int {
 
 // Bool returns the column as a bool.
 func Bool(row map[string]interface{}, column string) bool {
-
 	switch v := row[column].(type) {
 	case bool:
 		return v
@@ -74,7 +71,6 @@ func Bool(row map[string]interface{}, column string) bool {
 
 // Time returns the column as a time, or the zero time when it is NULL or not a time.
 func Time(row map[string]interface{}, column string) time.Time {
-
 	switch v := row[column].(type) {
 	case time.Time:
 		return v

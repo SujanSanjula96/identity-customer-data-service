@@ -34,7 +34,6 @@ import (
 // connection, and takes that connection with an open transaction. Every later
 // call must wait, which is the state a bounded pool reaches under load.
 func openSaturatedPool(t *testing.T) DBClientInterface {
-
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "cds.db")
@@ -63,7 +62,6 @@ func openSaturatedPool(t *testing.T) DBClientInterface {
 // readiness check depends on this, because it runs its query under the context
 // of the probe request and must end when that request does.
 func Test_ExecuteQueryContext_endsTheWaitOnTheDeadline(t *testing.T) {
-
 	dbClient := openSaturatedPool(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -84,7 +82,6 @@ func Test_ExecuteQueryContext_endsTheWaitOnTheDeadline(t *testing.T) {
 // Test_ExecuteQueryContext_endsTheWaitOnCancel covers the caller that goes
 // away, which is what an abandoned probe request does.
 func Test_ExecuteQueryContext_endsTheWaitOnCancel(t *testing.T) {
-
 	dbClient := openSaturatedPool(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -103,7 +100,6 @@ func Test_ExecuteQueryContext_endsTheWaitOnCancel(t *testing.T) {
 // gives up does not leave a goroutine blocked on the pool. The probe runs every
 // ten seconds, so a goroutine left behind on each call would accumulate.
 func Test_ReadinessCancel_leavesNoBlockedGoroutine(t *testing.T) {
-
 	dbClient := openSaturatedPool(t)
 
 	before := runtime.NumGoroutine()
@@ -129,7 +125,6 @@ func Test_ReadinessCancel_leavesNoBlockedGoroutine(t *testing.T) {
 // waitForGoroutines waits for the goroutine count to fall to a limit. The
 // scheduler needs a moment after a goroutine returns.
 func waitForGoroutines(t *testing.T, limit int) {
-
 	t.Helper()
 
 	deadline := time.Now().Add(3 * time.Second)

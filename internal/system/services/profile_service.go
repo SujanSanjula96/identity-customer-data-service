@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package services registers the REST API routes of each feature on the shared ServeMux.
 package services
 
 import (
@@ -26,18 +27,20 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// ProfileService registers the profile endpoints.
 type ProfileService struct {
 	profileHandler *handler.ProfileHandler
 	mux            *http.ServeMux
 }
 
+// NewProfileService registers the profile routes on mux and returns the service.
 func NewProfileService(mux *http.ServeMux) *ProfileService {
 	ps := &ProfileService{
 		profileHandler: handler.NewProfileHandler(),
 		mux:            mux,
 	}
 
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 	// Register routes using Go 1.22+ ServeMux patterns on the shared mux
 	ps.mux.HandleFunc("GET "+base+"/profiles", ps.profileHandler.GetAllProfiles)
 	ps.mux.HandleFunc("POST "+base+"/profiles", ps.profileHandler.InitProfile)

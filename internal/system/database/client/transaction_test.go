@@ -30,7 +30,6 @@ import (
 // Test_BeginTxContext_endsTheWaitOnTheDeadline covers the start of a
 // transaction, which waits for a connection in the same way a query does.
 func Test_BeginTxContext_endsTheWaitOnTheDeadline(t *testing.T) {
-
 	dbClient := openSaturatedPool(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -51,7 +50,6 @@ func Test_BeginTxContext_endsTheWaitOnTheDeadline(t *testing.T) {
 // Test_BeginTxContext_endsTheWaitOnCancel covers the caller that goes away
 // while the pool is full.
 func Test_BeginTxContext_endsTheWaitOnCancel(t *testing.T) {
-
 	dbClient := openSaturatedPool(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,7 +74,6 @@ func Test_BeginTxContext_endsTheWaitOnCancel(t *testing.T) {
 // already gone away never receives a transaction, and therefore never takes a
 // connection it would have to give back.
 func Test_BeginTxContext_refusesACancelledCaller(t *testing.T) {
-
 	db := openSharedPool(t)
 	dbClient := NewSharedDBClient(db, database.TypeSQLite)
 

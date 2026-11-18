@@ -33,7 +33,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-
 	if err := log.Init("ERROR"); err != nil {
 		panic(err)
 	}
@@ -48,14 +47,12 @@ type sequence struct {
 }
 
 func (s *sequence) record(step string) {
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.steps = append(s.steps, step)
 }
 
 func (s *sequence) get() []string {
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.steps...)
@@ -65,7 +62,6 @@ func (s *sequence) get() []string {
 // intake stops, every worker finishes its jobs, and only then does the database
 // pool close.
 func Test_shutdown_closesThePoolAfterTheWorkersStop(t *testing.T) {
-
 	steps := &sequence{}
 	var stopping atomic.Int64
 	var stoppingAtClose atomic.Int64
@@ -121,7 +117,6 @@ func Test_shutdown_closesThePoolAfterTheWorkersStop(t *testing.T) {
 // Test_shutdown_reportsAForcedCloseAtTheDeadline checks that an incomplete
 // shutdown is not reported as a clean stop, and that the pool still closes.
 func Test_shutdown_reportsAForcedCloseAtTheDeadline(t *testing.T) {
-
 	var closed atomic.Bool
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -148,7 +143,6 @@ func Test_shutdown_reportsAForcedCloseAtTheDeadline(t *testing.T) {
 // Test_shutdown_reportsAPoolThatDidNotClose checks that a failed close reaches
 // the caller rather than only the log.
 func Test_shutdown_reportsAPoolThatDidNotClose(t *testing.T) {
-
 	closeFailed := errors.New("the pool did not close")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -168,7 +162,6 @@ func Test_shutdown_reportsAPoolThatDidNotClose(t *testing.T) {
 // the same time. Each stop waits for the other two to start, so a sequence of
 // stops cannot finish.
 func Test_shutdown_stopsTheWorkersAtTheSameTime(t *testing.T) {
-
 	const count = 3
 
 	// A barrier: each stop reports that it started and then waits for the
@@ -209,7 +202,6 @@ func Test_shutdown_stopsTheWorkersAtTheSameTime(t *testing.T) {
 // Test_shutdown_usesTheConfiguredGracePeriod checks that the number in the
 // configuration becomes the deadline that bounds the sequence.
 func Test_shutdown_usesTheConfiguredGracePeriod(t *testing.T) {
-
 	grace, err := config.ResolveShutdownGracePeriod(config.ShutdownConfig{GracePeriodSeconds: 1})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -257,7 +249,6 @@ func Test_shutdown_usesTheConfiguredGracePeriod(t *testing.T) {
 // which reached the deadline reaches the caller. The workers and the pool stop
 // cleanly, so nothing else would report it.
 func Test_shutdown_reportsAnHTTPServerThatDidNotStop(t *testing.T) {
-
 	var closed atomic.Bool
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

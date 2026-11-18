@@ -22,12 +22,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 func setScopes(t *testing.T, requiredScopes map[string][]string) {
-
 	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("log init: %v", err)
@@ -36,13 +36,11 @@ func setScopes(t *testing.T, requiredScopes map[string][]string) {
 }
 
 func TestOperationFor(t *testing.T) {
-
 	assert.Equal(t, "profile:create", OperationFor("profile:create", ""))
 	assert.Equal(t, "org:profile:create", OperationFor("profile:create", "0a1b2c3d"))
 }
 
 func TestValidatePermission_primaryOrgOperation(t *testing.T) {
-
 	setScopes(t, map[string][]string{
 		"profile:create":     {"internal_cds_profile_create"},
 		"org:profile:create": {"internal_org_cds_profile_create"},
@@ -55,7 +53,6 @@ func TestValidatePermission_primaryOrgOperation(t *testing.T) {
 }
 
 func TestValidatePermission_orgOperation(t *testing.T) {
-
 	setScopes(t, map[string][]string{
 		"profile:create":     {"internal_cds_profile_create"},
 		"org:profile:create": {"internal_org_cds_profile_create"},
@@ -68,7 +65,6 @@ func TestValidatePermission_orgOperation(t *testing.T) {
 }
 
 func TestValidatePermission_sameScopeForBothOperations(t *testing.T) {
-
 	setScopes(t, map[string][]string{
 		"profile:view":     {"cds_profile_view"},
 		"org:profile:view": {"cds_profile_view"},
@@ -79,7 +75,6 @@ func TestValidatePermission_sameScopeForBothOperations(t *testing.T) {
 }
 
 func TestValidatePermission_noOrgOperation(t *testing.T) {
-
 	// An operation of the primary organization only has no `org:` form. No scope authorizes it in a
 	// sub organization.
 	setScopes(t, map[string][]string{"admin_config:update": {"internal_cds_admin_config_update"}})
@@ -89,7 +84,6 @@ func TestValidatePermission_noOrgOperation(t *testing.T) {
 }
 
 func TestValidatePermission_existingPrimaryOrgBehavior(t *testing.T) {
-
 	setScopes(t, map[string][]string{
 		"profile:view":     {"internal_cds_profile_view"},
 		"profile:link":     {"internal_cds_profile_link", "internal_cds_profile_update"},

@@ -35,7 +35,6 @@ var testPing = model.DBQuery{ID: "TEST-01", Query: "SELECT 1"}
 // openSharedPool opens an inbuilt database and returns the pool. The test owns
 // it, as the process owns the pool in production.
 func openSharedPool(t *testing.T) *sql.DB {
-
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "cds.db")
@@ -57,7 +56,6 @@ func openSharedPool(t *testing.T) *sql.DB {
 // so that Close must release nothing. A store that closed the pool would stop
 // every other store in the instance.
 func Test_Close_leavesTheSharedPoolOpen(t *testing.T) {
-
 	db := openSharedPool(t)
 	first := NewSharedDBClient(db, database.TypeSQLite)
 	second := NewSharedDBClient(db, database.TypeSQLite)
@@ -89,7 +87,6 @@ func Test_Close_leavesTheSharedPoolOpen(t *testing.T) {
 // Test_Close_leavesTheSharedPoolOpenUnderConcurrency runs the same rule while
 // other clients are at work. Run it with -race.
 func Test_Close_leavesTheSharedPoolOpenUnderConcurrency(t *testing.T) {
-
 	db := openSharedPool(t)
 
 	const clients = 16

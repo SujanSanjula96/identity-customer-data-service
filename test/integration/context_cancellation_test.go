@@ -34,7 +34,6 @@ import (
 // reaches the database call. A caller that goes away must not leave the store
 // at work, and must not hold a connection from the bounded pool.
 func Test_StoreStopsOnACancelledContext(t *testing.T) {
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -48,7 +47,6 @@ func Test_StoreStopsOnACancelledContext(t *testing.T) {
 // Test_StoreStopsOnAnExpiredContext covers the deadline, which is how a
 // background job bounds its own work.
 func Test_StoreStopsOnAnExpiredContext(t *testing.T) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
 	time.Sleep(time.Millisecond)
@@ -61,7 +59,6 @@ func Test_StoreStopsOnAnExpiredContext(t *testing.T) {
 // Test_TransactionStopsOnACancelledContext covers the transaction path, which
 // holds its connection until it ends.
 func Test_TransactionStopsOnACancelledContext(t *testing.T) {
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -77,7 +74,6 @@ func Test_TransactionStopsOnACancelledContext(t *testing.T) {
 // The chain below that field is intact, because every layer under it wraps
 // with %w.
 func requireCauseIs(t *testing.T, err error, target error) {
-
 	t.Helper()
 
 	var serverErr *cdserrors.ServerError

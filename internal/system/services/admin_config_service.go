@@ -26,18 +26,20 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// AdminConfigService registers the admin config endpoints.
 type AdminConfigService struct {
 	handler *handler.AdminConfigHandler
 	mux     *http.ServeMux
 }
 
+// NewAdminConfigService registers the admin config routes on mux and returns the service.
 func NewAdminConfigService(mux *http.ServeMux) *AdminConfigService {
 	s := &AdminConfigService{
 		handler: handler.NewAdminConfigHandler(),
 		mux:     mux,
 	}
 
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 	// Register routes with Go 1.22 ServeMux patterns on shared mux
 	s.mux.HandleFunc("GET "+base+"/config", s.handler.GetAdminConfig)
 	s.mux.HandleFunc("PATCH "+base+"/config", s.handler.UpdateAdminConfig)

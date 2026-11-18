@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package authn validates the bearer tokens of incoming requests against the identity server.
 package authn
 
 import (
@@ -105,7 +106,7 @@ func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgID string) (map
 
 	// The token must be issued for the organization of the path.
 	if pathOrgID != "" {
-		if tokenOrgID, _ := introspectionClaims[constants.OrgIdClaim].(string); tokenOrgID != pathOrgID {
+		if tokenOrgID, _ := introspectionClaims[constants.OrgIDClaim].(string); tokenOrgID != pathOrgID {
 			logger.Debug(fmt.Sprintf("Opaque token is for organization '%s', not for '%s'", tokenOrgID, pathOrgID))
 			return nil, unauthorizedError()
 		}
@@ -115,13 +116,13 @@ func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgID string) (map
 		return nil, unauthorizedError()
 	}
 
-	clientApp, ok := introspectionClaims[constants.ClientIdClaim].(string)
+	clientApp, ok := introspectionClaims[constants.ClientIDClaim].(string)
 	if !ok || clientApp == "" {
 		logger.Debug(fmt.Sprintf("Introspected token does not have a valid client_id claim for "+
 			"organization: '%s'", orgHandle))
 		return nil, unauthorizedError()
 	}
-	if clientApp != constants.CONSOLE_APP {
+	if clientApp != constants.ConsoleApp {
 		logger.Debug(fmt.Sprintf("Opaque token is allowed only for console app, "+
 			"but token is for client_id: '%s' for organization: '%s'", clientApp, orgHandle))
 		return nil, unauthorizedError()
@@ -139,7 +140,6 @@ func IsJWT(tokenString string) bool {
 
 // ParseJWTClaims parses claims from a JWT without verifying the signature
 func ParseJWTClaims(tokenString string) (map[string]interface{}, error) {
-
 	logger := log.GetLogger()
 	claims := jwt.MapClaims{}
 	_, _, err := new(jwt.Parser).ParseUnverified(tokenString, claims)
@@ -147,8 +147,8 @@ func ParseJWTClaims(tokenString string) (map[string]interface{}, error) {
 		errMsg := "Error occurred when parsing claims from JWT token."
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.PARSING_ERROR.Code,
-			Message:     errors2.PARSING_ERROR.Message,
+			Code:        errors2.ParsingError.Code,
+			Message:     errors2.ParsingError.Message,
 			Description: errMsg,
 		}, err)
 		return nil, serverError
@@ -157,11 +157,10 @@ func ParseJWTClaims(tokenString string) (map[string]interface{}, error) {
 }
 
 // validateClaims checks the organization, the expiry, and the audience of the token.
-func validateClaims(orgHandle, pathOrgId string, claims map[string]interface{}) bool {
-
+func validateClaims(orgHandle, pathOrgID string, claims map[string]interface{}) bool {
 	logger := log.GetLogger()
-	if pathOrgId != "" {
-		if orgIdInClaim, _ := claims[constants.OrgIdClaim].(string); orgIdInClaim != pathOrgId {
+	if pathOrgID != "" {
+		if orgIDInClaim, _ := claims[constants.OrgIDClaim].(string); orgIDInClaim != pathOrgID {
 			logger.Debug("Token does not have the org_id claim of the path.")
 			return false
 		}
@@ -216,9 +215,9 @@ func validateClaims(orgHandle, pathOrgId string, claims map[string]interface{}) 
 
 func unauthorizedError() error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.UN_AUTHORIZED.Code,
-		Message:     errors2.UN_AUTHORIZED.Message,
-		Description: errors2.UN_AUTHORIZED.Description,
+		Code:        errors2.Unauthorized.Code,
+		Message:     errors2.Unauthorized.Message,
+		Description: errors2.Unauthorized.Description,
 	}, http.StatusUnauthorized)
 }
 

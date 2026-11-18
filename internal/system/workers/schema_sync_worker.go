@@ -21,8 +21,9 @@ package workers
 import (
 	"context"
 	"fmt"
-	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"sync"
+
+	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/provider"
@@ -32,7 +33,7 @@ import (
 )
 
 // activeSchemaSyncQueue is the queue implementation used for schema
-// synchronisation. It is initialised by StartSchemaSyncWorker. All access is
+// synchronization. It is initialized by StartSchemaSyncWorker. All access is
 // guarded by schemaSyncQueueMu to prevent data races between concurrent
 // Enqueue calls and shutdown.
 var (
@@ -43,7 +44,7 @@ var (
 	schemaSyncLifecycle *jobLifecycle
 )
 
-// StartSchemaSyncWorker initialises the schema sync queue (using the provider
+// StartSchemaSyncWorker initializes the schema sync queue (using the provider
 // configured in the runtime config) and starts the consumer goroutine. An
 // error is returned when the queue cannot be created or started; the caller
 // should treat this as a fatal startup failure.
@@ -118,9 +119,10 @@ func StopSchemaSyncWorker(ctx context.Context) error {
 
 // processSchemaSyncJob processes a schema sync job
 func processSchemaSyncJob(ctx context.Context, schemaSync model.ProfileSchemaSync) {
-
 	logger := log.GetLogger()
-	logger.Info(fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgHandle, schemaSync.Event))
+	logger.Info(
+		fmt.Sprintf("Processing schema sync job for tenant: %s, event: %s", schemaSync.OrgHandle, schemaSync.Event),
+	)
 
 	schemaProvider := provider.NewProfileSchemaProvider()
 	schemaService := schemaProvider.GetProfileSchemaService()

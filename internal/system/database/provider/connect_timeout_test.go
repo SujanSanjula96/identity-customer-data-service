@@ -35,7 +35,6 @@ import (
 // deadline of the caller never applies, and lib/pq reads the startup handshake
 // without a deadline of its own. Only connect_timeout ends it.
 func silentServer(t *testing.T) (host string, port int) {
-
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -61,7 +60,6 @@ func silentServer(t *testing.T) (host string, port int) {
 
 // unreachableDataSource points the runtime at a server that never answers.
 func unreachableDataSource(host string, port, timeoutSeconds int) config.Config {
-
 	return config.Config{
 		DataSource: config.DataSourceConfig{
 			Type:     "postgres",
@@ -80,7 +78,6 @@ func unreachableDataSource(host string, port, timeoutSeconds int) config.Config 
 // cannot be reached fails the start within a known time. Without connect_timeout
 // the call waits for the operating system rather than for any deadline.
 func Test_getPostgresDB_failsWithinTheConnectTimeout(t *testing.T) {
-
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
 	isolatePools(t)
@@ -109,7 +106,6 @@ func Test_getPostgresDB_failsWithinTheConnectTimeout(t *testing.T) {
 // Test_getPostgresDB_publishesNoHandleOnFailure checks that a pool nobody could
 // reach does not become the handle that every later call returns.
 func Test_getPostgresDB_publishesNoHandleOnFailure(t *testing.T) {
-
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
 	isolatePools(t)
@@ -131,7 +127,6 @@ func Test_getPostgresDB_publishesNoHandleOnFailure(t *testing.T) {
 // cached. A database that is briefly unreachable at start must not break the
 // instance for the life of the process.
 func Test_getPostgresDB_triesAgainAfterAFailure(t *testing.T) {
-
 	host, port := silentServer(t)
 	config.OverrideCDSRuntime(unreachableDataSource(host, port, 1))
 	isolatePools(t)
@@ -155,7 +150,6 @@ func Test_getPostgresDB_triesAgainAfterAFailure(t *testing.T) {
 
 // refusedPort returns a port that nothing listens on.
 func refusedPort(t *testing.T) int {
-
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -170,7 +164,6 @@ func refusedPort(t *testing.T) int {
 }
 
 func Test_connectTimeoutResolution(t *testing.T) {
-
 	tests := []struct {
 		name  string
 		given config.PostgresConfig
@@ -208,7 +201,6 @@ func Test_connectTimeoutResolution(t *testing.T) {
 // Test_getDBConfig_carriesTheConnectTimeout checks that the value reaches the
 // driver, which is the only thing that bounds the startup handshake.
 func Test_getDBConfig_carriesTheConnectTimeout(t *testing.T) {
-
 	dbConfig, err := getDBConfig(unreachableDataSource("localhost", 5432, 7))
 	if err != nil {
 		t.Fatal(err)

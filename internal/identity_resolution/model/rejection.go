@@ -61,7 +61,6 @@ type Rejection struct {
 // auto-merge threshold whatever the evidence, so it could never rise by the margin.
 func (r Rejection) ShouldReconsider(newScore float64, newBreakdown map[string]float64,
 	agreementThreshold float64) bool {
-
 	if newScore >= r.MatchScore+constants.RejectionReconsiderMargin {
 		return true
 	}

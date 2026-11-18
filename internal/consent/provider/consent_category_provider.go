@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider supplies the consent category service.
 package provider
 
 import (

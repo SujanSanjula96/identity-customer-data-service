@@ -19,7 +19,7 @@ CREATE TABLE profile_unification_triggers
 -- Profiles Table
 CREATE TABLE profiles
 (
-    profile_id          VARCHAR(255) PRIMARY KEY,
+    profile_id          VARCHAR(36) PRIMARY KEY,
     user_id             VARCHAR(255),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -34,9 +34,9 @@ CREATE TABLE profiles
 
 CREATE TABLE profile_reference
 (
-    profile_id                  VARCHAR(255) PRIMARY KEY,
+    profile_id                  VARCHAR(36) PRIMARY KEY,
     profile_status              VARCHAR(255),
-    reference_profile_id        VARCHAR(255),
+    reference_profile_id        VARCHAR(36),
     reference_reason            VARCHAR(255),
     org_id                      VARCHAR(255) NOT NULL,
     reference_profile_org_id    VARCHAR(255)
@@ -89,7 +89,7 @@ CREATE TABLE unification_rules
 CREATE TABLE application_data
 (
     app_data_id      SERIAL PRIMARY KEY,
-    profile_id       VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    profile_id       VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
     app_id           VARCHAR(255) NOT NULL,
     application_data JSONB DEFAULT '{}'::jsonb,
     UNIQUE (profile_id, app_id)
@@ -109,7 +109,7 @@ CREATE TABLE consent_categories
 (
     id                  SERIAL PRIMARY KEY,
     category_name       VARCHAR(255)        NOT NULL,
-    category_identifier VARCHAR(255) UNIQUE NOT NULL,
+    category_identifier VARCHAR(36) UNIQUE NOT NULL,
     purpose             VARCHAR(255)        NOT NULL,
     destinations        TEXT[],
     is_mandatory        BOOLEAN             NOT NULL DEFAULT FALSE,
@@ -119,7 +119,7 @@ CREATE TABLE consent_categories
 CREATE TABLE consent_category_attributes
 (
     id                     SERIAL PRIMARY KEY,
-    category_id            VARCHAR(255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    category_id            VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     scope                  VARCHAR(50)  NOT NULL,
     attribute_name         VARCHAR(255) NOT NULL,
     attribute_id           VARCHAR(255) REFERENCES profile_schema (attribute_id) ON DELETE CASCADE,
@@ -130,8 +130,8 @@ CREATE TABLE consent_category_attributes
 CREATE TABLE profile_consents
 (
     id      SERIAL PRIMARY KEY,
-    profile_id       VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
-    category_id      VARCHAR (255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    profile_id       VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    category_id      VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     consent_status   BOOLEAN     NOT NULL,
     consented_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (profile_id, category_id)
@@ -139,7 +139,7 @@ CREATE TABLE profile_consents
 
 CREATE TABLE profile_cookies (
                                  cookie_id VARCHAR (255) PRIMARY KEY,
-                                 profile_id VARCHAR (255) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+                                 profile_id VARCHAR(36) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
                                  is_active BOOLEAN NOT NULL DEFAULT true
 );
 
@@ -198,10 +198,10 @@ CREATE TABLE IF NOT EXISTS resource_sharing_policy_target (
 );
 
 CREATE TABLE IF NOT EXISTS blocking_keys (
-    profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-    attribute_name  VARCHAR(255) NOT NULL,
+    profile_id      VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    attribute_name  VARCHAR(128) NOT NULL,
     key_value       VARCHAR(512) NOT NULL,
-    org_id          VARCHAR(255) NOT NULL,
+    org_id          VARCHAR(36) NOT NULL,
     PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
 );
 
@@ -209,8 +209,8 @@ CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_id_profile ON blocking_keys(org
 
 CREATE TABLE IF NOT EXISTS review_tasks (
     id                      VARCHAR(255) PRIMARY KEY,
-    incoming_profile_id       VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-    candidate_profile_id    VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    incoming_profile_id       VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    candidate_profile_id    VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
     match_score             DECIMAL(5,4) NOT NULL,
     status                  VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     match_reason            TEXT,
@@ -231,8 +231,8 @@ CREATE TABLE IF NOT EXISTS rejection_pairs (
     id              VARCHAR(255) PRIMARY KEY,
     -- Stored with the lower id first, so one row means one pair whichever direction the
     -- review task happened to run in and the unique constraint below isenforceable.
-    profile_id_1    VARCHAR(255) NOT NULL,
-    profile_id_2    VARCHAR(255) NOT NULL,
+    profile_id_1    VARCHAR(36) NOT NULL,
+    profile_id_2    VARCHAR(36) NOT NULL,
     -- The evidence the decision was made against. A rejection asserts that two profiles are
     -- different people, which does not stop being true because an attribute changed — so it
     -- is only reconsidered when later evidence is materially stronger than this.

@@ -27,18 +27,21 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// ProfileSchemaService registers the profile schema endpoints.
 type ProfileSchemaService struct {
 	handler *handler.ProfileSchemaHandler
 	mux     *http.ServeMux
 }
 
+// NewProfileSchemaService registers the profile schema routes on mux and returns the service. The sharing
+// policy routes are registered only when organization management is enabled.
 func NewProfileSchemaService(mux *http.ServeMux) *ProfileSchemaService {
 	s := &ProfileSchemaService{
 		handler: handler.NewProfileSchemaHandler(),
 		mux:     mux,
 	}
 
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 	// Register routes using Go 1.22 ServeMux patterns on shared mux
 	s.mux.HandleFunc("GET "+base+"/profile-schema", s.handler.GetProfileSchema)
 	s.mux.HandleFunc("DELETE "+base+"/profile-schema", s.handler.DeleteProfileSchema)
@@ -50,9 +53,9 @@ func NewProfileSchemaService(mux *http.ServeMux) *ProfileSchemaService {
 	s.mux.HandleFunc("DELETE "+base+"/profile-schema/{scope}", s.handler.DeleteProfileSchemaAttributeForScope)
 
 	// Attribute-level (preserve original verb mapping)
-	s.mux.HandleFunc("GET "+base+"/profile-schema/{scope}/{attrID}", s.handler.GetProfileSchemaAttributeById)
-	s.mux.HandleFunc("PUT "+base+"/profile-schema/{scope}/{attrID}", s.handler.PatchProfileSchemaAttributeById)
-	s.mux.HandleFunc("DELETE "+base+"/profile-schema/{scope}/{attrID}", s.handler.DeleteProfileSchemaAttributeById)
+	s.mux.HandleFunc("GET "+base+"/profile-schema/{scope}/{attrID}", s.handler.GetProfileSchemaAttributeByID)
+	s.mux.HandleFunc("PUT "+base+"/profile-schema/{scope}/{attrID}", s.handler.PatchProfileSchemaAttributeByID)
+	s.mux.HandleFunc("DELETE "+base+"/profile-schema/{scope}/{attrID}", s.handler.DeleteProfileSchemaAttributeByID)
 
 	if config.OrganizationManagementEnabled() {
 		const policies = base + "/profile-schema/{scope}/{attrID}/sharing-policies"

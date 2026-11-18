@@ -16,54 +16,66 @@
  * under the License.
  */
 
+// Package model defines the profile schema types.
 package model
 
 import "github.com/wso2/identity-customer-data-service/internal/system/constants"
 
+// ProfileSchemaAttribute defines an attribute of the profile schema: its scope, value type, merge strategy
+// and mutability.
 type ProfileSchemaAttribute struct {
-	OrgId                 string           `json:"org_id,omitempty" bson:"org_id,omitempty"`
-	AttributeId           string           `json:"attribute_id" bson:"attribute_id"`
-	AttributeName         string           `json:"attribute_name" bson:"attribute_name" binding:"required"`
-	Scope                 string           `json:"scope,omitempty" bson:"scope,omitempty"`
-	DisplayName           string           `json:"display_name,omitempty" bson:"display_name,omitempty"`
-	ValueType             string           `json:"value_type" bson:"value_type" binding:"required"`
-	MergeStrategy         string           `json:"merge_strategy" bson:"merge_strategy" binding:"required"`
-	Mutability            string           `json:"mutability" bson:"mutability"`
-	ApplicationIdentifier string           `json:"application_identifier,omitempty" bson:"application_identifier,omitempty"`
-	MultiValued           bool             `json:"multi_valued,omitempty" bson:"multi_valued,omitempty"`         // Means the data type is an array of chosen data type
-	CanonicalValues       []CanonicalValue `json:"canonical_values,omitempty" bson:"canonical_values,omitempty"` // String of options for the attribute
-	SubAttributes         []SubAttribute   `json:"sub_attributes,omitempty" bson:"sub_attributes,omitempty"`     // If the datatype is object
-	SCIMDialect           string           `json:"scim_dialect,omitempty" bson:"scim_dialect,omitempty"`         // Need to skip this in the response
+	OrgID                 string `json:"org_id,omitempty" bson:"org_id,omitempty"`
+	AttributeID           string `json:"attribute_id" bson:"attribute_id"`
+	AttributeName         string `json:"attribute_name" bson:"attribute_name" binding:"required"`
+	Scope                 string `json:"scope,omitempty" bson:"scope,omitempty"`
+	DisplayName           string `json:"display_name,omitempty" bson:"display_name,omitempty"`
+	ValueType             string `json:"value_type" bson:"value_type" binding:"required"`
+	MergeStrategy         string `json:"merge_strategy" bson:"merge_strategy" binding:"required"`
+	Mutability            string `json:"mutability" bson:"mutability"`
+	ApplicationIdentifier string `json:"application_identifier,omitempty" bson:"application_identifier,omitempty"`
+	// Means the data type is an array of chosen data type
+	MultiValued bool `json:"multi_valued,omitempty" bson:"multi_valued,omitempty"`
+	// String of options for the attribute
+	CanonicalValues []CanonicalValue `json:"canonical_values,omitempty" bson:"canonical_values,omitempty"`
+	// If the datatype is object
+	SubAttributes []SubAttribute `json:"sub_attributes,omitempty" bson:"sub_attributes,omitempty"`
+	// Need to skip this in the response
+	SCIMDialect string `json:"scim_dialect,omitempty" bson:"scim_dialect,omitempty"`
 	// Set only on reads of the effective schema.
 	Origin     string `json:"origin,omitempty" bson:"-"` // OWNED, SHARED, or INHERITED
-	OwnerOrgId string `json:"-" bson:"-"`                // The owner org of a shared attribute, for the owner check
+	OwnerOrgID string `json:"-" bson:"-"`                // The owner org of a shared attribute, for the owner check
 }
 
+// SubAttribute is a reference to an attribute nested in an object-type attribute.
 type SubAttribute struct {
-	AttributeId   string `json:"attribute_id" bson:"attribute_id" binding:"required"`
+	AttributeID   string `json:"attribute_id" bson:"attribute_id" binding:"required"`
 	AttributeName string `json:"attribute_name" bson:"attribute_name" binding:"required"`
 }
 
+// CanonicalValue is one allowed value of an attribute, with its display label.
 type CanonicalValue struct {
 	Value string `json:"value" bson:"value"`
 	Label string `json:"label" bson:"label"`
 }
 
+// Meta holds creation and update times and the resource location.
 type Meta struct {
 	CreatedAt int    `json:"created_at" bson:"created_at"`
 	UpdatedAt int    `json:"updated_at" bson:"updated_at"`
 	Location  string `json:"location" bson:"location"`
 }
 
+// ProfileSchema is an organization's full profile schema: the core fields and the attributes of each scope.
 type ProfileSchema struct {
-	ProfileId          map[string]string                   `json:"profile_id" bson:"profile_id"`
-	UserId             map[string]string                   `json:"user_id" bson:"user_id"`
+	ProfileID          map[string]string                   `json:"profile_id" bson:"profile_id"`
+	UserID             map[string]string                   `json:"user_id" bson:"user_id"`
 	Meta               map[string]map[string]string        `json:"meta" bson:"meta"`
 	IdentityAttributes []ProfileSchemaAttribute            `json:"identity_attributes" bson:"identity_attributes"`
 	Traits             []ProfileSchemaAttribute            `json:"traits" bson:"traits"`
 	ApplicationData    map[string][]ProfileSchemaAttribute `json:"application_data" bson:"application_data"`
 }
 
+// CoreSchema gives the value type and mutability of the built-in profile fields.
 var CoreSchema = map[string]map[string]string{
 	"profile_id": {
 		"value_type": constants.StringDataType,

@@ -38,7 +38,6 @@ const concurrentCallers = 32
 // A barrier, rather than a plain loop, is what makes the first calls
 // simultaneous.
 func atOnce(work func(index int)) {
-
 	var start sync.WaitGroup
 	var done sync.WaitGroup
 	start.Add(1)
@@ -67,7 +66,6 @@ func atOnce(work func(index int)) {
 // same mutex and the same publish-last order, and this one needs no server. Run
 // it with -race.
 func Test_getSQLiteDB_opensOnePoolUnderConcurrency(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 
@@ -107,7 +105,6 @@ func Test_getSQLiteDB_opensOnePoolUnderConcurrency(t *testing.T) {
 // nobody can reach. The port refuses the connection, so each attempt ends at
 // once. Run it with -race.
 func Test_getPostgresDB_concurrentFailuresPublishNoHandle(t *testing.T) {
-
 	config.OverrideCDSRuntime(unreachableDataSource("127.0.0.1", refusedPort(t), 1))
 	isolatePools(t)
 
@@ -147,7 +144,6 @@ func Test_getPostgresDB_concurrentFailuresPublishNoHandle(t *testing.T) {
 // Every client must work, and the process must still hold exactly one pool
 // when they are done. Run it with -race.
 func Test_GetDBClient_sharesOnePoolUnderConcurrency(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 

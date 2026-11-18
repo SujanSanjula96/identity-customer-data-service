@@ -32,7 +32,6 @@ import (
 )
 
 func TestOrgChainIsNearestFirst(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}
@@ -48,10 +47,10 @@ func TestOrgChainIsNearestFirst(t *testing.T) {
 	})
 	ctx := context.Background()
 	for _, org := range []model.Organization{
-		{OrgId: "primary-id", OrgHandle: "acme", PrimaryOrgId: "primary-id", Status: model.StatusActive},
-		{OrgId: "r1-id", OrgHandle: "r1", ParentOrgId: "primary-id", PrimaryOrgId: "primary-id",
+		{OrgID: "primary-id", OrgHandle: "acme", PrimaryOrgID: "primary-id", Status: model.StatusActive},
+		{OrgID: "r1-id", OrgHandle: "r1", ParentOrgID: "primary-id", PrimaryOrgID: "primary-id",
 			Status: model.StatusActive},
-		{OrgId: "t1-id", OrgHandle: "t1", ParentOrgId: "r1-id", PrimaryOrgId: "primary-id", Status: model.StatusActive},
+		{OrgID: "t1-id", OrgHandle: "t1", ParentOrgID: "r1-id", PrimaryOrgID: "primary-id", Status: model.StatusActive},
 	} {
 		if err := orgStore.UpsertOrganization(ctx, org); err != nil {
 			t.Fatalf("failed to store the org %s: %v", org.OrgHandle, err)
@@ -64,13 +63,13 @@ func TestOrgChainIsNearestFirst(t *testing.T) {
 		"primary-id": {"primary-id"},
 		"unknown":    {"unknown"},
 	}
-	for orgId, want := range cases {
-		got, err := orgChain(ctx, orgId)
+	for orgID, want := range cases {
+		got, err := orgChain(ctx, orgID)
 		if err != nil {
-			t.Fatalf("orgChain(%s): %v", orgId, err)
+			t.Fatalf("orgChain(%s): %v", orgID, err)
 		}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("orgChain(%s): want %v, got %v", orgId, want, got)
+			t.Errorf("orgChain(%s): want %v, got %v", orgID, want, got)
 		}
 	}
 }

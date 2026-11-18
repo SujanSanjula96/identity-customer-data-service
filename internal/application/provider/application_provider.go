@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider supplies the application service.
 package provider
 
 import (
@@ -32,12 +33,10 @@ type ApplicationProvider struct{}
 
 // NewApplicationProvider creates a new instance of ApplicationProvider.
 func NewApplicationProvider() ApplicationProviderInterface {
-
 	return &ApplicationProvider{}
 }
 
 // GetApplicationService returns the application service instance.
 func (ap *ApplicationProvider) GetApplicationService() service.ApplicationServiceInterface {
-
 	return service.GetApplicationService()
 }

@@ -46,7 +46,7 @@ func TestParseFilterRejectsAMalformedCondition(t *testing.T) {
 		var clientError *errors2.ClientError
 		require.ErrorAs(t, err, &clientError, in)
 		assert.Equal(t, http.StatusBadRequest, clientError.StatusCode)
-		assert.Equal(t, errors2.INVALID_FILTER_FORMAT.Code, clientError.Code)
+		assert.Equal(t, errors2.InvalidFilterFormat.Code, clientError.Code)
 	}
 }
 

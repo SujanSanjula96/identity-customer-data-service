@@ -102,6 +102,42 @@ linters:
         text: G101
         linters:
           - gosec
+      # Findings in code that predates the lint clean-up and would need logic changes to clear.
+      # Scoped to the affected files or functions, so the checks still apply everywhere else.
+      # Hash and phonetic arithmetic converts within known bounds.
+      - path: internal/identity_resolution/engine/algorithms/(locality_sensitive_hash|phonetic)\.go
+        text: G115
+        linters:
+          - gosec
+      # The signal list is indexed only after its length is checked.
+      - path: (cmd/server|internal/system/server)/shutdown\.go
+        text: G602
+        linters:
+          - gosec
+      # A fixed seed keeps the test reproducible; nothing here needs cryptographic randomness.
+      - path: internal/identity_resolution/engine/algorithms/locality_sensitive_hash_test\.go
+        text: G404
+        linters:
+          - gosec
+      - path: internal/system/database/scripts/registry_completeness_test\.go
+        text: SA1019
+        linters:
+          - staticcheck
+      # Builds a JSON object by hand; %q would change the output for keys with special characters.
+      - path: internal/profile/store/profile_store\.go
+        text: sprintfQuotedString
+        linters:
+          - gocritic
+      # Returns nil, not an empty slice, when there is no application data to merge.
+      - path: internal/system/workers/profile_worker\.go
+        linters:
+          - prealloc
+      - text: of func `(DoubleMetaphone|EvaluateCandidate|\(\*IdentityResolutionService\)\.ResolveReviewTask|ResolveProfileAsync|\(\*ProfileHandler\)\.SyncProfile|FilterProfileByConsent|isValidType|GetAllProfilesWithFilter|GetProfileIDsWithFilters|\(\*ProfileSchemaService\)\.UpdateProfileSchemaAttributeByID|\(\*UnificationRulesHandler\)\.PatchUnificationRule|Test_ProductionProvider)`
+        linters:
+          - gocyclo
+      - path: internal/(consent/store/consent_category_store|profile/store/profile_store|system/queue/activemq/activemq)\.go
+        linters:
+          - dupl
     paths:
       - third_party$
       - builtin$

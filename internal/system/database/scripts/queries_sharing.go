@@ -20,19 +20,23 @@ package scripts
 
 // Statements for sharing. The domain is CDS-SHR (resource_sharing_policy, resource_sharing_policy_target).
 
+// InsertSharePolicy stores a new resource sharing policy.
 var InsertSharePolicy = newQuery("CDS-SHR-01",
 	`INSERT INTO resource_sharing_policy (policy_id, resource_type, resource_id, owning_org_id, initiating_org_id)
 	VALUES ($1, $2, $3, $4, $5)`)
 
 const sharePolicyColumns = `p.policy_id, p.resource_type, p.resource_id, p.owning_org_id, p.initiating_org_id`
 
-var GetSharePolicyById = newQuery("CDS-SHR-02",
+// GetSharePolicyByID returns the sharing policy with the given ID.
+var GetSharePolicyByID = newQuery("CDS-SHR-02",
 	`SELECT `+sharePolicyColumns+` FROM resource_sharing_policy p WHERE p.policy_id = $1`)
 
+// GetSharePolicy returns the sharing policy an organization started for a resource.
 var GetSharePolicy = newQuery("CDS-SHR-03",
 	`SELECT `+sharePolicyColumns+` FROM resource_sharing_policy p
 	WHERE p.resource_type = $1 AND p.resource_id = $2 AND p.initiating_org_id = $3`)
 
+// GetSharePolicyTargets returns the targets of a sharing policy.
 var GetSharePolicyTargets = newQuery("CDS-SHR-06",
 	`SELECT t.policy_id, t.target_scope, t.target_org_id FROM resource_sharing_policy_target t WHERE t.policy_id = $1`)
 
@@ -41,13 +45,16 @@ var InsertSharePolicyTargets = newQuery("CDS-SHR-07",
 	`INSERT INTO resource_sharing_policy_target (policy_id, target_scope, target_org_id) VALUES %s
 	ON CONFLICT DO NOTHING`)
 
+// DeleteSharePolicyTargets removes every target of a sharing policy.
 var DeleteSharePolicyTargets = newQuery("CDS-SHR-08",
 	`DELETE FROM resource_sharing_policy_target WHERE policy_id = $1`)
 
+// DeleteSharePolicy removes a sharing policy.
 var DeleteSharePolicy = newQuery("CDS-SHR-09",
 	`DELETE FROM resource_sharing_policy WHERE policy_id = $1`)
 
-var GetSharePolicyIdsByResource = newQuery("CDS-SHR-10",
+// GetSharePolicyIDsByResource returns the IDs of every sharing policy of a resource.
+var GetSharePolicyIDsByResource = newQuery("CDS-SHR-10",
 	`SELECT policy_id FROM resource_sharing_policy WHERE resource_type = $1 AND resource_id = $2`)
 
 // GetSharePoliciesByOwners returns the policies of the resource type $1 that the organizations

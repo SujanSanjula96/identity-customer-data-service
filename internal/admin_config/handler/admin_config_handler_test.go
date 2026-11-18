@@ -76,7 +76,7 @@ func newAdminHandlerEnv(t *testing.T) *adminHandlerEnv {
 	config.OverrideCDSRuntime(conf)
 
 	handle := fmt.Sprintf("acme-%d", adminHandlerOrgCounter.Add(1))
-	env := &adminHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle), auth: auth,
+	env := &adminHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle), auth: auth,
 		h: NewAdminConfigHandler()}
 	setup.TestOrg(t, handle)
 	return env

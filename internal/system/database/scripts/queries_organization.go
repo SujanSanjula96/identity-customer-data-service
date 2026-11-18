@@ -26,6 +26,7 @@ const organizationColumns = `org_id, org_handle, org_name, parent_org_id, primar
 const organizationColumnsOfO = `o.org_id, o.org_handle, o.org_name, o.parent_org_id, o.primary_org_id, o.status,
 	o.created_at, o.updated_at`
 
+// UpsertOrganization inserts an organization or updates the existing one with the same ID.
 var UpsertOrganization = newQuery("CDS-ORG-01",
 	`INSERT INTO organizations (org_id, org_handle, org_name, parent_org_id, primary_org_id, status, created_at,
 	updated_at)
@@ -34,15 +35,19 @@ var UpsertOrganization = newQuery("CDS-ORG-01",
 	parent_org_id = excluded.parent_org_id, primary_org_id = excluded.primary_org_id, status = excluded.status,
 	updated_at = excluded.updated_at`)
 
-var GetOrganizationById = newQuery("CDS-ORG-02",
+// GetOrganizationByID returns the organization with the given ID.
+var GetOrganizationByID = newQuery("CDS-ORG-02",
 	`SELECT `+organizationColumns+` FROM organizations WHERE org_id = $1`)
 
+// GetOrganizationByHandle returns the organization with the given handle.
 var GetOrganizationByHandle = newQuery("CDS-ORG-03",
 	`SELECT `+organizationColumns+` FROM organizations WHERE org_handle = $1`)
 
+// GetOrganizationsByPrimaryOrg returns every organization under a primary organization, ordered by ID.
 var GetOrganizationsByPrimaryOrg = newQuery("CDS-ORG-04",
 	`SELECT `+organizationColumns+` FROM organizations WHERE primary_org_id = $1 ORDER BY org_id`)
 
+// UpdateOrganizationStatus sets the status of an organization.
 var UpdateOrganizationStatus = newQuery("CDS-ORG-05",
 	`UPDATE organizations SET status = $1, updated_at = $2 WHERE org_id = $3`)
 
@@ -64,8 +69,8 @@ var GetOrganizationChain = newQuery("CDS-ORG-07",
 	chainOf+`SELECT `+organizationColumnsOfO+` FROM organizations o JOIN chain c ON c.org_id = o.org_id
 	ORDER BY c.hops DESC`)
 
-// GetOrganizationsByIds returns the organizations with the IDs. The %s is the IN list.
-var GetOrganizationsByIds = newQuery("CDS-ORG-08",
+// GetOrganizationsByIDs returns the organizations with the IDs. The %s is the IN list.
+var GetOrganizationsByIDs = newQuery("CDS-ORG-08",
 	`SELECT `+organizationColumns+` FROM organizations WHERE org_id IN (%s)`)
 
 // GetOrganizationAncestors returns the ancestors of the organization $1, the parent first. hops is

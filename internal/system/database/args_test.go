@@ -24,7 +24,6 @@ import (
 )
 
 func Test_NormalizeSQLiteArgs(t *testing.T) {
-
 	t.Run("json bytes are bound as text", func(t *testing.T) {
 		normalized := NormalizeSQLiteArgs([]interface{}{[]byte(`{"a":1}`), "plain", 7, nil})
 		expected := []interface{}{`{"a":1}`, "plain", 7, nil}

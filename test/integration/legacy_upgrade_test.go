@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
 	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
@@ -63,7 +64,7 @@ func insertLegacyRule(t *testing.T, org, property string, priority int) {
 	if err != nil {
 		t.Fatalf("db client: %v", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	_, err = dbClient.ExecuteQueryContext(context.Background(), legacyRuleInsert,
 		uuid.New().String(), setup.TestOrg(t, org).ID, fmt.Sprintf("legacy-%s", property), property,
@@ -82,7 +83,7 @@ func insertLegacyAdminConfig(t *testing.T, org string) {
 	if err != nil {
 		t.Fatalf("db client: %v", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	if _, err := dbClient.ExecuteQueryContext(context.Background(), legacyConfigInsert,
 		setup.TestOrg(t, org).ID, constants.ConfigCDSEnabled, "true"); err != nil {
@@ -137,7 +138,13 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 			existing := insertBareProfile(t, org, "", shared)
 			incoming := insertBareProfile(t, org, "", shared)
 
-			master, mergeErr := workers.MergeMatchedProfiles(context.Background(), ref.ID, existing, incoming, constants.MergeReasonAutoMerge)
+			master, mergeErr := workers.MergeMatchedProfiles(
+				context.Background(),
+				ref.ID,
+				existing,
+				incoming,
+				constants.MergeReasonAutoMerge,
+			)
 			if mergeErr != nil {
 				t.Fatalf("merge: %v", mergeErr)
 			}
@@ -146,16 +153,16 @@ func Test_LegacyOrganisation_KeepsExactMatchMerging(t *testing.T) {
 			}
 
 			// Both inputs must now resolve to the surviving master.
-			for _, id := range []string{existing.ProfileId, incoming.ProfileId} {
-				if id == master.ProfileId {
+			for _, id := range []string{existing.ProfileID, incoming.ProfileID} {
+				if id == master.ProfileID {
 					continue
 				}
 				child, err := profileStore.GetProfile(context.Background(), id, ref.ID)
 				if err != nil || child == nil {
 					t.Fatalf("load %s: %v", id, err)
 				}
-				if child.ProfileStatus == nil || child.ProfileStatus.ReferenceProfileId != master.ProfileId {
-					t.Errorf("profile %s was not attached to master %s", id, master.ProfileId)
+				if child.ProfileStatus == nil || child.ProfileStatus.ReferenceProfileID != master.ProfileID {
+					t.Errorf("profile %s was not attached to master %s", id, master.ProfileID)
 				}
 			}
 		})
@@ -173,7 +180,7 @@ func Test_LegacyOrganisation_AutoMergeStaysEnabled(t *testing.T) {
 
 	thresholds := irModel.LoadThresholds(context.Background(), setup.TestOrg(t, org).ID)
 	if !thresholds.AutoMergeEnabled {
-		t.Error("an organisation with no auto_merge_enabled row must keep merging automatically")
+		t.Error("an organization with no auto_merge_enabled row must keep merging automatically")
 	}
 	if thresholds.AutoMerge <= 0 || thresholds.ManualReview <= 0 {
 		t.Errorf("thresholds must fall back to usable defaults, got auto=%v review=%v",
@@ -192,17 +199,17 @@ func Test_LegacyOrganisation_RulesAreIndexedOnWrite(t *testing.T) {
 	profile := insertBareProfile(t, org, "", map[string]interface{}{"email": "legacy@acme.com"})
 
 	workers.EnqueueProfileForProcessing(profile)
-	waitForBlockingKeys(t, org, "traits.email", profile.ProfileId)
+	waitForBlockingKeys(t, org, "traits.email", profile.ProfileID)
 }
 
 // waitForBlockingKeys polls for the asynchronous indexing to land.
 func waitForBlockingKeys(t *testing.T, org, attribute, profileID string) {
 	t.Helper()
 
-	orgId := setup.TestOrg(t, org).ID
+	orgID := setup.TestOrg(t, org).ID
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		ids, err := irStore.FindCandidateIDsByKeys(context.Background(), orgId, attribute,
+		ids, err := irStore.FindCandidateIDsByKeys(context.Background(), orgID, attribute,
 			[]string{"legacy@acme.com"}, "none", 100)
 		if err == nil {
 			for _, id := range ids {

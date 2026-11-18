@@ -89,7 +89,7 @@ func TestEnabledOnceAKeyIsSet(t *testing.T) {
 
 func withKey(key, idpType string) config.Config {
 	return config.Config{
-		IdP: config.IdPConfig{
+		IDP: config.IDPConfig{
 			Type:               idpType,
 			ServiceCredentials: config.ServiceCredentialsConfig{EncryptionKey: key},
 		},

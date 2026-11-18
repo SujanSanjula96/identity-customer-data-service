@@ -16,11 +16,12 @@
  * under the License.
  */
 
+// Package model defines the applications that CDS has registered for an organization.
 package model
 
 // Application holds the information of an application.
 type Application struct {
 	AppID    string `json:"app_id"`
-	OrgId    string `json:"org_id"`
+	OrgID    string `json:"org_id"`
 	ClientID string `json:"client_id"`
 }

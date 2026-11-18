@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package utils holds helpers shared across CDS: HTTP and tenant path handling, error
+// responses, panic recovery, and the CDS home directory.
 package utils
 
 import (
@@ -29,14 +31,13 @@ import (
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
-	customerrors "github.com/wso2/identity-customer-data-service/internal/system/errors" // Alias for the custom errors
-	error2 "github.com/wso2/identity-customer-data-service/internal/system/errors"       // Importing custom error types
+	error2 "github.com/wso2/identity-customer-data-service/internal/system/errors" // Importing custom error types
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // HandleError sends an HTTP error response based on the provided error
 func HandleError(w http.ResponseWriter, err error) {
-	var clientError *customerrors.ClientError
+	var clientError *error2.ClientError
 	w.Header().Set("Content-Type", "application/json")
 	if ok := errors.As(err, &clientError); ok {
 		w.WriteHeader(clientError.StatusCode)
@@ -52,7 +53,7 @@ func HandleError(w http.ResponseWriter, err error) {
 		return
 	}
 
-	var serverError *customerrors.ServerError
+	var serverError *error2.ServerError
 	if ok := errors.As(err, &serverError); ok {
 		logger := log.GetLogger()
 		logger.Error(err.Error())
@@ -82,6 +83,8 @@ func IsValidOrgHandle(orgHandle string) bool {
 	return orgHandlePattern.MatchString(orgHandle) && orgHandle != "." && orgHandle != ".."
 }
 
+// ExtractOrgHandleFromPath returns the tenant that MountTenantDispatcher put in the request context,
+// or carbon.super when it is empty. It panics when the context holds no tenant.
 func ExtractOrgHandleFromPath(r *http.Request) string {
 	tenant := r.Context().Value(constants.TenantContextKey).(string)
 	if tenant == "" {
@@ -101,6 +104,7 @@ func ExtractPrimaryOrgHandle(r *http.Request) string {
 	return ExtractOrgHandleFromPath(r)
 }
 
+// StripTenantPrefix returns the path after the /t/{tenant} prefix, or "/" when nothing follows it.
 func StripTenantPrefix(path string) string {
 	parts := strings.SplitN(path, "/", 4)
 	if len(parts) < 4 {
@@ -109,16 +113,16 @@ func StripTenantPrefix(path string) string {
 	return "/" + parts[3]
 }
 
+// WriteErrorResponse writes the error message as JSON with the status of the client error.
 func WriteErrorResponse(w http.ResponseWriter, err *error2.ClientError) {
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(err.StatusCode)
 
 	_ = json.NewEncoder(w).Encode(err.ErrorMessage)
 }
 
+// WriteBadRequestErrorResponse writes a 400 response with a fixed message. The error is not used.
 func WriteBadRequestErrorResponse(w http.ResponseWriter, err *error2.ClientError) {
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 
@@ -160,16 +164,16 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 				http.NotFound(w, r)
 				return
 			}
-			orgId := segments[0]
-			subOrgHandle, err := SubOrgResolver(r.Context(), orgHandle, orgId)
+			orgID := segments[0]
+			subOrgHandle, err := SubOrgResolver(r.Context(), orgHandle, orgID)
 			if err != nil {
 				HandleError(w, err)
 				return
 			}
 			ctx = context.WithValue(ctx, constants.TenantContextKey, subOrgHandle)
-			ctx = context.WithValue(ctx, constants.OrgIdContextKey, orgId)
+			ctx = context.WithValue(ctx, constants.OrgIDContextKey, orgID)
 			remainingPath = "/" + segments[1]
-			basePath += "/o/" + orgId
+			basePath += "/o/" + orgID
 		} else if IsSubOrgHandle != nil {
 			isSubOrg, err := IsSubOrgHandle(r.Context(), orgHandle)
 			if err != nil {
@@ -177,7 +181,7 @@ func MountTenantDispatcher(mux *http.ServeMux, handlerFunc http.HandlerFunc) {
 				return
 			}
 			if isSubOrg {
-				HandleError(w, error2.NewClientError(error2.ORGANIZATION_PATH_NOT_SUPPORTED, http.StatusBadRequest))
+				HandleError(w, error2.NewClientError(error2.OrganizationPathNotSupported, http.StatusBadRequest))
 				return
 			}
 		}
@@ -198,15 +202,14 @@ var IsSubOrgHandle func(ctx context.Context, orgHandle string) (bool, error)
 
 // RespondJSON sends a JSON response with the given status code and payload
 func RespondJSON(w http.ResponseWriter, status int, payload any, resource string) {
-
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 
 	if err := enc.Encode(payload); err != nil {
 		serverError := error2.NewServerError(error2.ErrorMessage{
-			Code:        error2.ENCODE_ERROR.Code,
-			Message:     error2.ENCODE_ERROR.Message,
+			Code:        error2.EncodeError.Code,
+			Message:     error2.EncodeError.Message,
 			Description: fmt.Sprintf("Failed to encode %s response", resource),
 		}, err)
 		HandleError(w, serverError)

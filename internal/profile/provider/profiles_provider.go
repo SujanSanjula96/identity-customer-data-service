@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider gives access to the profiles service.
 package provider
 
 import (
@@ -32,12 +33,10 @@ type ProfilesProvider struct{}
 
 // NewProfilesProvider creates a new instance of ProfilesProvider.
 func NewProfilesProvider() ProfilesProviderInterface {
-
 	return &ProfilesProvider{}
 }
 
 // GetProfilesService returns the enrichment rule service instance.
 func (ep *ProfilesProvider) GetProfilesService() service.ProfilesServiceInterface {
-
 	return service.GetProfilesService()
 }

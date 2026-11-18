@@ -49,11 +49,11 @@ func TestProfileQueueDeliversEveryProfileInOrder(t *testing.T) {
 	require.NoError(t, queue.Start(func(p profileModel.Profile) { received <- p }))
 
 	for _, id := range []string{"p-1", "p-2", "p-3"} {
-		require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileId: id}))
+		require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: id}))
 	}
 
 	for _, id := range []string{"p-1", "p-2", "p-3"} {
-		assert.Equal(t, id, receive(t, received).ProfileId)
+		assert.Equal(t, id, receive(t, received).ProfileID)
 	}
 	require.NoError(t, queue.Close(context.Background()))
 }
@@ -61,8 +61,8 @@ func TestProfileQueueDeliversEveryProfileInOrder(t *testing.T) {
 func TestProfileQueueDropsAProfileWhenFull(t *testing.T) {
 	queue := NewProfileQueue(1)
 
-	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileId: "p-1"}))
-	err := queue.Enqueue(profileModel.Profile{ProfileId: "p-2"})
+	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "p-1"}))
+	err := queue.Enqueue(profileModel.Profile{ProfileID: "p-2"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "full")
@@ -73,7 +73,7 @@ func TestProfileQueueRefusesAProfileOnceClosed(t *testing.T) {
 	queue := NewProfileQueue(1)
 	require.NoError(t, queue.Close(context.Background()))
 
-	err := queue.Enqueue(profileModel.Profile{ProfileId: "p-1"})
+	err := queue.Enqueue(profileModel.Profile{ProfileID: "p-1"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
@@ -94,11 +94,11 @@ func TestProfileQueueKeepsDrainingAfterAHandlerPanics(t *testing.T) {
 	received := make(chan string, 10)
 	require.NoError(t, queue.Start(func(p profileModel.Profile) {
 		once.Do(func() { panic("a bad profile") })
-		received <- p.ProfileId
+		received <- p.ProfileID
 	}))
 
-	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileId: "bad"}))
-	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileId: "good"}))
+	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "bad"}))
+	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "good"}))
 
 	assert.Equal(t, "good", receive(t, received))
 	require.NoError(t, queue.Close(context.Background()))

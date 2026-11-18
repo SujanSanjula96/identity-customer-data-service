@@ -20,6 +20,7 @@ package suborg
 
 import (
 	"context"
+	stderrors "errors"
 	"net/http"
 	"testing"
 
@@ -33,7 +34,6 @@ import (
 )
 
 func setUp(t *testing.T) context.Context {
-
 	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
@@ -50,8 +50,8 @@ func setUp(t *testing.T) context.Context {
 	})
 	ctx := context.Background()
 	for _, org := range []model.Organization{
-		{OrgId: "primary-id", OrgHandle: "acme", PrimaryOrgId: "primary-id", Status: model.StatusActive},
-		{OrgId: "sub-id", OrgHandle: "sub-handle", ParentOrgId: "primary-id", PrimaryOrgId: "primary-id",
+		{OrgID: "primary-id", OrgHandle: "acme", PrimaryOrgID: "primary-id", Status: model.StatusActive},
+		{OrgID: "sub-id", OrgHandle: "sub-handle", ParentOrgID: "primary-id", PrimaryOrgID: "primary-id",
 			Status: model.StatusActive},
 	} {
 		if err := orgStore.UpsertOrganization(ctx, org); err != nil {
@@ -62,7 +62,6 @@ func setUp(t *testing.T) context.Context {
 }
 
 func TestRejectWrite(t *testing.T) {
-
 	ctx := setUp(t)
 	if err := RejectWrite(ctx, "primary-id"); err != nil {
 		t.Fatalf("a primary org must write, got %v", err)
@@ -71,14 +70,14 @@ func TestRejectWrite(t *testing.T) {
 		t.Fatalf("an org that CDS does not know must write, got %v", err)
 	}
 	err := RejectWrite(ctx, "sub-id")
-	clientErr, ok := err.(*errors.ClientError)
-	if !ok {
+	var clientErr *errors.ClientError
+	if !stderrors.As(err, &clientErr) {
 		t.Fatalf("a sub org must get a client error, got %v", err)
 	}
 	if clientErr.StatusCode != http.StatusForbidden {
 		t.Errorf("status: want %d, got %d", http.StatusForbidden, clientErr.StatusCode)
 	}
-	if clientErr.ErrorMessage.Code != errors.SUB_ORG_WRITE_NOT_ALLOWED.Code {
-		t.Errorf("code: want %s, got %s", errors.SUB_ORG_WRITE_NOT_ALLOWED.Code, clientErr.ErrorMessage.Code)
+	if clientErr.ErrorMessage.Code != errors.SubOrgWriteNotAllowed.Code {
+		t.Errorf("code: want %s, got %s", errors.SubOrgWriteNotAllowed.Code, clientErr.ErrorMessage.Code)
 	}
 }

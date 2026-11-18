@@ -19,7 +19,7 @@ CREATE TABLE profile_unification_triggers
 -- Profiles Table
 CREATE TABLE profiles
 (
-    profile_id          VARCHAR(255) PRIMARY KEY,
+    profile_id          VARCHAR(36) PRIMARY KEY,
     user_id             VARCHAR(255),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -34,9 +34,9 @@ CREATE TABLE profiles
 
 CREATE TABLE profile_reference
 (
-    profile_id                  VARCHAR(255) PRIMARY KEY,
+    profile_id                  VARCHAR(36) PRIMARY KEY,
     profile_status              VARCHAR(255),
-    reference_profile_id        VARCHAR(255),
+    reference_profile_id        VARCHAR(36),
     reference_reason            VARCHAR(255),
     org_id                      VARCHAR(255) NOT NULL,
     reference_profile_org_id    VARCHAR(255)
@@ -82,7 +82,7 @@ CREATE TABLE unification_rules
 CREATE TABLE application_data
 (
     app_data_id      SERIAL PRIMARY KEY,
-    profile_id       VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    profile_id       VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
     app_id           VARCHAR(255) NOT NULL,
     application_data JSONB DEFAULT '{}'::jsonb,
     UNIQUE (profile_id, app_id)
@@ -102,7 +102,7 @@ CREATE TABLE consent_categories
 (
     id                  SERIAL PRIMARY KEY,
     category_name       VARCHAR(255)        NOT NULL,
-    category_identifier VARCHAR(255) UNIQUE NOT NULL,
+    category_identifier VARCHAR(36) UNIQUE NOT NULL,
     purpose             VARCHAR(255)        NOT NULL,
     destinations        TEXT[],
     is_mandatory        BOOLEAN             NOT NULL DEFAULT FALSE,
@@ -112,7 +112,7 @@ CREATE TABLE consent_categories
 CREATE TABLE consent_category_attributes
 (
     id                     SERIAL PRIMARY KEY,
-    category_id            VARCHAR(255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    category_id            VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     scope                  VARCHAR(50)  NOT NULL,
     attribute_name         VARCHAR(255) NOT NULL,
     attribute_id           VARCHAR(255) REFERENCES profile_schema (attribute_id) ON DELETE CASCADE,
@@ -123,8 +123,8 @@ CREATE TABLE consent_category_attributes
 CREATE TABLE profile_consents
 (
     id      SERIAL PRIMARY KEY,
-    profile_id       VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
-    category_id      VARCHAR (255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    profile_id       VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    category_id      VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     consent_status   BOOLEAN     NOT NULL,
     consented_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (profile_id, category_id)
@@ -132,7 +132,7 @@ CREATE TABLE profile_consents
 
 CREATE TABLE profile_cookies (
     cookie_id VARCHAR (255) PRIMARY KEY,
-    profile_id VARCHAR (255) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    profile_id VARCHAR(36) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
     is_active BOOLEAN NOT NULL DEFAULT true
 );
 
@@ -195,10 +195,10 @@ CREATE TABLE IF NOT EXISTS resource_sharing_policy_target (
 -- order and the two partition moduli were all settled by measurement: read "How the index
 -- is stored" in docs/concepts/how-unification-works.md before changing any of them.
 CREATE TABLE IF NOT EXISTS blocking_keys (
-    profile_id      VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-    attribute_name  VARCHAR(255) NOT NULL,       -- Rule property name (e.g., "identity_attributes.emailaddress")
+    profile_id      VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
+    attribute_name  VARCHAR(128) NOT NULL,       -- Rule property name (e.g., "identity_attributes.emailaddress")
     key_value       VARCHAR(512) NOT NULL,       -- Normalized blocking key; 512 because it holds a whole value, not an id
-    org_id          VARCHAR(255) NOT NULL,
+    org_id          VARCHAR(36) NOT NULL,
 
     -- Column order matches the candidate lookup: equality, equality, then IN.
     PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
@@ -225,8 +225,8 @@ CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_id_profile ON blocking_keys(org
 
 CREATE TABLE IF NOT EXISTS review_tasks (
     id                  VARCHAR(255) PRIMARY KEY,
-    incoming_profile_id   VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,  -- New/edited profile that triggered the review
-    candidate_profile_id   VARCHAR(255) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,  -- Candidate profile that matched
+    incoming_profile_id   VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,  -- New/edited profile that triggered the review
+    candidate_profile_id   VARCHAR(36) NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,  -- Candidate profile that matched
     match_score         DECIMAL(5,4) NOT NULL,       -- Score between 0 and 1 (e.g., 0.87)
     status              VARCHAR(50) NOT NULL DEFAULT 'PENDING',  -- PENDING, APPROVED, CANCELLED, REJECTED
     match_reason        TEXT,                        -- JSON or text explaining why matched
@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS review_tasks (
     resolved_at         TIMESTAMPTZ,
     resolved_by         VARCHAR(255),                -- User ID who resolved
     resolution_notes    TEXT,
-    org_id              VARCHAR(255) NOT NULL,
+    org_id              VARCHAR(36) NOT NULL,
     CONSTRAINT uq_review_task_profiles UNIQUE (incoming_profile_id, candidate_profile_id)
 );
 
@@ -249,8 +249,8 @@ CREATE INDEX IF NOT EXISTS idx_review_tasks_incoming ON review_tasks(incoming_pr
 CREATE TABLE IF NOT EXISTS rejection_pairs (
     id              VARCHAR(255) PRIMARY KEY,
     -- Lower id first, so one row is one pair whichever way the review task ran.
-    profile_id_1    VARCHAR(255) NOT NULL,
-    profile_id_2    VARCHAR(255) NOT NULL,
+    profile_id_1    VARCHAR(36) NOT NULL,
+    profile_id_2    VARCHAR(36) NOT NULL,
     -- The evidence the rejection was made against; reconsidered only when later evidence
     -- is materially stronger. See "Rejections" in docs/concepts/unification-rules.md.
     match_score     DECIMAL(5,4),

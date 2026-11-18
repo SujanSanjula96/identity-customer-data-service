@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package service manages sharing policies and the organization access policy, and resolves the
+// resources that an organization receives from its ancestors.
 package service
 
 import (
@@ -26,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/organization/suborg"
@@ -40,7 +43,6 @@ import (
 // organization owns.
 func GetSharedResources(ctx context.Context, resourceType string,
 	org orgModel.Organization) ([]model.SharedResource, error) {
-
 	if org.IsPrimary() || !org.IsActive() {
 		return nil, nil
 	}
@@ -57,15 +59,14 @@ func GetSharedResources(ctx context.Context, resourceType string,
 
 // GetSharedResource returns the resource when an ancestor of the organization shares it with the
 // organization, or nil.
-func GetSharedResource(ctx context.Context, resourceType, resourceId string,
+func GetSharedResource(ctx context.Context, resourceType, resourceID string,
 	org orgModel.Organization) (*model.SharedResource, error) {
-
 	shared, err := GetSharedResources(ctx, resourceType, org)
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range shared {
-		if r.ResourceId == resourceId {
+		if r.ResourceID == resourceID {
 			return &r, nil
 		}
 	}
@@ -76,28 +77,27 @@ func GetSharedResource(ctx context.Context, resourceType, resourceId string,
 // with the organization.
 func sharedResources(ctx context.Context, resourceType string, org orgModel.Organization,
 	ancestors []orgModel.Ancestor) ([]model.SharedResource, error) {
-
-	ownerIds := make([]string, 0, len(ancestors))
-	byId := make(map[string]orgModel.Ancestor, len(ancestors))
+	ownerIDs := make([]string, 0, len(ancestors))
+	byID := make(map[string]orgModel.Ancestor, len(ancestors))
 	for _, a := range ancestors {
-		ownerIds = append(ownerIds, a.OrgId)
-		byId[a.OrgId] = a
+		ownerIDs = append(ownerIDs, a.OrgID)
+		byID[a.OrgID] = a
 	}
-	policies, err := store.GetPoliciesByOwners(ctx, resourceType, ownerIds)
+	policies, err := store.GetPoliciesByOwners(ctx, resourceType, ownerIDs)
 	if err != nil {
 		return nil, err
 	}
 	var result []model.SharedResource
 	seen := map[string]bool{}
 	for _, p := range policies {
-		if seen[p.ResourceId] || !policyReachesOrg(p, org, ancestors) {
+		if seen[p.ResourceID] || !policyReachesOrg(p, org, ancestors) {
 			continue
 		}
-		seen[p.ResourceId] = true
-		owner := byId[p.OwningOrgId]
+		seen[p.ResourceID] = true
+		owner := byID[p.OwningOrgID]
 		result = append(result, model.SharedResource{
-			ResourceId: p.ResourceId,
-			OwnerOrgId: owner.OrgId,
+			ResourceID: p.ResourceID,
+			OwnerOrgID: owner.OrgID,
 			OwnerDepth: owner.Depth,
 		})
 	}
@@ -105,35 +105,34 @@ func sharedResources(ctx context.Context, resourceType string, org orgModel.Orga
 		if result[i].OwnerDepth != result[j].OwnerDepth {
 			return result[i].OwnerDepth < result[j].OwnerDepth
 		}
-		return result[i].ResourceId < result[j].ResourceId
+		return result[i].ResourceID < result[j].ResourceID
 	})
 	return result, nil
 }
 
 // CreatePolicy creates the policy of the initiating organization for a resource that it owns.
-func CreatePolicy(ctx context.Context, resourceType, resourceId string, initiator orgModel.Organization,
+func CreatePolicy(ctx context.Context, resourceType, resourceID string, initiator orgModel.Organization,
 	req model.PolicyRequest) (*model.PolicyResponse, error) {
-
 	if !initiator.IsPrimary() {
 		return nil, suborg.WriteNotAllowed()
 	}
-	existing, err := store.GetPolicy(ctx, resourceType, resourceId, initiator.OrgId)
+	existing, err := store.GetPolicy(ctx, resourceType, resourceID, initiator.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil {
-		return nil, PolicyExistsError(existing.PolicyId)
+		return nil, PolicyExistsError(existing.PolicyID)
 	}
-	targets, problems := ToTargets(req.ChildOrgs, initiator.OrgId)
+	targets, problems := ToTargets(req.ChildOrgs, initiator.OrgID)
 	if len(problems) > 0 {
-		return nil, badRequest(errors2.SHARE_BAD_REQUEST, strings.Join(problems, "; "))
+		return nil, badRequest(errors2.ShareBadRequest, strings.Join(problems, "; "))
 	}
 	candidate := model.Policy{
-		PolicyId:        uuid.New().String(),
+		PolicyID:        uuid.New().String(),
 		ResourceType:    resourceType,
-		ResourceId:      resourceId,
-		OwningOrgId:     initiator.OrgId,
-		InitiatingOrgId: initiator.OrgId,
+		ResourceID:      resourceID,
+		OwningOrgID:     initiator.OrgID,
+		InitiatingOrgID: initiator.OrgID,
 		Targets:         targets,
 	}
 	if err := ValidateTargets(ctx, initiator, candidate); err != nil {
@@ -147,11 +146,10 @@ func CreatePolicy(ctx context.Context, resourceType, resourceId string, initiato
 }
 
 // ListPolicies returns the policies of the initiating organization for the resource.
-func ListPolicies(ctx context.Context, resourceType, resourceId string,
+func ListPolicies(ctx context.Context, resourceType, resourceID string,
 	initiator orgModel.Organization) (*model.PolicyList, error) {
-
 	list := &model.PolicyList{Policies: []model.PolicyResponse{}}
-	p, err := store.GetPolicy(ctx, resourceType, resourceId, initiator.OrgId)
+	p, err := store.GetPolicy(ctx, resourceType, resourceID, initiator.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -163,10 +161,9 @@ func ListPolicies(ctx context.Context, resourceType, resourceId string,
 }
 
 // GetPolicy returns the policy.
-func GetPolicy(ctx context.Context, resourceType, resourceId, policyId string,
+func GetPolicy(ctx context.Context, resourceType, resourceID, policyID string,
 	initiator orgModel.Organization) (*model.PolicyResponse, error) {
-
-	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	p, err := policyOf(ctx, resourceType, resourceID, policyID, initiator)
 	if err != nil {
 		return nil, err
 	}
@@ -175,25 +172,24 @@ func GetPolicy(ctx context.Context, resourceType, resourceId, policyId string,
 }
 
 // UpdatePolicy replaces the targets of the policy.
-func UpdatePolicy(ctx context.Context, resourceType, resourceId, policyId string, initiator orgModel.Organization,
+func UpdatePolicy(ctx context.Context, resourceType, resourceID, policyID string, initiator orgModel.Organization,
 	req model.PolicyRequest) (*model.PolicyResponse, error) {
-
 	if !initiator.IsPrimary() {
 		return nil, suborg.WriteNotAllowed()
 	}
-	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	p, err := policyOf(ctx, resourceType, resourceID, policyID, initiator)
 	if err != nil {
 		return nil, err
 	}
-	targets, problems := ToTargets(req.ChildOrgs, initiator.OrgId)
+	targets, problems := ToTargets(req.ChildOrgs, initiator.OrgID)
 	if len(problems) > 0 {
-		return nil, badRequest(errors2.SHARE_BAD_REQUEST, strings.Join(problems, "; "))
+		return nil, badRequest(errors2.ShareBadRequest, strings.Join(problems, "; "))
 	}
 	p.Targets = targets
 	if err := ValidateTargets(ctx, initiator, *p); err != nil {
 		return nil, err
 	}
-	if err := store.ReplaceTargets(ctx, p.PolicyId, targets); err != nil {
+	if err := store.ReplaceTargets(ctx, p.PolicyID, targets); err != nil {
 		return nil, err
 	}
 	resp := ToResponse(*p)
@@ -201,40 +197,38 @@ func UpdatePolicy(ctx context.Context, resourceType, resourceId, policyId string
 }
 
 // DeletePolicy deletes the policy.
-func DeletePolicy(ctx context.Context, resourceType, resourceId, policyId string,
+func DeletePolicy(ctx context.Context, resourceType, resourceID, policyID string,
 	initiator orgModel.Organization) error {
-
 	if !initiator.IsPrimary() {
 		return suborg.WriteNotAllowed()
 	}
-	p, err := policyOf(ctx, resourceType, resourceId, policyId, initiator)
+	p, err := policyOf(ctx, resourceType, resourceID, policyID, initiator)
 	if err != nil {
 		return err
 	}
-	return store.DeletePolicy(ctx, p.PolicyId)
+	return store.DeletePolicy(ctx, p.PolicyID)
 }
 
 // DeletePoliciesOfResource deletes all policies of the resource. It does nothing when organization
 // management is disabled.
-func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceId string) error {
+func DeletePoliciesOfResource(ctx context.Context, resourceType, resourceID string) error {
 	if !config.OrganizationManagementEnabled() {
 		return nil
 	}
-	return store.DeletePoliciesOfResource(ctx, resourceType, resourceId)
+	return store.DeletePoliciesOfResource(ctx, resourceType, resourceID)
 }
 
 // policyOf returns the policy with the ID when it belongs to the resource and the initiating
 // organization.
-func policyOf(ctx context.Context, resourceType, resourceId, policyId string,
+func policyOf(ctx context.Context, resourceType, resourceID, policyID string,
 	initiator orgModel.Organization) (*model.Policy, error) {
-
-	p, err := store.GetPolicyById(ctx, policyId)
+	p, err := store.GetPolicyByID(ctx, policyID)
 	if err != nil {
 		return nil, err
 	}
-	if p == nil || p.ResourceType != resourceType || p.ResourceId != resourceId ||
-		p.InitiatingOrgId != initiator.OrgId {
-		return nil, PolicyNotFoundError(policyId)
+	if p == nil || p.ResourceType != resourceType || p.ResourceID != resourceID ||
+		p.InitiatingOrgID != initiator.OrgID {
+		return nil, PolicyNotFoundError(policyID)
 	}
 	return p, nil
 }
@@ -242,14 +236,13 @@ func policyOf(ctx context.Context, resourceType, resourceId, policyId string,
 // ValidateTargets checks the targets of the policy against the initiating organization and the
 // target organizations.
 func ValidateTargets(ctx context.Context, initiator orgModel.Organization, p model.Policy) error {
-
 	var targetOrgs []orgModel.Organization
 	if !IsAllChildren(p.Targets) {
 		ids := make([]string, 0, len(p.Targets))
 		for _, t := range p.Targets {
-			ids = append(ids, t.OrgId)
+			ids = append(ids, t.OrgID)
 		}
-		orgs, err := orgService.GetOrganizationsByIds(ctx, ids)
+		orgs, err := orgService.GetOrganizationsByIDs(ctx, ids)
 		if err != nil {
 			return err
 		}
@@ -263,8 +256,7 @@ func ValidateTargets(ctx context.Context, initiator orgModel.Organization, p mod
 
 // ToTargets maps the child_orgs of a request to stored targets, and returns the problems of the
 // request.
-func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgId string) ([]model.Target, []string) {
-
+func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgID string) ([]model.Target, []string) {
 	if childOrgs == nil {
 		return nil, []string{"child_orgs is required"}
 	}
@@ -275,7 +267,7 @@ func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgId string) ([]model.Targ
 		if len(childOrgs.Orgs) > 0 {
 			return nil, []string{"child_orgs.orgs must be empty when child_orgs.mode is all"}
 		}
-		return []model.Target{{Scope: model.ScopeAllChildren, OrgId: initiatingOrgId}}, nil
+		return []model.Target{{Scope: model.ScopeAllChildren, OrgID: initiatingOrgID}}, nil
 	case model.ChildOrgsModeSelected:
 		if len(childOrgs.Orgs) == 0 {
 			return nil, []string{"child_orgs.orgs must have at least one organization when child_orgs.mode is " +
@@ -290,17 +282,17 @@ func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgId string) ([]model.Targ
 	seen := map[string]bool{}
 	targets := make([]model.Target, 0, len(childOrgs.Orgs))
 	for _, child := range childOrgs.Orgs {
-		orgId := strings.TrimSpace(child.OrgId)
-		if orgId == "" {
+		orgID := strings.TrimSpace(child.OrgID)
+		if orgID == "" {
 			problems = append(problems, "each child_orgs.orgs entry requires an org_id")
 			continue
 		}
-		if seen[orgId] {
+		if seen[orgID] {
 			problems = append(problems, fmt.Sprintf("the organization '%s' is in child_orgs.orgs more than once",
-				orgId))
+				orgID))
 			continue
 		}
-		seen[orgId] = true
+		seen[orgID] = true
 		var scope string
 		switch child.Reach {
 		case model.ReachOrg:
@@ -308,14 +300,14 @@ func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgId string) ([]model.Targ
 		case model.ReachSubtree:
 			scope = model.ScopeOrgSubtree
 		case "":
-			problems = append(problems, fmt.Sprintf("the organization '%s' requires a reach", orgId))
+			problems = append(problems, fmt.Sprintf("the organization '%s' requires a reach", orgID))
 			continue
 		default:
 			problems = append(problems, fmt.Sprintf("the reach '%s' of the organization '%s' is not valid. "+
-				"Use org or subtree", child.Reach, orgId))
+				"Use org or subtree", child.Reach, orgID))
 			continue
 		}
-		targets = append(targets, model.Target{Scope: scope, OrgId: orgId})
+		targets = append(targets, model.Target{Scope: scope, OrgID: orgID})
 	}
 	if len(problems) > 0 {
 		return nil, problems
@@ -325,7 +317,6 @@ func ToTargets(childOrgs *model.ChildOrgs, initiatingOrgId string) ([]model.Targ
 
 // ToChildOrgs maps the stored targets to the child_orgs of a response.
 func ToChildOrgs(targets []model.Target) model.ChildOrgs {
-
 	if IsAllChildren(targets) {
 		return model.ChildOrgs{Mode: model.ChildOrgsModeAll}
 	}
@@ -333,9 +324,9 @@ func ToChildOrgs(targets []model.Target) model.ChildOrgs {
 	for _, t := range targets {
 		switch t.Scope {
 		case model.ScopeOrg:
-			childOrgs.Orgs = append(childOrgs.Orgs, model.ChildOrg{OrgId: t.OrgId, Reach: model.ReachOrg})
+			childOrgs.Orgs = append(childOrgs.Orgs, model.ChildOrg{OrgID: t.OrgID, Reach: model.ReachOrg})
 		case model.ScopeOrgSubtree:
-			childOrgs.Orgs = append(childOrgs.Orgs, model.ChildOrg{OrgId: t.OrgId, Reach: model.ReachSubtree})
+			childOrgs.Orgs = append(childOrgs.Orgs, model.ChildOrg{OrgID: t.OrgID, Reach: model.ReachSubtree})
 		}
 	}
 	return childOrgs
@@ -343,7 +334,6 @@ func ToChildOrgs(targets []model.Target) model.ChildOrgs {
 
 // IsAllChildren reports whether the targets have the ALL_CHILDREN scope.
 func IsAllChildren(targets []model.Target) bool {
-
 	for _, t := range targets {
 		if t.Scope == model.ScopeAllChildren {
 			return true
@@ -355,31 +345,31 @@ func IsAllChildren(targets []model.Target) bool {
 // ToResponse maps a policy to the API.
 func ToResponse(p model.Policy) model.PolicyResponse {
 	return model.PolicyResponse{
-		Id:              p.PolicyId,
+		ID:              p.PolicyID,
 		ResourceType:    p.ResourceType,
-		ResourceId:      p.ResourceId,
-		OwningOrgId:     p.OwningOrgId,
-		InitiatingOrgId: p.InitiatingOrgId,
+		ResourceID:      p.ResourceID,
+		OwningOrgID:     p.OwningOrgID,
+		InitiatingOrgID: p.InitiatingOrgID,
 		ChildOrgs:       ToChildOrgs(p.Targets),
 	}
 }
 
 // PolicyExistsError is the error for a second policy of the same organization.
-func PolicyExistsError(policyId string) error {
+func PolicyExistsError(policyID string) error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:    errors2.SHARE_POLICY_EXISTS.Code,
-		Message: errors2.SHARE_POLICY_EXISTS.Message,
+		Code:    errors2.SharePolicyExists.Code,
+		Message: errors2.SharePolicyExists.Message,
 		Description: fmt.Sprintf("The organization already has the policy '%s' for this resource. Use PUT on that "+
-			"policy to change it.", policyId),
+			"policy to change it.", policyID),
 	}, http.StatusConflict)
 }
 
 // PolicyNotFoundError is the error for an unknown policy ID.
-func PolicyNotFoundError(policyId string) error {
+func PolicyNotFoundError(policyID string) error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.SHARE_POLICY_NOT_FOUND.Code,
-		Message:     errors2.SHARE_POLICY_NOT_FOUND.Message,
-		Description: fmt.Sprintf("The policy '%s' is not found for this resource and organization.", policyId),
+		Code:        errors2.SharePolicyNotFound.Code,
+		Message:     errors2.SharePolicyNotFound.Message,
+		Description: fmt.Sprintf("The policy '%s' is not found for this resource and organization.", policyID),
 	}, http.StatusNotFound)
 }
 
@@ -387,8 +377,8 @@ func PolicyNotFoundError(policyId string) error {
 // resource.
 func ConflictError(description string) error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.SHARED_NAME_CONFLICT.Code,
-		Message:     errors2.SHARED_NAME_CONFLICT.Message,
+		Code:        errors2.SharedNameConflict.Code,
+		Message:     errors2.SharedNameConflict.Message,
 		Description: description,
 	}, http.StatusConflict)
 }
@@ -396,15 +386,15 @@ func ConflictError(description string) error {
 // ReadOnlyError is the error for a write to a shared resource from a target organization.
 func ReadOnlyError() error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.SHARED_RESOURCE_READ_ONLY.Code,
-		Message:     errors2.SHARED_RESOURCE_READ_ONLY.Message,
-		Description: errors2.SHARED_RESOURCE_READ_ONLY.Description,
+		Code:        errors2.SharedResourceReadOnly.Code,
+		Message:     errors2.SharedResourceReadOnly.Message,
+		Description: errors2.SharedResourceReadOnly.Description,
 	}, http.StatusForbidden)
 }
 
 // BadRequest is the error for a request that is not valid.
 func BadRequest(description string) error {
-	return badRequest(errors2.SHARE_BAD_REQUEST, description)
+	return badRequest(errors2.ShareBadRequest, description)
 }
 
 func badRequest(msg errors2.ErrorMessage, description string) error {

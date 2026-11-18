@@ -40,7 +40,7 @@ func NewHealthService(mux *http.ServeMux) *HealthService {
 	}
 
 	// Register routes using Go 1.22 ServeMux patterns
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 	s.mux.HandleFunc("GET "+base+"/health", s.handler.HandleHealth)
 	s.mux.HandleFunc("GET "+base+"/ready", s.handler.HandleReadiness)
 

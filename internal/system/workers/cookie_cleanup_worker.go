@@ -23,8 +23,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"time"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -42,8 +43,9 @@ var (
 	cookieCleanupDone chan struct{}
 )
 
+// StartCookieCleanupWorker starts a goroutine that deletes inactive cookies in batches at each interval.
+// An unset interval defaults to 24 hours and an unset batch size to 500. StopCookieCleanupWorker stops it.
 func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
-
 	logger := log.GetLogger()
 
 	if cfg.Interval <= 0 {
@@ -95,7 +97,6 @@ func StartCookieCleanupWorker(cfg config.CookieCleanupConfig) {
 // It returns ErrShutdownIncomplete when ctx expires first, and it is safe to
 // call more than once.
 func StopCookieCleanupWorker(ctx context.Context) error {
-
 	cookieCleanupMu.Lock()
 	cancel, done := cookieCleanupCancel, cookieCleanupDone
 	cookieCleanupCancel, cookieCleanupDone = nil, nil
@@ -121,7 +122,6 @@ func StopCookieCleanupWorker(ctx context.Context) error {
 // runCookieCleanup deletes the inactive cookie records in batches. The sweep
 // runs under the worker's context, so it stops when the worker stops.
 func runCookieCleanup(ctx context.Context, batchSize int) {
-
 	logger := log.GetLogger()
 	total := 0
 

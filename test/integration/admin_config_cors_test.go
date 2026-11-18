@@ -31,38 +31,36 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/cors"
 )
 
-// storeCORSOrigins stores the origins as the configuration of the organisation, which it
+// storeCORSOrigins stores the origins as the configuration of the organization, which it
 // stores first as a request would, and returns the org ID the configuration is kept under.
 func storeCORSOrigins(t *testing.T, orgHandle string, origins []string) string {
-
 	t.Helper()
-	orgId := resolveOrgId(t, orgHandle)
+	orgID := resolveOrgID(t, orgHandle)
 	config := adminConfigModel.AdminConfig{
-		OrgId:              orgId,
+		OrgID:              orgID,
 		CDSEnabled:         true,
 		SystemApplications: []string{},
 		CORSAllowedOrigins: origins,
 	}
-	if err := adminConfigStore.UpdateAdminConfig(context.Background(), config, orgId); err != nil {
+	if err := adminConfigStore.UpdateAdminConfig(context.Background(), config, orgID); err != nil {
 		t.Fatalf("failed to store config for %s: %v", orgHandle, err)
 	}
-	return orgId
+	return orgID
 }
 
 // Each organisation's origins round-trip through the store independently of the others.
 func TestCORSAllowedOriginsRoundTripPerOrg(t *testing.T) {
-
 	want := map[string][]string{
 		"cors-acme":   {"https://app.acme.com", "http://localhost:3000"},
 		"cors-globex": {"https://app.globex.com"},
 	}
-	orgIds := map[string]string{}
+	orgIDs := map[string]string{}
 	for orgHandle, origins := range want {
-		orgIds[orgHandle] = storeCORSOrigins(t, orgHandle, origins)
+		orgIDs[orgHandle] = storeCORSOrigins(t, orgHandle, origins)
 	}
 
 	for orgHandle, origins := range want {
-		stored, err := adminConfigStore.GetAdminConfig(context.Background(), orgIds[orgHandle])
+		stored, err := adminConfigStore.GetAdminConfig(context.Background(), orgIDs[orgHandle])
 		if err != nil {
 			t.Fatalf("failed to read config for %s: %v", orgHandle, err)
 		}
@@ -72,11 +70,10 @@ func TestCORSAllowedOriginsRoundTripPerOrg(t *testing.T) {
 	}
 }
 
-// An organisation that has never been configured reports no origins, so the deployment
+// An organization that has never been configured reports no origins, so the deployment
 // fallback applies to it.
 func TestCORSAllowedOriginsEmptyForUnconfiguredOrg(t *testing.T) {
-
-	stored, err := adminConfigStore.GetAdminConfig(context.Background(), resolveOrgId(t, "cors-never-configured"))
+	stored, err := adminConfigStore.GetAdminConfig(context.Background(), resolveOrgID(t, "cors-never-configured"))
 	if err != nil {
 		t.Fatalf("failed to read config: %v", err)
 	}
@@ -85,25 +82,24 @@ func TestCORSAllowedOriginsEmptyForUnconfiguredOrg(t *testing.T) {
 	}
 }
 
-// The CORS middleware reads the origins of one organisation by org ID, and an organisation that
+// The CORS middleware reads the origins of one organization by org ID, and an organization that
 // has configured none, or an empty list, reads as none.
 func TestCORSAllowedOriginsAreReadPerOrg(t *testing.T) {
-
 	ctx := context.Background()
-	acmeId := storeCORSOrigins(t, "cors-one-acme", []string{"https://app.acme.com", "http://localhost:3000"})
-	initechId := storeCORSOrigins(t, "cors-one-initech", []string{})
+	acmeID := storeCORSOrigins(t, "cors-one-acme", []string{"https://app.acme.com", "http://localhost:3000"})
+	initechID := storeCORSOrigins(t, "cors-one-initech", []string{})
 
 	cases := map[string]struct {
-		orgId string
+		orgID string
 		want  []string
 	}{
-		"configured":       {acmeId, []string{"https://app.acme.com", "http://localhost:3000"}},
-		"empty list":       {initechId, nil},
-		"never configured": {resolveOrgId(t, "cors-one-never-configured"), nil},
+		"configured":       {acmeID, []string{"https://app.acme.com", "http://localhost:3000"}},
+		"empty list":       {initechID, nil},
+		"never configured": {resolveOrgID(t, "cors-one-never-configured"), nil},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := adminConfigStore.GetCORSAllowedOrigins(ctx, c.orgId)
+			got, err := adminConfigStore.GetCORSAllowedOrigins(ctx, c.orgID)
 			if err != nil {
 				t.Fatalf("failed to read the origins: %v", err)
 			}
@@ -117,14 +113,13 @@ func TestCORSAllowedOriginsAreReadPerOrg(t *testing.T) {
 // The stored origins drive the middleware end to end: each organisation's own origin is
 // allowed on its own path and refused on the other's.
 func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
-
 	storeCORSOrigins(t, "cors-mw-acme", []string{"https://app.acme.com"})
 	storeCORSOrigins(t, "cors-mw-globex", []string{"https://app.globex.com"})
 
 	// Resolve the handle as the server does and read straight through the store rather than
 	// the service, so the assertion is about what was persisted and not about what a cache
-	// happens to hold. Like the service, it answers a sub organisation with the origins of its
-	// primary organisation.
+	// happens to hold. Like the service, it answers a sub organization with the origins of its
+	// primary organization.
 	lookup := func(ctx context.Context, org cors.Org) ([]string, error) {
 		ref, found, err := orgService.LookupOrganization(ctx, org.Handle)
 		if err != nil || !found {
@@ -147,7 +142,7 @@ func TestStoredOriginsDriveTheMiddleware(t *testing.T) {
 	}{
 		{"own origin allowed", "/t/cors-mw-acme/cds/api/v1/profiles", "https://app.acme.com",
 			"https://app.acme.com"},
-		{"primary origin allowed on a sub organisation path",
+		{"primary origin allowed on a sub organization path",
 			"/t/cors-mw-acme/o/4b1e/cds/api/v1/profiles", "https://app.acme.com", "https://app.acme.com"},
 		{"foreign org origin refused", "/t/cors-mw-globex/cds/api/v1/profiles", "https://app.acme.com", ""},
 		{"deployment origin still allowed once org adds its own",

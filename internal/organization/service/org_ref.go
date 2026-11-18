@@ -50,7 +50,6 @@ var (
 // stores it, as GetOrStoreOrganization does. It returns a not found error when the identity provider
 // does not know the handle. Call it after the request is authenticated.
 func ResolveOrganization(ctx context.Context, orgHandle string) (model.Ref, error) {
-
 	if ref, found, err := store.LookupOrganizationRef(ctx, orgHandle); err != nil || found {
 		return ref, err
 	}
@@ -81,47 +80,42 @@ func ResolveOrganization(ctx context.Context, orgHandle string) (model.Ref, erro
 // false when CDS has no row for the handle. It does not call the identity provider, so an event
 // about an organization that CDS does not know stores nothing.
 func LookupOrganization(ctx context.Context, orgHandle string) (ref model.Ref, found bool, err error) {
-
 	return store.LookupOrganizationRef(ctx, orgHandle)
 }
 
-// LookupOrganizationById returns the org ID and the org handle of the stored organization with the ID.
+// LookupOrganizationByID returns the org ID and the org handle of the stored organization with the ID.
 // found is false when CDS has no row for the ID. It does not call the identity provider.
-func LookupOrganizationById(ctx context.Context, orgId string) (ref model.Ref, found bool, err error) {
-
-	return store.LookupOrganizationRefById(ctx, orgId)
+func LookupOrganizationByID(ctx context.Context, orgID string) (ref model.Ref, found bool, err error) {
+	return store.LookupOrganizationRefByID(ctx, orgID)
 }
 
 // GetOrganizationHandle returns the org handle of the stored organization with the ID. A flow that
 // has the org ID calls it where it needs the handle, such as for an identity server call or a
 // profile location.
-func GetOrganizationHandle(ctx context.Context, orgId string) (string, error) {
-
-	ref, found, err := store.LookupOrganizationRefById(ctx, orgId)
+func GetOrganizationHandle(ctx context.Context, orgID string) (string, error) {
+	ref, found, err := store.LookupOrganizationRefByID(ctx, orgID)
 	if err != nil {
 		return "", err
 	}
 	if !found {
 		return "", errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
-			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
-			Description: fmt.Sprintf("CDS has no organization with the ID '%s'.", orgId),
-		}, fmt.Errorf("no organization with the ID %s", orgId))
+			Code:        errors2.OrganizationNotFound.Code,
+			Message:     errors2.OrganizationNotFound.Message,
+			Description: fmt.Sprintf("CDS has no organization with the ID '%s'.", orgID),
+		}, fmt.Errorf("no organization with the ID %s", orgID))
 	}
 	return ref.Handle, nil
 }
 
 func organizationNotFound(orgHandle string) error {
-
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
-		Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+		Code:        errors2.OrganizationNotFound.Code,
+		Message:     errors2.OrganizationNotFound.Message,
 		Description: fmt.Sprintf("CDS does not know the organization '%s'.", orgHandle),
 	}, http.StatusNotFound)
 }
 
 func isNotFound(err error) bool {
-
 	var clientError *errors2.ClientError
 	return errors.As(err, &clientError) && clientError.StatusCode == http.StatusNotFound
 }

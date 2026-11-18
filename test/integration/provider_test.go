@@ -35,9 +35,28 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
 )
 
-// backendPID asks PostgreSQL which server process answered. Two queries that
-// report the same value travelled the same connection.
-var backendPID = model.DBQuery{ID: "PROVIDER-IT-01", Query: "SELECT pg_backend_pid() AS pid"}
+// backendPID asks the server which process answered. Two queries that report
+// the same value traveled the same connection.
+var backendPID = model.DBQuery{
+	ID:    "PROVIDER-IT-01",
+	Query: "SELECT pg_backend_pid() AS pid",
+	Overrides: map[string]string{
+		database.TypeMySQL: "SELECT CONNECTION_ID() AS pid",
+		database.TypeMSSQL: "SELECT @@SPID AS pid",
+	},
+}
+
+// holdConnection answers like backendPID after the server has held the
+// connection for 0.2 seconds, so that concurrent callers each need a connection
+// of their own.
+var holdConnection = model.DBQuery{
+	ID:    "PROVIDER-IT-02",
+	Query: "SELECT pg_sleep(0.2), pg_backend_pid() AS pid",
+	Overrides: map[string]string{
+		database.TypeMySQL: "SELECT SLEEP(0.2), CONNECTION_ID() AS pid",
+		database.TypeMSSQL: "WAITFOR DELAY '00:00:00.200'; SELECT @@SPID AS pid",
+	},
+}
 
 // providerPoolLimit is the open limit this suite configures. It is small, so
 // that the number of server processes the instance uses is easy to count.
@@ -45,33 +64,43 @@ const providerPoolLimit = 3
 
 // useProductionProvider points the runtime at the test container and takes the
 // test override away, so the DSN, the pool settings, the check before the
-// handle is published, the reuse of one pool and the shutdown all run. The rest of the suite installs the container's own handle with SetTestDB
-// and bypasses them.
+// handle is published, the reuse of one pool and the shutdown all run. The rest
+// of the suite installs the container's own handle with SetTestDB and bypasses
+// them.
 func useProductionProvider(t *testing.T) {
-
 	t.Helper()
 
-	if suiteDBType != database.TypePostgres || suitePostgres == nil {
-		t.Skip("the production provider path is PostgreSQL only")
+	if suiteServer == nil {
+		t.Skip("the inbuilt database has no server for the production provider to connect to")
 	}
 
 	original := config.GetCDSRuntime().Config
 
-	runtimeConfig := original
-	runtimeConfig.DataSource = config.DataSourceConfig{
-		Type:     database.TypePostgres,
-		Hostname: suitePostgres.Host,
-		Port:     suitePostgres.Port,
-		Username: suitePostgres.Username,
-		Password: suitePostgres.Password,
-		Name:     suitePostgres.Database,
+	dataSource := config.DataSourceConfig{
+		Type:     suiteDBType,
+		Hostname: suiteServer.Host,
+		Port:     suiteServer.Port,
+		Username: suiteServer.Username,
+		Password: suiteServer.Password,
+		Name:     suiteServer.Database,
 		SSLMode:  "disable",
-		Postgres: config.PostgresConfig{
-			MaxOpenConns:          providerPoolLimit,
-			MaxIdleConns:          providerPoolLimit,
-			ConnectTimeoutSeconds: 10,
-		},
 	}
+	switch suiteDBType {
+	case database.TypePostgres:
+		dataSource.Postgres = config.PostgresConfig{
+			MaxOpenConns: providerPoolLimit, MaxIdleConns: providerPoolLimit, ConnectTimeoutSeconds: 10}
+	case database.TypeMySQL:
+		dataSource.MySQL = config.MySQLConfig{
+			MaxOpenConns: providerPoolLimit, MaxIdleConns: providerPoolLimit, ConnectTimeoutSeconds: 10}
+	case database.TypeMSSQL:
+		dataSource.MSSQL = config.MSSQLConfig{
+			MaxOpenConns: providerPoolLimit, MaxIdleConns: providerPoolLimit, ConnectTimeoutSeconds: 10}
+	default:
+		t.Fatalf("no pool settings for the %s datasource", suiteDBType)
+	}
+
+	runtimeConfig := original
+	runtimeConfig.DataSource = dataSource
 	config.OverrideCDSRuntime(runtimeConfig)
 	provider.SetTestDB(nil, "")
 
@@ -85,7 +114,6 @@ func useProductionProvider(t *testing.T) {
 // queryBackendPID runs one statement and returns the server process that
 // answered it.
 func queryBackendPID(t *testing.T, dbClient client.DBClientInterface) string {
-
 	t.Helper()
 
 	rows, err := dbClient.ExecuteQueryContext(context.Background(), backendPID)
@@ -99,14 +127,13 @@ func queryBackendPID(t *testing.T, dbClient client.DBClientInterface) string {
 }
 
 // Test_ProductionProvider drives the path the PR changes, end to end, against
-// a real PostgreSQL server.
+// a real server of the datasource the suite runs on.
 //
 // The subtests follow the lifecycle of one process, in order and once. The
 // first callers open the pool, later callers share it, and shutdown closes it
 // for good. Nothing reopens a pool after shutdown, because the server does
 // not.
 func Test_ProductionProvider(t *testing.T) {
-
 	useProductionProvider(t)
 
 	// The configuration has to pass the same check the server runs at start.
@@ -199,7 +226,7 @@ func Test_ProductionProvider(t *testing.T) {
 			go func(index int) {
 				defer done.Done()
 				rows, err := dbClient.ExecuteQueryContext(context.Background(),
-					model.DBQuery{ID: "PROVIDER-IT-02", Query: "SELECT pg_sleep(0.2), pg_backend_pid() AS pid"})
+					holdConnection)
 				if err != nil {
 					failures[index] = err
 					return

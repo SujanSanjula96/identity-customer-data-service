@@ -21,7 +21,6 @@ package database
 import "testing"
 
 func Test_ResolveType(t *testing.T) {
-
 	testCases := map[string]string{
 		"":          TypeSQLite,
 		"   ":       TypeSQLite,
@@ -39,17 +38,18 @@ func Test_ResolveType(t *testing.T) {
 }
 
 // Test_unsupportedTypeIsRejected records that normalization is not validation:
-// ResolveType passes an unrecognised value through, and the startup check is
+// ResolveType passes an unrecognized value through, and the startup check is
 // what refuses to run on it.
 func Test_unsupportedTypeIsRejected(t *testing.T) {
-
-	if normalized := ResolveType(" MySQL "); normalized != "mysql" {
-		t.Errorf("ResolveType(%q) = %q, expected %q", " MySQL ", normalized, "mysql")
+	if normalized := ResolveType(" Oracle "); normalized != "oracle" {
+		t.Errorf("ResolveType(%q) = %q, expected %q", " Oracle ", normalized, "oracle")
 	}
-	if IsSupportedType("mysql") {
-		t.Error("mysql is not a datasource CDS can run on and must not be reported as supported")
+	for _, unsupported := range []string{"oracle", ""} {
+		if IsSupportedType(unsupported) {
+			t.Errorf("%q is not a datasource CDS can run on and must not be reported as supported", unsupported)
+		}
 	}
-	for _, supported := range []string{TypePostgres, TypeSQLite} {
+	for _, supported := range []string{TypePostgres, TypeSQLite, TypeMySQL, TypeMSSQL} {
 		if !IsSupportedType(supported) {
 			t.Errorf("%q must be reported as supported", supported)
 		}

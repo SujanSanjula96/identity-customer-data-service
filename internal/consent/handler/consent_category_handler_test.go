@@ -66,12 +66,12 @@ func newConsentHandlerEnv(t *testing.T) *consentHandlerEnv {
 		"consent_category:update", "consent_category:delete")
 
 	handle := fmt.Sprintf("acme-%d", consentHandlerOrgCounter.Add(1))
-	env := &consentHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle), auth: auth,
+	env := &consentHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle), auth: auth,
 		h: NewConsentCategoryHandler()}
 	setup.TestOrg(t, handle)
 	require.NoError(t, schemaStore.AddProfileSchemaAttributesForScope(context.Background(),
 		[]schemaModel.ProfileSchemaAttribute{{
-			AttributeId:   "attr-age",
+			AttributeID:   "attr-age",
 			AttributeName: "traits.age",
 			Scope:         constants.Traits,
 			ValueType:     constants.IntegerDataType,

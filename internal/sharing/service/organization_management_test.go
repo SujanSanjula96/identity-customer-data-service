@@ -31,7 +31,6 @@ import (
 // The runtime configuration of this test binary is not initialized, so organization management is
 // disabled.
 func TestDeletePoliciesOfResourceReadsNoTableWhenOrganizationManagementIsDisabled(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}

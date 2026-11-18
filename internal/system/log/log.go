@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package log provides the structured logger of CDS, a wrapper around slog.
 package log
 
 import (

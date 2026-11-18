@@ -24,62 +24,77 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/pagination"
 )
 
+// ProfileResponse is the API representation of a single profile.
 type ProfileResponse struct {
-	ProfileId          string                            `json:"profile_id" bson:"profile_id"`
-	UserId             string                            `json:"user_id,omitempty" bson:"user_id,omitempty"`
-	AnonymousProfileTracker string                         `json:"anonymous_profile_tracker,omitempty" bson:"anonymous_profile_tracker,omitempty"`
-	Meta               Meta                              `json:"meta" bson:"meta"`
-	IdentityAttributes map[string]interface{}            `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
-	Traits             map[string]interface{}            `json:"traits,omitempty" bson:"traits,omitempty"`
-	ApplicationData    map[string]map[string]interface{} `json:"application_data,omitempty" bson:"application_data,omitempty"`
-	MergedTo           *Reference                        `json:"merged_to,omitempty" bson:"merged_to,omitempty"`
-	MergedFrom         []Reference                       `json:"merged_from,omitempty" bson:"merged_from,omitempty"`
+	ProfileID        string `json:"profile_id" bson:"profile_id"`
+	UserID           string `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	AnonymousTracker string `json:"anonymous_profile_tracker,omitempty" bson:"anonymous_profile_tracker,omitempty"`
+	Meta             Meta   `json:"meta" bson:"meta"`
+
+	IdentityAttributes map[string]any `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
+	Traits             map[string]any `json:"traits,omitempty" bson:"traits,omitempty"`
+
+	ApplicationData map[string]map[string]any `json:"application_data,omitempty" bson:"application_data,omitempty"`
+
+	MergedTo   *Reference  `json:"merged_to,omitempty" bson:"merged_to,omitempty"`
+	MergedFrom []Reference `json:"merged_from,omitempty" bson:"merged_from,omitempty"`
 }
 
+// ProfileListResponse is the API representation of a profile in a list, with a match score for fuzzy searches.
 type ProfileListResponse struct {
-	ProfileId          string                            `json:"profile_id" bson:"profile_id"`
-	UserId             string                            `json:"user_id,omitempty" bson:"user_id,omitempty"`
-	Meta               Meta                              `json:"meta" bson:"meta"`
-	IdentityAttributes map[string]interface{}            `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
-	Traits             map[string]interface{}            `json:"traits,omitempty" bson:"traits,omitempty"`
-	ApplicationData    map[string]map[string]interface{} `json:"application_data,omitempty" bson:"application_data,omitempty"`
-	MergedFrom         []Reference                       `json:"merged_from,omitempty" bson:"merged_from,omitempty"`
-	MatchScore         *float64                          `json:"match_score,omitempty" bson:"match_score,omitempty"`
-	ScoreBreakdown     map[string]float64                `json:"score_breakdown,omitempty" bson:"score_breakdown,omitempty"`
+	ProfileID string `json:"profile_id" bson:"profile_id"`
+	UserID    string `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	Meta      Meta   `json:"meta" bson:"meta"`
+
+	IdentityAttributes map[string]any `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
+	Traits             map[string]any `json:"traits,omitempty" bson:"traits,omitempty"`
+
+	ApplicationData map[string]map[string]any `json:"application_data,omitempty" bson:"application_data,omitempty"`
+
+	MergedFrom     []Reference        `json:"merged_from,omitempty" bson:"merged_from,omitempty"`
+	MatchScore     *float64           `json:"match_score,omitempty" bson:"match_score,omitempty"`
+	ScoreBreakdown map[string]float64 `json:"score_breakdown,omitempty" bson:"score_breakdown,omitempty"`
 }
 
+// Meta holds a profile's creation and update times and its resource location.
 type Meta struct {
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
 	Location  string    `json:"location" bson:"location"`
 }
 
+// ProfileRequest is the request body for creating or updating a profile.
 type ProfileRequest struct {
-	UserId             string                 `json:"user_id" bson:"user_id"`
-	IdentityAttributes map[string]interface{} `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
-	Traits             map[string]interface{} `json:"traits,omitempty" bson:"traits,omitempty"`
-	ApplicationData    map[string]interface{} `json:"application_data"`
+	UserID             string         `json:"user_id" bson:"user_id"`
+	IdentityAttributes map[string]any `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
+	Traits             map[string]any `json:"traits,omitempty" bson:"traits,omitempty"`
+	ApplicationData    map[string]any `json:"application_data"`
 }
 
+// ProfileLinkRequest is the request body for linking a profile to a user.
 type ProfileLinkRequest struct {
-	ProfileId string `json:"profile_id" bson:"profile_id"`
-	UserId    string `json:"user_id" bson:"user_id"`
+	ProfileID string `json:"profile_id" bson:"profile_id"`
+	UserID    string `json:"user_id" bson:"user_id"`
 }
 
+// ProfileLinkResponse is the response body for a profile link request.
 type ProfileLinkResponse struct {
-	ProfileId string `json:"profile_id" bson:"profile_id"`
-	UserId    string `json:"user_id" bson:"user_id"`
+	ProfileID string `json:"profile_id" bson:"profile_id"`
+	UserID    string `json:"user_id" bson:"user_id"`
 }
 
+// ProfileSync is a user event, such as a user add, update, delete, login or logout, sent by the identity
+// server to keep profiles in sync.
 type ProfileSync struct {
-	UserId        string                 `json:"userId" bson:"userId"`
+	UserID        string                 `json:"userId" bson:"userId"`
 	ProfileCookie string                 `json:"profileCookie,omitempty" bson:"profileCookie,omitempty"`
-	ProfileId     string                 `json:"profileId,omitempty" bson:"profileId,omitempty"`
+	ProfileID     string                 `json:"profileId,omitempty" bson:"profileId,omitempty"`
 	Event         string                 `json:"event" bson:"event"`
 	Claims        map[string]interface{} `json:"claims,omitempty" bson:"claims,omitempty"`
 	OrgHandle     string                 `json:"orgHandle,omitempty" bson:"orgHandle,omitempty"`
 }
 
+// ProfileListAPIResponse is the paginated response body for listing profiles.
 type ProfileListAPIResponse struct {
 	Pagination pagination.Pagination `json:"pagination"`
 	Items      []ProfileListResponse `json:"profiles"`

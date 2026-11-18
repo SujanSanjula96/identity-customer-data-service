@@ -81,7 +81,7 @@ func TestCappedMatchStillReachesReview(t *testing.T) {
 			// the evaluation ending early on a deterministic agreement.
 			DeterministicMatchDecisive: false,
 		}
-		ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+		ctx := ScoringContext{OrgID: "acme", Thresholds: thresholds}
 		candidate := &model.ProfileData{ProfileID: "candidate", Attributes: existing}
 
 		score, breakdown := ScoreCandidate(incoming, candidate, rules, ctx)

@@ -36,49 +36,48 @@ import (
 // Mandatory categories (e.g. identity-data) are always merged into the allowed set
 // regardless of whether the caller listed them in consentCategoryIds.
 // If consentCategoryIds is empty, only mandatory identity fields are returned.
-func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse, profileId string, orgId string,
-	consentIds []string) (model.ProfileResponse, error) {
-
+func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse, profileID string, orgID string,
+	consentIDs []string) (model.ProfileResponse, error) {
 	filtered := model.ProfileResponse{
-		ProfileId:  response.ProfileId,
-		UserId:     response.UserId,
+		ProfileID:  response.ProfileID,
+		UserID:     response.UserID,
 		Meta:       response.Meta,
 		MergedTo:   response.MergedTo,
 		MergedFrom: response.MergedFrom,
 	}
 
 	// Ignore requested categories that are not defined in the org.
-	if len(consentIds) > 0 {
-		orgCategorySet, err := consentCategoryIdSet(ctx, orgId)
+	if len(consentIDs) > 0 {
+		orgCategorySet, err := consentCategoryIDSet(ctx, orgID)
 		if err != nil {
 			return filtered, err
 		}
-		orgConsentIds := make([]string, 0, len(consentIds))
-		for _, id := range consentIds {
+		orgConsentIDs := make([]string, 0, len(consentIDs))
+		for _, id := range consentIDs {
 			if orgCategorySet[id] {
-				orgConsentIds = append(orgConsentIds, id)
+				orgConsentIDs = append(orgConsentIDs, id)
 			}
 		}
-		consentIds = orgConsentIds
+		consentIDs = orgConsentIDs
 	}
 
 	// Always include mandatory categories in the allowed set regardless of what
 	// the caller requested.  This ensures identity attributes are never stripped.
 	// Mandatory categories belong to the organization that holds the identity attributes.
-	source := identitysource.Of(ctx, orgId)
-	mandatoryIds, err := consentStore.GetMandatoryConsentCategoryIds(ctx, source)
+	source := identitysource.Of(ctx, orgID)
+	mandatoryIDs, err := consentStore.GetMandatoryConsentCategoryIDs(ctx, source)
 	if err != nil {
 		return filtered, err
 	}
-	seen := make(map[string]bool, len(consentIds)+len(mandatoryIds))
-	merged := make([]string, 0, len(consentIds)+len(mandatoryIds))
-	for _, id := range consentIds {
+	seen := make(map[string]bool, len(consentIDs)+len(mandatoryIDs))
+	merged := make([]string, 0, len(consentIDs)+len(mandatoryIDs))
+	for _, id := range consentIDs {
 		if !seen[id] {
 			seen[id] = true
 			merged = append(merged, id)
 		}
 	}
-	for _, id := range mandatoryIds {
+	for _, id := range mandatoryIDs {
 		if !seen[id] {
 			seen[id] = true
 			merged = append(merged, id)
@@ -89,7 +88,7 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 	}
 
 	// Fetch attributes for categories the profile has actively consented to (mandatory categories always included).
-	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileId(ctx, profileId, source, merged)
+	attrsByCategory, err := consentStore.GetConsentedCategoryAttributesByProfileID(ctx, profileID, source, merged)
 	if err != nil {
 		return filtered, err
 	}
@@ -168,7 +167,7 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 		}
 
 		appData := make(map[string]map[string]interface{})
-		for clientId, attrs := range response.ApplicationData {
+		for clientID, attrs := range response.ApplicationData {
 			filteredAttrs := make(map[string]interface{})
 			for innerKey, v := range attrs {
 				if allowedInnerKeys[innerKey] {
@@ -176,7 +175,7 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 				}
 			}
 			if len(filteredAttrs) > 0 {
-				appData[clientId] = filteredAttrs
+				appData[clientID] = filteredAttrs
 			}
 		}
 		if len(appData) > 0 {
@@ -187,10 +186,9 @@ func FilterProfileByConsent(ctx context.Context, response model.ProfileResponse,
 	return filtered, nil
 }
 
-// consentCategoryIdSet returns the IDs of all consent categories of the org.
-func consentCategoryIdSet(ctx context.Context, orgId string) (map[string]bool, error) {
-
-	ids, err := consentStore.GetConsentCategoryIds(ctx, orgId)
+// consentCategoryIDSet returns the IDs of all consent categories of the org.
+func consentCategoryIDSet(ctx context.Context, orgID string) (map[string]bool, error) {
+	ids, err := consentStore.GetConsentCategoryIDs(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}

@@ -16,12 +16,15 @@
  * under the License.
  */
 
+// Package model defines the customer profile types and the profile API request and response types.
 package model
 
 import "time"
 
+// ProfileStatus holds a profile's unification state: whether it is a reference profile, which profile it
+// is merged into, and the profiles merged into it.
 type ProfileStatus struct {
-	ReferenceProfileId string `json:"reference_profile_id,omitempty" bson:"reference_profile_id,omitempty"`
+	ReferenceProfileID string `json:"reference_profile_id,omitempty" bson:"reference_profile_id,omitempty"`
 	IsReferenceProfile bool   `json:"is_reference_profile,omitempty" bson:"is_reference_profile,omitempty"`
 	// Is the profile waiting for admin approval for unification
 	IsWaitingOnAdmin bool `json:"is_waiting_on_admin,omitempty" bson:"is_waiting_on_admin,omitempty"`
@@ -33,26 +36,29 @@ type ProfileStatus struct {
 	References      []Reference `json:"references,omitempty" bson:"references,omitempty"`
 }
 
+// Reference points to another profile and the reason the two are linked.
 type Reference struct {
-	ProfileId string `json:"profile_id,omitempty" bson:"profile_id,omitempty"`
+	ProfileID string `json:"profile_id,omitempty" bson:"profile_id,omitempty"`
 	Reason    string `json:"reason,omitempty" bson:"rule_name,omitempty"`
 }
 
+// Profile is a stored customer profile of an organization.
 type Profile struct {
-	ProfileId          string                 `json:"profile_id" bson:"profile_id"`
-	UserId             string                 `json:"user_id" bson:"user_id"`
-	OrgId              string                 `json:"org_id" bson:"org_id"`
-	CreatedAt          time.Time              `json:"created_at" bson:"created_at"`
-	UpdatedAt          time.Time              `json:"updated_at" bson:"updated_at"`
-	IdentityAttributes map[string]interface{} `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
-	Traits             map[string]interface{} `json:"traits,omitempty" bson:"traits,omitempty"`
-	ApplicationData    []ApplicationData      `json:"application_data,omitempty" bson:"application_data,omitempty"`
-	ProfileStatus      *ProfileStatus         `json:"profile_status,omitempty" bson:"profile_status,omitempty"`
+	ProfileID          string            `json:"profile_id" bson:"profile_id"`
+	UserID             string            `json:"user_id" bson:"user_id"`
+	OrgID              string            `json:"org_id" bson:"org_id"`
+	CreatedAt          time.Time         `json:"created_at" bson:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at" bson:"updated_at"`
+	IdentityAttributes map[string]any    `json:"identity_attributes,omitempty" bson:"identity_attributes,omitempty"`
+	Traits             map[string]any    `json:"traits,omitempty" bson:"traits,omitempty"`
+	ApplicationData    []ApplicationData `json:"application_data,omitempty" bson:"application_data,omitempty"`
+	ProfileStatus      *ProfileStatus    `json:"profile_status,omitempty" bson:"profile_status,omitempty"`
 }
 
+// ProfileCookie maps a profile cookie ID to the profile it identifies.
 type ProfileCookie struct {
-	ProfileId string `json:"profile_id" bson:"profile_id"`
-	CookieId  string `json:"cookie_id" bson:"cookie_id"`
+	ProfileID string `json:"profile_id" bson:"profile_id"`
+	CookieID  string `json:"cookie_id" bson:"cookie_id"`
 	IsActive  bool   `json:"is_active" bson:"is_active"`
 }
 
@@ -63,9 +69,12 @@ type ProfileConsent struct {
 
 // ConsentRecord represents an individual consent record for a profile
 type ConsentRecord struct {
-	CategoryIdentifier string    `json:"category_identifier" bson:"category_identifier"` // References the consent category
-	IsConsented        bool      `json:"is_consented" bson:"is_consented"`               // Whether the user has given consent
-	ConsentedAt        time.Time `json:"consented_at" bson:"consented_at"`               // Timestamp when consent was given/updated
+	// References the consent category
+	CategoryIdentifier string `json:"category_identifier" bson:"category_identifier"`
+	// Whether the user has given consent
+	IsConsented bool `json:"is_consented" bson:"is_consented"`
+	// Timestamp when consent was given/updated
+	ConsentedAt time.Time `json:"consented_at" bson:"consented_at"`
 }
 
 // ProfileConsentResponse is the response model for profile consents API
@@ -73,8 +82,9 @@ type ProfileConsentResponse struct {
 	Consents []ConsentRecord `json:"consents"`
 }
 
+// ProfileCursor marks the position and direction of a page in a cursor-paginated profile listing.
 type ProfileCursor struct {
 	CreatedAt time.Time `json:"created_at"`
-	ProfileId string    `json:"profile_id"`
+	ProfileID string    `json:"profile_id"`
 	Direction string    `json:"direction,omitempty"` // "next" or "prev"
 }

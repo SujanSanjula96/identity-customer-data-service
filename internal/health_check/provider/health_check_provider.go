@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider supplies the health check service.
 package provider
 
 import (

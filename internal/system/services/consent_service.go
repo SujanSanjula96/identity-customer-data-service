@@ -26,18 +26,20 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// ConsentCategoryService registers the consent category endpoints.
 type ConsentCategoryService struct {
 	handler *handler.ConsentCategoryHandler
 	mux     *http.ServeMux
 }
 
+// NewConsentCategoryService registers the consent category routes on mux and returns the service.
 func NewConsentCategoryService(mux *http.ServeMux) *ConsentCategoryService {
 	s := &ConsentCategoryService{
 		handler: handler.NewConsentCategoryHandler(),
 		mux:     mux,
 	}
 
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 	// Register routes with Go 1.22 ServeMux patterns on shared mux
 	s.mux.HandleFunc("GET "+base+"/consent-categories", s.handler.GetAllConsentCategories)
 	s.mux.HandleFunc("POST "+base+"/consent-categories", s.handler.AddConsentCategory)

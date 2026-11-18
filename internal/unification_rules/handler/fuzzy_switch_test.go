@@ -32,7 +32,7 @@ func withFuzzyMatching(t *testing.T, enabled bool) {
 	config.OverrideCDSRuntime(conf)
 }
 
-// TestFuzzyMatchingDefaultsToOff pins the upgrade behaviour. A deployment.yaml written
+// TestFuzzyMatchingDefaultsToOff pins the upgrade behavior. A deployment.yaml written
 // before this key existed must keep unifying profiles exactly as it did, so an upgrade
 // cannot change which profiles get merged until an operator asks for it.
 func TestFuzzyMatchingDefaultsToOff(t *testing.T) {

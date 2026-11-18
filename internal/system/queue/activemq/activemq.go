@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package activemq provides the queues backed by an ActiveMQ broker over STOMP. It registers itself as
+// the activemq provider of the queue package.
 package activemq
 
 import (
@@ -32,6 +34,7 @@ import (
 	"time"
 
 	"github.com/go-stomp/stomp/v3"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -167,7 +170,7 @@ func (mc *managedConn) dial() error {
 					certDir = abs
 				}
 			}
-			trustPEM, readErr := os.ReadFile(filepath.Join(certDir, mc.tlsCfg.TrustStore))
+			trustPEM, readErr := os.ReadFile(filepath.Clean(filepath.Join(certDir, mc.tlsCfg.TrustStore)))
 			if readErr != nil {
 				return fmt.Errorf("activemq: failed to read trust_store: %w", readErr)
 			}
@@ -249,7 +252,6 @@ func (mc *managedConn) isShuttingDown() bool {
 // closeWithin stops the consumer goroutines and disconnects from the broker
 // inside ctx. It is safe to call more than once.
 func (mc *managedConn) closeWithin(ctx context.Context) error {
-
 	mc.closeOnce.Do(func() { mc.closeErr = mc.disconnectWithin(ctx) })
 	return mc.closeErr
 }
@@ -260,7 +262,6 @@ func (mc *managedConn) closeWithin(ctx context.Context) error {
 //
 // The connection itself is kept, so a late Enqueue reports a send error.
 func (mc *managedConn) disconnectWithin(ctx context.Context) error {
-
 	mc.shutdown()
 
 	mc.mu.RLock()
@@ -292,7 +293,7 @@ func (mc *managedConn) disconnectWithin(ctx context.Context) error {
 // reconnectWithBackoff attempts to re-establish the connection, retrying up
 // to maxAttempts times with exponential backoff capped at maxBackoff. Pass 0
 // for unlimited retries (used by long-lived consumers). Returns an error if
-// all attempts are exhausted or if shutdown is signalled.
+// all attempts are exhausted or if shutdown is signaled.
 func (mc *managedConn) reconnectWithBackoff(context string, maxAttempts int) error {
 	mc.reconnectMu.Lock()
 	defer mc.reconnectMu.Unlock()
@@ -368,6 +369,7 @@ type ProfileQueue struct {
 	destination string
 }
 
+// NewProfileQueue connects to the broker and returns a ProfileQueue that sends to the destination.
 func NewProfileQueue(addr, username, password, destination string, tlsCfg config.TLSConfig) (*ProfileQueue, error) {
 	mc, err := newManagedConn(addr, username, password, tlsCfg)
 	if err != nil {
@@ -387,21 +389,21 @@ func NewProfileQueue(addr, username, password, destination string, tlsCfg config
 func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 	data, err := json.Marshal(profile)
 	if err != nil {
-		return fmt.Errorf("activemq: failed to marshal profile %s: %w", profile.ProfileId, err)
+		return fmt.Errorf("activemq: failed to marshal profile %s: %w", profile.ProfileID, err)
 	}
 
 	if err := q.mc.getConn().Send(q.destination, contentTypeJSON, data); err != nil {
 		log.GetLogger().Error(fmt.Sprintf(
 			"activemq: send failed for profile %s, will reconnect and retry: %v",
-			profile.ProfileId, err))
+			profile.ProfileID, err))
 
 		if reconnErr := q.mc.reconnectWithBackoff("profile enqueue", 1); reconnErr != nil {
-			return fmt.Errorf("activemq: send failed for profile %s: %w", profile.ProfileId, reconnErr)
+			return fmt.Errorf("activemq: send failed for profile %s: %w", profile.ProfileID, reconnErr)
 		}
 
 		// Single retry after reconnect.
 		if retryErr := q.mc.getConn().Send(q.destination, contentTypeJSON, data); retryErr != nil {
-			return fmt.Errorf("activemq: retry send failed for profile %s: %w", profile.ProfileId, retryErr)
+			return fmt.Errorf("activemq: retry send failed for profile %s: %w", profile.ProfileID, retryErr)
 		}
 	}
 	return nil
@@ -440,7 +442,8 @@ func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
 				// connection instead of reconnecting again.
 				if subGen != currentGen {
 					log.GetLogger().Info(
-						"activemq: profile queue subscription closed on retired connection, re-subscribing on current connection",
+						"activemq: profile queue subscription closed on retired connection, " +
+							"re-subscribing on current connection",
 					)
 					newSub, newGen, err := q.mc.subscribeCurrent(q.destination)
 					if err != nil {
@@ -515,7 +518,11 @@ type SchemaSyncQueue struct {
 	destination string
 }
 
-func NewSchemaSyncQueue(addr, username, password, destination string, tlsCfg config.TLSConfig) (*SchemaSyncQueue, error) {
+// NewSchemaSyncQueue connects to the broker and returns a SchemaSyncQueue that sends to the destination.
+func NewSchemaSyncQueue(
+	addr, username, password, destination string,
+	tlsCfg config.TLSConfig,
+) (*SchemaSyncQueue, error) {
 	mc, err := newManagedConn(addr, username, password, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("activemq: failed to connect for schema sync queue: %w", err)
@@ -569,7 +576,8 @@ func (q *SchemaSyncQueue) Start(handler func(schemaModel.ProfileSchemaSync)) err
 
 				if subGen != currentGen {
 					log.GetLogger().Info(
-						"activemq: schema sync subscription closed on retired connection, re-subscribing on current connection",
+						"activemq: schema sync subscription closed on retired connection, " +
+							"re-subscribing on current connection",
 					)
 					newSub, newGen, err := q.mc.subscribeCurrent(q.destination)
 					if err != nil {

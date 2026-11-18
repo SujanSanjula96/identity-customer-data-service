@@ -16,7 +16,7 @@
  * under the License.
  */
 
-package models
+package model
 
 // ConsentCategoryResponse is the API-facing representation of a consent category.
 //

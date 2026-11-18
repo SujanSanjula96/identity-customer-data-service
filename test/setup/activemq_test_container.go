@@ -52,7 +52,7 @@ func SetupTestActiveMQ(ctx context.Context) (*TestActiveMQ, error) {
 		ExposedPorts: []string{activemqSTOMPPort},
 		// Wait until the STOMP connector is fully ready, not just until the
 		// TCP port is open (which can happen before the protocol handler is
-		// initialised, causing "connection reset by peer" errors).
+		// initialized, causing "connection reset by peer" errors).
 		WaitingFor: wait.ForLog("Connector stomp started"),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

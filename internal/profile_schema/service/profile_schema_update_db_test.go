@@ -43,16 +43,16 @@ func updateBody(name string, extra map[string]interface{}) map[string]interface{
 func TestUpdateAttributeChangesItsDefinition(t *testing.T) {
 	env := newSchemaEnv(t)
 	stored := env.add(t, constants.Traits, trait("traits.tags"))
-	id := stored[0].AttributeId
+	id := stored[0].AttributeID
 
-	err := env.svc.UpdateProfileSchemaAttributeById(env.ctx, env.orgID, id, updateBody("traits.tags",
+	err := env.svc.UpdateProfileSchemaAttributeByID(env.ctx, env.orgID, id, updateBody("traits.tags",
 		map[string]interface{}{
 			"mutability":   constants.MutabilityWriteOnce,
 			"multi_valued": true,
 		}), constants.Traits)
 
 	require.NoError(t, err)
-	got, err := env.svc.GetProfileSchemaAttributeById(env.ctx, env.orgID, id)
+	got, err := env.svc.GetProfileSchemaAttributeByID(env.ctx, env.orgID, id)
 	require.NoError(t, err)
 	assert.Equal(t, constants.MutabilityWriteOnce, got.Mutability)
 	assert.True(t, got.MultiValued)
@@ -61,7 +61,7 @@ func TestUpdateAttributeChangesItsDefinition(t *testing.T) {
 func TestUpdateAttributeRefusals(t *testing.T) {
 	env := newSchemaEnv(t)
 	stored := env.add(t, constants.Traits, trait("traits.city"))
-	id := stored[0].AttributeId
+	id := stored[0].AttributeID
 
 	tests := []struct {
 		name    string
@@ -88,7 +88,7 @@ func TestUpdateAttributeRefusals(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := env.svc.UpdateProfileSchemaAttributeById(env.ctx, env.orgID, tc.id, tc.updates, constants.Traits)
+			err := env.svc.UpdateProfileSchemaAttributeByID(env.ctx, env.orgID, tc.id, tc.updates, constants.Traits)
 
 			_ = requireClientErr(t, err, tc.status)
 		})
@@ -101,7 +101,7 @@ func TestUpdatingAttributeIsRefusedInASubOrganization(t *testing.T) {
 		VALUES ('sub-org', 'sub', $1, 'ACTIVE')`, env.orgID)
 	require.NoError(t, err)
 
-	err = env.svc.UpdateProfileSchemaAttributeById(env.ctx, "sub-org", "any", updateBody("traits.city", nil),
+	err = env.svc.UpdateProfileSchemaAttributeByID(env.ctx, "sub-org", "any", updateBody("traits.city", nil),
 		constants.Traits)
 
 	_ = requireClientErr(t, err, http.StatusForbidden)

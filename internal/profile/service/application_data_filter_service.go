@@ -18,18 +18,21 @@
 
 package service
 
+// ApplicationDataFilterParams controls which application data is returned with a profile.
 type ApplicationDataFilterParams struct {
 	IncludeAppData  bool     // Whether to include application data
 	RequestedAppIDs []string // Specific app IDs to include, or "*" for all
 }
 
+// FilterApplicationData returns the application data the caller may see. It returns nothing unless
+// IncludeAppData is set. A privileged caller gets the requested app IDs, or all data when none or "*"
+// is requested; any other caller gets only its own application's data.
 func FilterApplicationData(
 	appData map[string]map[string]interface{},
 	callerAppID string,
 	isSystemApp bool,
 	params ApplicationDataFilterParams,
 ) map[string]map[string]interface{} {
-
 	if !params.IncludeAppData {
 		return make(map[string]map[string]interface{})
 	}
@@ -45,7 +48,10 @@ func FilterApplicationData(
 	return filterForRegularApp(appData, callerAppID)
 }
 
-func filterForSystemApp(appData map[string]map[string]interface{}, requestedAppIDs []string) map[string]map[string]interface{} {
+func filterForSystemApp(
+	appData map[string]map[string]interface{},
+	requestedAppIDs []string,
+) map[string]map[string]interface{} {
 	if len(requestedAppIDs) == 0 {
 		return appData
 	}
@@ -66,7 +72,10 @@ func filterForSystemApp(appData map[string]map[string]interface{}, requestedAppI
 	return filtered
 }
 
-func filterForRegularApp(appData map[string]map[string]interface{}, callerAppID string) map[string]map[string]interface{} {
+func filterForRegularApp(
+	appData map[string]map[string]interface{},
+	callerAppID string,
+) map[string]map[string]interface{} {
 	filtered := make(map[string]map[string]interface{})
 
 	if callerAppID != "" {

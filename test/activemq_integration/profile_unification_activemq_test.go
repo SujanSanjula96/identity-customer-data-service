@@ -22,12 +22,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	schemaModel "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -57,8 +59,8 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	schemaSvc := schemaService.GetProfileSchemaService()
 	identityAttrs := []schemaModel.ProfileSchemaAttribute{
 		{
-			OrgId:         org.ID,
-			AttributeId:   uuid.New().String(),
+			OrgID:         org.ID,
+			AttributeID:   uuid.New().String(),
 			AttributeName: "identity_attributes.email",
 			ValueType:     constants.StringDataType,
 			MergeStrategy: "combine",
@@ -68,8 +70,8 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	}
 	traitAttrs := []schemaModel.ProfileSchemaAttribute{
 		{
-			OrgId:         org.ID,
-			AttributeId:   uuid.New().String(),
+			OrgID:         org.ID,
+			AttributeID:   uuid.New().String(),
 			AttributeName: "traits.interests",
 			ValueType:     constants.StringDataType,
 			MergeStrategy: "combine",
@@ -77,7 +79,12 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 			MultiValued:   true,
 		},
 	}
-	_, err := schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttrs, constants.IdentityAttributes, org.ID)
+	_, err := schemaSvc.AddProfileSchemaAttributesForScope(
+		context.Background(),
+		identityAttrs,
+		constants.IdentityAttributes,
+		org.ID,
+	)
 	require.NoError(t, err)
 	_, err = schemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traitAttrs, constants.Traits, org.ID)
 	require.NoError(t, err)
@@ -85,9 +92,9 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	// ── Unification rule: match on email ─────────────────────────────────────
 	unificationSvc := unificationService.GetUnificationRuleService()
 	emailRule := model.UnificationRule{
-		RuleId:       uuid.New().String(),
+		RuleID:       uuid.New().String(),
 		RuleName:     "email_match",
-		OrgId:        org.ID,
+		OrgID:        org.ID,
 		PropertyName: "identity_attributes.email",
 		Priority:     1,
 		IsActive:     true,
@@ -99,8 +106,12 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	// ── Create two profiles that share an email ───────────────────────────────
 	profileSvc := profileService.GetProfilesService()
 
-	p1Req := mustUnmarshalProfileReq(`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["music"]}}`)
-	p2Req := mustUnmarshalProfileReq(`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["sports"]}}`)
+	p1Req := mustUnmarshalProfileReq(
+		`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["music"]}}`,
+	)
+	p2Req := mustUnmarshalProfileReq(
+		`{"identity_attributes":{"email":["shared@activemq-test.com"]},"traits":{"interests":["sports"]}}`,
+	)
 
 	p1, err := profileSvc.CreateProfile(context.Background(), p1Req, org.ID)
 	require.NoError(t, err)
@@ -111,19 +122,19 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	// ── Assertions ───────────────────────────────────────────────────────────
-	merged1, err := profileSvc.GetProfile(context.Background(), p1.ProfileId, org.ID)
+	merged1, err := profileSvc.GetProfile(context.Background(), p1.ProfileID, org.ID)
 	require.NoError(t, err)
-	merged2, err := profileSvc.GetProfile(context.Background(), p2.ProfileId, org.ID)
+	merged2, err := profileSvc.GetProfile(context.Background(), p2.ProfileID, org.ID)
 	require.NoError(t, err)
 
 	// Both profiles should point to the same master profile.
-	require.NotEmpty(t, merged1.MergedTo.ProfileId, "profile 1 should be merged via ActiveMQ queue")
-	require.NotEmpty(t, merged2.MergedTo.ProfileId, "profile 2 should be merged via ActiveMQ queue")
-	require.Equal(t, merged1.MergedTo.ProfileId, merged2.MergedTo.ProfileId,
+	require.NotEmpty(t, merged1.MergedTo.ProfileID, "profile 1 should be merged via ActiveMQ queue")
+	require.NotEmpty(t, merged2.MergedTo.ProfileID, "profile 2 should be merged via ActiveMQ queue")
+	require.Equal(t, merged1.MergedTo.ProfileID, merged2.MergedTo.ProfileID,
 		"both profiles should be unified into the same master profile")
 
 	// The master profile should carry the combined interests.
-	master, err := profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileId, org.ID)
+	master, err := profileSvc.GetProfile(context.Background(), merged1.MergedTo.ProfileID, org.ID)
 	require.NoError(t, err)
 	interests, ok := master.Traits["interests"].([]interface{})
 	require.True(t, ok, "interests should be a slice")
@@ -132,10 +143,10 @@ func Test_ActiveMQ_ProfileUnification_EmailBased(t *testing.T) {
 
 	// ── Cleanup ───────────────────────────────────────────────────────────────
 	t.Cleanup(func() {
-		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRule.RuleId, org.ID)
+		_ = unificationSvc.DeleteUnificationRule(context.Background(), emailRule.RuleID, org.ID)
 		profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), org.ID, 20, nil)
 		for _, p := range profiles {
-			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId, org.ID)
+			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileID, org.ID)
 		}
 		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), org.ID, constants.IdentityAttributes)
 		_ = schemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), org.ID, constants.Traits)

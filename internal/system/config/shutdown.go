@@ -29,7 +29,6 @@ import (
 // shutdown sequence. Zero, which is also what an omitted setting gives, returns
 // the default. A negative value is refused.
 func ResolveShutdownGracePeriod(cfg ShutdownConfig) (time.Duration, error) {
-
 	if cfg.GracePeriodSeconds < 0 {
 		return 0, fmt.Errorf("shutdown.grace_period_seconds must not be negative, got %d",
 			cfg.GracePeriodSeconds)

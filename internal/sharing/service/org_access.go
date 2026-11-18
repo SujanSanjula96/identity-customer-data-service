@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/sharing/model"
@@ -36,9 +37,8 @@ import (
 
 // IsSubOrgEnabled reports whether the organization access of the primary organization includes the
 // organization.
-func IsSubOrgEnabled(ctx context.Context, orgId string) bool {
-
-	org, err := orgService.GetOrganizationById(ctx, orgId)
+func IsSubOrgEnabled(ctx context.Context, orgID string) bool {
+	org, err := orgService.GetOrganizationByID(ctx, orgID)
 	if err != nil || org == nil {
 		return false
 	}
@@ -49,7 +49,6 @@ func IsSubOrgEnabled(ctx context.Context, orgId string) bool {
 // IsOrgEnabled reports whether the organization access includes the organization. A primary
 // organization is always enabled.
 func IsOrgEnabled(ctx context.Context, org orgModel.Organization) (bool, error) {
-
 	if org.IsPrimary() {
 		return true, nil
 	}
@@ -63,7 +62,6 @@ func IsOrgEnabled(ctx context.Context, org orgModel.Organization) (bool, error) 
 // isOrgEnabled reports whether an organization access policy of an ancestor reaches the active
 // organization.
 func isOrgEnabled(ctx context.Context, org orgModel.Organization, ancestors []orgModel.Ancestor) (bool, error) {
-
 	if !org.IsActive() || len(ancestors) == 0 {
 		return false, nil
 	}
@@ -77,7 +75,6 @@ func isOrgEnabled(ctx context.Context, org orgModel.Organization, ancestors []or
 // CreateOrgAccess creates the organization access of the primary organization.
 func CreateOrgAccess(ctx context.Context, primary orgModel.Organization,
 	req model.PolicyRequest) (*model.OrgAccessResponse, error) {
-
 	if err := requireSyncedTree(ctx, primary); err != nil {
 		return nil, err
 	}
@@ -86,18 +83,18 @@ func CreateOrgAccess(ctx context.Context, primary orgModel.Organization,
 		return nil, err
 	}
 	if existing != nil {
-		return nil, PolicyExistsError(existing.PolicyId)
+		return nil, PolicyExistsError(existing.PolicyID)
 	}
-	targets, problems := ToTargets(req.ChildOrgs, primary.OrgId)
+	targets, problems := ToTargets(req.ChildOrgs, primary.OrgID)
 	if len(problems) > 0 {
 		return nil, BadRequest(strings.Join(problems, "; "))
 	}
 	p := model.Policy{
-		PolicyId:        uuid.New().String(),
+		PolicyID:        uuid.New().String(),
 		ResourceType:    model.ResourceOrganizationAccess,
-		ResourceId:      model.OrganizationAccessResourceId,
-		OwningOrgId:     primary.OrgId,
-		InitiatingOrgId: primary.OrgId,
+		ResourceID:      model.OrganizationAccessResourceID,
+		OwningOrgID:     primary.OrgID,
+		InitiatingOrgID: primary.OrgID,
 		Targets:         targets,
 	}
 	if err := ValidateTargets(ctx, primary, p); err != nil {
@@ -112,7 +109,6 @@ func CreateOrgAccess(ctx context.Context, primary orgModel.Organization,
 
 // ListOrgAccess returns the organization access policies of the primary organization.
 func ListOrgAccess(ctx context.Context, primary orgModel.Organization) (*model.OrgAccessList, error) {
-
 	list := &model.OrgAccessList{Policies: []model.OrgAccessResponse{}}
 	p, err := orgAccessOf(ctx, primary)
 	if err != nil {
@@ -127,9 +123,8 @@ func ListOrgAccess(ctx context.Context, primary orgModel.Organization) (*model.O
 
 // GetOrgAccess returns an organization access policy of the primary organization.
 func GetOrgAccess(ctx context.Context, primary orgModel.Organization,
-	policyId string) (*model.OrgAccessResponse, error) {
-
-	p, err := orgAccessById(ctx, primary, policyId)
+	policyID string) (*model.OrgAccessResponse, error) {
+	p, err := orgAccessByID(ctx, primary, policyID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,17 +133,16 @@ func GetOrgAccess(ctx context.Context, primary orgModel.Organization,
 }
 
 // UpdateOrgAccess replaces the selected organizations of an organization access policy.
-func UpdateOrgAccess(ctx context.Context, primary orgModel.Organization, policyId string,
+func UpdateOrgAccess(ctx context.Context, primary orgModel.Organization, policyID string,
 	req model.PolicyRequest) (*model.OrgAccessResponse, error) {
-
 	if err := requireSyncedTree(ctx, primary); err != nil {
 		return nil, err
 	}
-	p, err := orgAccessById(ctx, primary, policyId)
+	p, err := orgAccessByID(ctx, primary, policyID)
 	if err != nil {
 		return nil, err
 	}
-	targets, problems := ToTargets(req.ChildOrgs, primary.OrgId)
+	targets, problems := ToTargets(req.ChildOrgs, primary.OrgID)
 	if len(problems) > 0 {
 		return nil, BadRequest(strings.Join(problems, "; "))
 	}
@@ -165,7 +159,7 @@ func UpdateOrgAccess(ctx context.Context, primary orgModel.Organization, policyI
 	if err := ValidateTargets(ctx, primary, *p); err != nil {
 		return nil, err
 	}
-	if err := store.ReplaceTargets(ctx, p.PolicyId, targets); err != nil {
+	if err := store.ReplaceTargets(ctx, p.PolicyID, targets); err != nil {
 		return nil, err
 	}
 	resp := toOrgAccessResponse(*p)
@@ -173,56 +167,53 @@ func UpdateOrgAccess(ctx context.Context, primary orgModel.Organization, policyI
 }
 
 // DeleteOrgAccess deletes the organization access of the primary organization.
-func DeleteOrgAccess(ctx context.Context, primary orgModel.Organization, policyId string) error {
-
-	p, err := orgAccessById(ctx, primary, policyId)
+func DeleteOrgAccess(ctx context.Context, primary orgModel.Organization, policyID string) error {
+	p, err := orgAccessByID(ctx, primary, policyID)
 	if err != nil {
 		return err
 	}
-	return store.DeletePolicy(ctx, p.PolicyId)
+	return store.DeletePolicy(ctx, p.PolicyID)
 }
 
 // requireSyncedTree returns an error until the organization tree is synced at least once.
 func requireSyncedTree(ctx context.Context, primary orgModel.Organization) error {
-
-	status, err := orgService.GetTreeSyncStatus(ctx, primary.OrgId)
+	status, err := orgService.GetTreeSyncStatus(ctx, primary.OrgID)
 	if err != nil {
 		return err
 	}
 	if status.LastSyncedAt == nil {
 		return errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATIONS_NOT_SYNCED.Code,
-			Message:     errors2.ORGANIZATIONS_NOT_SYNCED.Message,
-			Description: errors2.ORGANIZATIONS_NOT_SYNCED.Description,
+			Code:        errors2.OrganizationsNotSynced.Code,
+			Message:     errors2.OrganizationsNotSynced.Message,
+			Description: errors2.OrganizationsNotSynced.Description,
 		}, http.StatusBadRequest)
 	}
 	return nil
 }
 
 func orgAccessOf(ctx context.Context, primary orgModel.Organization) (*model.Policy, error) {
-	return store.GetPolicy(ctx, model.ResourceOrganizationAccess, model.OrganizationAccessResourceId,
-		primary.OrgId)
+	return store.GetPolicy(ctx, model.ResourceOrganizationAccess, model.OrganizationAccessResourceID,
+		primary.OrgID)
 }
 
-// orgAccessById returns the organization access policy with the ID when it belongs to the primary
+// orgAccessByID returns the organization access policy with the ID when it belongs to the primary
 // organization.
-func orgAccessById(ctx context.Context, primary orgModel.Organization, policyId string) (*model.Policy, error) {
-
-	p, err := store.GetPolicyById(ctx, policyId)
+func orgAccessByID(ctx context.Context, primary orgModel.Organization, policyID string) (*model.Policy, error) {
+	p, err := store.GetPolicyByID(ctx, policyID)
 	if err != nil {
 		return nil, err
 	}
-	if p == nil || p.ResourceType != model.ResourceOrganizationAccess || p.InitiatingOrgId != primary.OrgId {
-		return nil, PolicyNotFoundError(policyId)
+	if p == nil || p.ResourceType != model.ResourceOrganizationAccess || p.InitiatingOrgID != primary.OrgID {
+		return nil, PolicyNotFoundError(policyID)
 	}
 	return p, nil
 }
 
 func toOrgAccessResponse(p model.Policy) model.OrgAccessResponse {
 	return model.OrgAccessResponse{
-		Id:              p.PolicyId,
-		OwningOrgId:     p.OwningOrgId,
-		InitiatingOrgId: p.InitiatingOrgId,
+		ID:              p.PolicyID,
+		OwningOrgID:     p.OwningOrgID,
+		InitiatingOrgID: p.InitiatingOrgID,
 		ChildOrgs:       ToChildOrgs(p.Targets),
 	}
 }

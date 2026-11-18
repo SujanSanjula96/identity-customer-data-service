@@ -26,8 +26,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	_ "modernc.org/sqlite"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
 )
 
 var (
@@ -39,7 +40,6 @@ var (
 // openTestPool opens an inbuilt database that holds at most maxOpen
 // connections, and creates the one table the tests write to.
 func openTestPool(t *testing.T, maxOpen int) *sql.DB {
-
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "cds.db")
@@ -58,7 +58,6 @@ func openTestPool(t *testing.T, maxOpen int) *sql.DB {
 
 // countRows reads the number of rows the table holds.
 func countRows(t *testing.T, db *sql.DB) int {
-
 	t.Helper()
 
 	var count int
@@ -72,7 +71,6 @@ func countRows(t *testing.T, db *sql.DB) int {
 // transaction ends with the context the caller passes, and not with some
 // context the transaction kept.
 func Test_ExecContext_usesTheSuppliedContext(t *testing.T) {
-
 	db := openTestPool(t, 2)
 	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -92,7 +90,6 @@ func Test_ExecContext_usesTheSuppliedContext(t *testing.T) {
 // Test_QueryContext_usesTheSuppliedContext is the same check for a statement
 // that returns rows.
 func Test_QueryContext_usesTheSuppliedContext(t *testing.T) {
-
 	db := openTestPool(t, 2)
 	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -103,7 +100,10 @@ func Test_QueryContext_usesTheSuppliedContext(t *testing.T) {
 	statementCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = NewTx(tx, database.TypeSQLite).QueryContext(statementCtx, countItems)
+	rows, err := NewTx(tx, database.TypeSQLite).QueryContext(statementCtx, countItems)
+	if rows != nil {
+		_ = rows.Close()
+	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
@@ -112,7 +112,6 @@ func Test_QueryContext_usesTheSuppliedContext(t *testing.T) {
 // Test_Commit_returnsItsError covers the commit that fails. The caller must
 // see that failure, because the data was not written.
 func Test_Commit_returnsItsError(t *testing.T) {
-
 	db := openTestPool(t, 2)
 
 	txCtx, cancel := context.WithCancel(context.Background())
@@ -142,7 +141,6 @@ func Test_Commit_returnsItsError(t *testing.T) {
 // waitForTxToEnd waits for database/sql to roll a transaction back after its
 // context ended. That happens in a goroutine of its own.
 func waitForTxToEnd(t *testing.T, tx *Tx) {
-
 	t.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)

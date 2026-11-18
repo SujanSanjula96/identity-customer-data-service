@@ -33,29 +33,28 @@ import (
 	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
-// failingIdP fails to read the primary organization.
-type failingIdP struct{}
+// failingIDP fails to read the primary organization.
+type failingIDP struct{}
 
-func (failingIdP) GetPrimaryOrganization(_ context.Context, _ string) (idp.Organization, error) {
+func (failingIDP) GetPrimaryOrganization(_ context.Context, _ string) (idp.Organization, error) {
 	return idp.Organization{}, errors.New("identity provider is not reachable")
 }
 
-func (failingIdP) ListDescendants(_ context.Context, _ string) ([]idp.Organization, error) {
+func (failingIDP) ListDescendants(_ context.Context, _ string) ([]idp.Organization, error) {
 	return nil, nil
 }
 
-func (failingIdP) GetOrganization(_ context.Context, _, _ string) (*idp.Organization, error) {
+func (failingIDP) GetOrganization(_ context.Context, _, _ string) (*idp.Organization, error) {
 	return nil, nil
 }
 
-func (failingIdP) IdentityAttributeSourceHandle(orgHandle, _ string) string {
+func (failingIDP) IdentityAttributeSourceHandle(orgHandle, _ string) string {
 	return orgHandle
 }
 
 // An enable after a disable that cannot store the primary organization leaves CDS disabled, so
 // the next enable stores it.
 func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}
@@ -65,7 +64,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 		t.Fatalf("failed to set up the test database: %v", err)
 	}
 	provider.SetTestDB(testDB.DB, database.TypeSQLite)
-	idp.SetAdapter(failingIdP{})
+	idp.SetAdapter(failingIDP{})
 	t.Cleanup(func() {
 		idp.SetAdapter(nil)
 		provider.SetTestDB(nil, "")
@@ -74,7 +73,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 	ctx := context.Background()
 	acme := orgModel.Ref{ID: "acme-id", Handle: "acme"}
 	if err := store.UpdateAdminConfig(ctx, model.AdminConfig{
-		OrgId:              "acme",
+		OrgID:              "acme",
 		SystemApplications: []string{},
 	}, acme.ID); err != nil {
 		t.Fatalf("failed to store the configuration: %v", err)
@@ -84,7 +83,7 @@ func TestEnableKeepsCDSDisabledWhenThePrimaryOrganizationIsNotStored(t *testing.
 	}
 
 	err = AdminConfigService{}.UpdateAdminConfig(ctx, &model.AdminConfig{
-		OrgId:              "acme",
+		OrgID:              "acme",
 		CDSEnabled:         true,
 		SystemApplications: []string{},
 	}, acme)

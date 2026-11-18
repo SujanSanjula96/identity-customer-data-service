@@ -20,12 +20,14 @@ package integration
 
 import (
 	"context"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/google/uuid"
+
 	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	irService "github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
@@ -46,12 +48,12 @@ func insertRule(t *testing.T, org, name, property string, priority int, attribut
 	if err != nil {
 		t.Fatalf("db client: %v", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	now := time.Now().UTC()
 	ruleID := uuid.New().String()
 	_, err = dbClient.ExecuteQueryContext(context.Background(), fuzzyRuleInsert,
-		ruleID, resolveOrgId(t, org), name, property, priority, true, attributeType, method, now, now)
+		ruleID, resolveOrgID(t, org), name, property, priority, true, attributeType, method, now, now)
 	if err != nil {
 		t.Fatalf("store rule %q: %v", name, err)
 	}
@@ -74,7 +76,15 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	ctx := context.Background()
 	org := newOrg("reject-reconsider")
 	ref := setup.TestOrg(t, org)
-	emailRule := insertRule(t, org, "email", "traits.email", 1, constants.AttributeTypeEmail, constants.UnificationMethodDeterministic)
+	emailRule := insertRule(
+		t,
+		org,
+		"email",
+		"traits.email",
+		1,
+		constants.AttributeTypeEmail,
+		constants.UnificationMethodDeterministic,
+	)
 	insertRule(t, org, "name", "traits.name", 2, constants.AttributeTypeName, constants.UnificationMethodFuzzy)
 
 	// Same name, different emails: the name agrees, the email disagrees, so the pair is
@@ -129,14 +139,14 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 	}
 	irWorker.ResolveProfileAsync(ctx, ref.ID, second)
 
-	for _, p := range []string{first.ProfileId, second.ProfileId} {
+	for _, p := range []string{first.ProfileID, second.ProfileID} {
 		stored, err := profileStore.GetProfile(ctx, p, ref.ID)
 		if err != nil || stored == nil {
 			t.Fatalf("load profile %s: %v", p, err)
 		}
-		if stored.ProfileStatus != nil && stored.ProfileStatus.ReferenceProfileId != "" {
+		if stored.ProfileStatus != nil && stored.ProfileStatus.ReferenceProfileID != "" {
 			t.Fatalf("profile %s was merged into %s without review, overturning the rejection",
-				p, stored.ProfileStatus.ReferenceProfileId)
+				p, stored.ProfileStatus.ReferenceProfileID)
 		}
 	}
 
@@ -162,7 +172,11 @@ func Test_RejectedPair_ReconsideredIsReviewedNotMerged(t *testing.T) {
 		t.Fatalf("the reconsidered task does not say it was reconsidered: %v", explanationCodes(reopened[0]))
 	}
 	if !reflect.DeepEqual(reconsideredReason.RuleIDs, []string{emailRule}) {
-		t.Errorf("the reconsidered reason names rules %v, want the email rule %s", reconsideredReason.RuleIDs, emailRule)
+		t.Errorf(
+			"the reconsidered reason names rules %v, want the email rule %s",
+			reconsideredReason.RuleIDs,
+			emailRule,
+		)
 	}
 	if reconsideredReason.PreviousSimilarity == nil || *reconsideredReason.PreviousSimilarity != 1.0 {
 		t.Errorf("the reconsidered reason does not carry the similarity the pair was rejected at")

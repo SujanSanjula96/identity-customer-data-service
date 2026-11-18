@@ -62,7 +62,7 @@ func newConsentEnv(t *testing.T) *consentEnv {
 	})
 
 	handle := fmt.Sprintf("acme-%d", consentOrgCounter.Add(1))
-	env := &consentEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgId(handle),
+	env := &consentEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgID(handle),
 		svc: &ConsentCategoryService{}}
 	require.NoError(t, setup.InsertTestOrganization(testDB.DB, env.orgID, handle))
 	env.addAttribute(t, constants.Traits, "traits.age", "")
@@ -74,7 +74,7 @@ func newConsentEnv(t *testing.T) *consentEnv {
 func (e *consentEnv) addAttribute(t *testing.T, scope, name, appIdentifier string) {
 	t.Helper()
 	require.NoError(t, schemaStore.AddProfileSchemaAttributesForScope(e.ctx, []schemaModel.ProfileSchemaAttribute{{
-		AttributeId:           "attr-" + name,
+		AttributeID:           "attr-" + name,
 		AttributeName:         name,
 		Scope:                 scope,
 		ApplicationIdentifier: appIdentifier,
@@ -121,7 +121,7 @@ func TestAddConsentCategoryGeneratesTheIDAndResolvesTheAttributes(t *testing.T) 
 	assert.NotEqual(t, "caller-supplied-id", added.CategoryIdentifier, "the identifier is always server generated")
 	require.Len(t, added.Attributes, 2)
 	assert.Equal(t, constants.Traits, added.Attributes[0].Scope)
-	assert.Equal(t, "attr-traits.age", added.Attributes[0].AttributeId)
+	assert.Equal(t, "attr-traits.age", added.Attributes[0].AttributeID)
 	assert.Equal(t, constants.ApplicationData, added.Attributes[1].Scope)
 
 	got, err := env.svc.GetConsentCategory(env.ctx, added.CategoryIdentifier, env.orgID)
@@ -192,7 +192,7 @@ func TestGetConsentCategoryNotFound(t *testing.T) {
 	_, err := env.svc.GetConsentCategory(env.ctx, "missing", env.orgID)
 
 	clientError := requireClientStatus(t, err, http.StatusNotFound)
-	assert.Equal(t, errors2.CONSENT_CAT_NOT_FOUND.Code, clientError.Code)
+	assert.Equal(t, errors2.ConsentCatNotFound.Code, clientError.Code)
 }
 
 func TestConsentCategoriesAreScopedToTheirOrganization(t *testing.T) {
@@ -278,11 +278,11 @@ func TestTheMandatoryCategoryCannotBeChangedOrDeleted(t *testing.T) {
 	update.CategoryIdentifier = mandatory.CategoryIdentifier
 	clientError := requireClientStatus(t, env.svc.UpdateConsentCategory(env.ctx, env.orgID, update),
 		http.StatusForbidden)
-	assert.Equal(t, errors2.CONSENT_CAT_MANDATORY.Code, clientError.Code)
+	assert.Equal(t, errors2.ConsentCatMandatory.Code, clientError.Code)
 	_ = requireClientStatus(t, env.svc.DeleteConsentCategory(env.ctx, mandatory.CategoryIdentifier, env.orgID),
 		http.StatusForbidden)
 
-	mandatoryIDs, err := store.GetMandatoryConsentCategoryIds(env.ctx, env.orgID)
+	mandatoryIDs, err := store.GetMandatoryConsentCategoryIDs(env.ctx, env.orgID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{mandatory.CategoryIdentifier}, mandatoryIDs)
 }
@@ -292,11 +292,11 @@ func TestConsentCategoryIDs(t *testing.T) {
 	first := env.mustAdd(t, category("Analytics", "profiling"))
 	second := env.mustAdd(t, category("Offers", "personalization"))
 
-	ids, err := store.GetConsentCategoryIds(env.ctx, env.orgID)
+	ids, err := store.GetConsentCategoryIDs(env.ctx, env.orgID)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{first.CategoryIdentifier, second.CategoryIdentifier}, ids)
-	mandatoryIDs, err := store.GetMandatoryConsentCategoryIds(env.ctx, env.orgID)
+	mandatoryIDs, err := store.GetMandatoryConsentCategoryIDs(env.ctx, env.orgID)
 	require.NoError(t, err)
 	assert.Empty(t, mandatoryIDs)
 }

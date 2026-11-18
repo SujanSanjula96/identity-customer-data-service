@@ -21,12 +21,14 @@ package integration
 import (
 	"context"
 	"fmt"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
@@ -35,31 +37,29 @@ import (
 
 func insertCandidateFixture(t *testing.T, id, org, userID, status, attributes string, created time.Time) {
 	t.Helper()
-	args := []interface{}{id, resolveOrgId(t, org), userID, attributes, created}
-	if suiteDBType == database.TypeSQLite {
-		args = database.NormalizeSQLiteArgs(args)
-	}
-	_, err := suiteDB.Exec(`INSERT INTO profiles
+	orgID := resolveOrgID(t, org)
+	_, err := setup.ExecStatement(suiteDB, suiteDBType, `INSERT INTO profiles
 		(profile_id, org_id, user_id, identity_attributes, traits, created_at)
-		VALUES ($1, $2, $3, $4, $4, $5)`, args...)
+		VALUES ($1, $2, $3, $4, $4, $5)`, id, orgID, userID, attributes, created)
 	require.NoError(t, err)
-	_, err = suiteDB.Exec(`INSERT INTO profile_reference (profile_id, org_id, profile_status)
-		VALUES ($1, $2, $3)`, id, args[1], status)
+	_, err = setup.ExecStatement(suiteDB, suiteDBType,
+		`INSERT INTO profile_reference (profile_id, org_id, profile_status) VALUES ($1, $2, $3)`,
+		id, orgID, status)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = suiteDB.Exec(`DELETE FROM profile_reference WHERE profile_id = $1`, id)
-		_, _ = suiteDB.Exec(`DELETE FROM profiles WHERE profile_id = $1`, id)
+		_, _ = setup.ExecStatement(suiteDB, suiteDBType, `DELETE FROM profile_reference WHERE profile_id = $1`, id)
+		_, _ = setup.ExecStatement(suiteDB, suiteDBType, `DELETE FROM profiles WHERE profile_id = $1`, id)
 	})
 }
 
 func findReferenceProfileCandidate(ctx context.Context, incoming profileModel.Profile,
 	property string, values []string) (string, error) {
 	if property == "" {
-		return profileStore.FindOldestReferenceProfileIDByUserID(ctx, incoming.OrgId, incoming.UserId,
-			incoming.ProfileId)
+		return profileStore.FindOldestReferenceProfileIDByUserID(ctx, incoming.OrgID, incoming.UserID,
+			incoming.ProfileID)
 	}
-	return profileStore.FindOldestReferenceProfileIDByAttributeValues(ctx, incoming.OrgId, property, values,
-		incoming.ProfileId, incoming.UserId)
+	return profileStore.FindOldestReferenceProfileIDByAttributeValues(ctx, incoming.OrgID, property, values,
+		incoming.ProfileID, incoming.UserID)
 }
 
 // Runs on both CI datasources: exact string comparisons must agree even for
@@ -81,9 +81,27 @@ func Test_UnificationCandidateMatching(t *testing.T) {
 		{"object leaf", `{"email":{"value":"a"}}`, "identity_attributes.email", []string{"a"}, false},
 		{"mixed array", `{"email":[123,null,true,"a"]}`, "identity_attributes.email", []string{"a"}, true},
 		{"nested object", `{"contact":{"email":["a","b"]}}`, "identity_attributes.contact.email", []string{"b"}, true},
-		{"nested object array", `{"contact":[{"email":"a"},{"email":["b"]}]}`, "identity_attributes.contact.email", []string{"b"}, true},
-		{"array of arrays before member", `{"contact":[[{"email":"a"}]]}`, "identity_attributes.contact.email", []string{"a"}, false},
-		{"multiple nested objects", `{"contact":{"details":{"email":["a"]}}}`, "identity_attributes.contact.details.email", []string{"a"}, true},
+		{
+			"nested object array",
+			`{"contact":[{"email":"a"},{"email":["b"]}]}`,
+			"identity_attributes.contact.email",
+			[]string{"b"},
+			true,
+		},
+		{
+			"array of arrays before member",
+			`{"contact":[[{"email":"a"}]]}`,
+			"identity_attributes.contact.email",
+			[]string{"a"},
+			false,
+		},
+		{
+			"multiple nested objects",
+			`{"contact":{"details":{"email":["a"]}}}`,
+			"identity_attributes.contact.details.email",
+			[]string{"a"},
+			true,
+		},
 		{"empty array", `{"email":[]}`, "identity_attributes.email", []string{""}, false},
 		{"wrong nested key", `{"other":{"email":"a"}}`, "identity_attributes.contact.email", []string{"a"}, false},
 		{"nested array leaf", `{"email":[["a"]]}`, "identity_attributes.email", []string{"a"}, false},
@@ -98,7 +116,7 @@ func Test_UnificationCandidateMatching(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			org, id := uuid.NewString(), uuid.NewString()
 			insertCandidateFixture(t, id, org, "", "REFERENCE_PROFILE", tc.attributes, time.Now().UTC())
-			incoming := profileModel.Profile{ProfileId: "incoming", OrgId: setup.TestOrgId(org)}
+			incoming := profileModel.Profile{ProfileID: "incoming", OrgID: setup.TestOrgID(org)}
 			got, err := findReferenceProfileCandidate(context.Background(), incoming, tc.property, tc.values)
 			require.NoError(t, err)
 			if tc.match {
@@ -115,7 +133,14 @@ func Test_UnificationCandidateScopeAndOrder(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	ids := map[string]string{}
 	for _, name := range []string{"self", "child", "other-org", "newer", "old-b", "old-a"} {
-		id, tenant, status, created := org+"-"+name, org, "REFERENCE_PROFILE", now.Add(-time.Hour)
+		ids[name] = uuid.NewString()
+	}
+	// The two oldest profiles tie on creation time, so the lower ID must win.
+	if ids["old-a"] > ids["old-b"] {
+		ids["old-a"], ids["old-b"] = ids["old-b"], ids["old-a"]
+	}
+	for _, name := range []string{"self", "child", "other-org", "newer", "old-b", "old-a"} {
+		id, tenant, status, created := ids[name], org, "REFERENCE_PROFILE", now.Add(-time.Hour)
 		if name == "other-org" {
 			tenant = org + "-other"
 		}
@@ -126,20 +151,24 @@ func Test_UnificationCandidateScopeAndOrder(t *testing.T) {
 			created = now
 		}
 		insertCandidateFixture(t, id, tenant, "same-user", status, `{"email":"shared"}`, created)
-		ids[name] = id
 	}
-	incoming := profileModel.Profile{ProfileId: ids["self"], OrgId: setup.TestOrgId(org), UserId: "same-user"}
+	incoming := profileModel.Profile{ProfileID: ids["self"], OrgID: setup.TestOrgID(org), UserID: "same-user"}
 	for _, property := range []string{"", "identity_attributes.email"} {
 		got, err := findReferenceProfileCandidate(context.Background(), incoming, property, []string{"shared"})
 		require.NoError(t, err)
 		require.Equal(t, ids["old-a"], got, "oldest match with ID tie-breaker")
 	}
 	// A rule candidate with a different nonempty user ID is not eligible.
-	incoming.UserId = "different-user"
+	incoming.UserID = "different-user"
 	got, err := findReferenceProfileCandidate(context.Background(), incoming, "", nil)
 	require.NoError(t, err)
 	require.Empty(t, got)
-	got, err = findReferenceProfileCandidate(context.Background(), incoming, "identity_attributes.email", []string{"shared"})
+	got, err = findReferenceProfileCandidate(
+		context.Background(),
+		incoming,
+		"identity_attributes.email",
+		[]string{"shared"},
+	)
 	require.NoError(t, err)
 	require.Empty(t, got)
 
@@ -162,7 +191,9 @@ func Test_UnificationCandidateGINEligibility(t *testing.T) {
 	tx, err := suiteDB.Begin()
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
-	_, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin ON profiles USING GIN (identity_attributes)`)
+	_, err = tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin ON profiles USING GIN (identity_attributes)`,
+	)
 	require.NoError(t, err)
 	_, err = tx.Exec(`SET LOCAL enable_seqscan = off; SET LOCAL enable_indexscan = off`)
 	require.NoError(t, err)
@@ -171,9 +202,12 @@ func Test_UnificationCandidateGINEligibility(t *testing.T) {
 	require.NoError(t, err)
 	// Isolate the generated JSONPath predicate so a competing tenant index
 	// cannot hide GIN eligibility on this small fixture.
-	rows, err := tx.Query("EXPLAIN SELECT profile_id FROM profiles WHERE identity_attributes @? $1::jsonpath", values[0])
+	rows, err := tx.Query(
+		"EXPLAIN SELECT profile_id FROM profiles WHERE identity_attributes @? $1::jsonpath",
+		values[0],
+	)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	plan := ""
 	for rows.Next() {
 		var line string
@@ -193,7 +227,7 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 	for _, count := range []int{1000, 100000, 1000000} {
 		b.Run(fmt.Sprintf("masters_%d", count), func(b *testing.B) {
 			org := "unification-bench-" + uuid.NewString()
-			key := resolveOrgId(b, org)
+			key := resolveOrgID(b, org)
 			_, err := suiteDB.Exec(`INSERT INTO profiles
 				(profile_id, org_id, user_id, created_at, identity_attributes)
 				SELECT $1 || '-' || n, $3, 'user-' || n,
@@ -210,7 +244,11 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 			require.NoError(b, err)
 			_, err = suiteDB.Exec(`ANALYZE profiles; ANALYZE profile_reference`)
 			require.NoError(b, err)
-			incoming := profileModel.Profile{ProfileId: "incoming", OrgId: setup.TestOrgId(org), UserId: fmt.Sprintf("user-%d", count)}
+			incoming := profileModel.Profile{
+				ProfileID: "incoming",
+				OrgID:     setup.TestOrgID(org),
+				UserID:    fmt.Sprintf("user-%d", count),
+			}
 			for _, tc := range []struct{ name, property, value string }{
 				{"user_id", "", ""},
 				{"rule_match", "identity_attributes.email", fmt.Sprintf("profile-%d@example.test", count)},
@@ -220,10 +258,10 @@ func Benchmark_UnificationCandidateLookup(b *testing.B) {
 				b.Run(tc.name, func(b *testing.B) {
 					lookupIncoming := incoming
 					if tc.property != "" {
-						lookupIncoming.UserId = ""
+						lookupIncoming.UserID = ""
 					}
 					query := scripts.FindOldestReferenceProfileIDByUserID
-					args := []interface{}{key, lookupIncoming.ProfileId, lookupIncoming.UserId}
+					args := []interface{}{key, lookupIncoming.ProfileID, lookupIncoming.UserID}
 					if tc.property != "" {
 						var matchArgs []interface{}
 						query, matchArgs, err = scripts.BuildFindOldestReferenceProfileIDByAttributeValuesQuery(

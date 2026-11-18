@@ -64,7 +64,7 @@ func newRulesEnv(t *testing.T) *rulesEnv {
 	})
 
 	handle := fmt.Sprintf("acme-%d", orgCounter.Add(1))
-	env := &rulesEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgId(handle)}
+	env := &rulesEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgID(handle)}
 	require.NoError(t, setup.InsertTestOrganization(testDB.DB, env.orgID, handle))
 
 	env.addAttribute(t, "traits.city", constants.StringDataType)
@@ -78,7 +78,7 @@ func (e *rulesEnv) addAttribute(t *testing.T, name, valueType string) {
 	t.Helper()
 	id := "attr-" + name
 	err := schemaStore.AddProfileSchemaAttributesForScope(e.ctx, []schemaModel.ProfileSchemaAttribute{{
-		AttributeId:   id,
+		AttributeID:   id,
 		AttributeName: name,
 		Scope:         constants.Traits,
 		ValueType:     valueType,
@@ -90,7 +90,7 @@ func (e *rulesEnv) addAttribute(t *testing.T, name, valueType string) {
 
 func (e *rulesEnv) newRule(name, property string, priority int) model.UnificationRule {
 	return model.UnificationRule{
-		RuleId:            "rule-" + name,
+		RuleID:            "rule-" + name,
 		RuleName:          name,
 		PropertyName:      property,
 		Priority:          priority,
@@ -122,7 +122,7 @@ func TestAddUnificationRuleStoresTheRuleAgainstItsSchemaAttribute(t *testing.T) 
 	got, err := svc.GetUnificationRule(env.ctx, "rule-city", env.orgID)
 	require.NoError(t, err)
 	assert.Equal(t, "traits.city", got.PropertyName)
-	assert.Equal(t, "attr-traits.city", got.PropertyId)
+	assert.Equal(t, "attr-traits.city", got.PropertyID)
 	assert.Equal(t, 1, got.Priority)
 }
 
@@ -159,7 +159,7 @@ func TestGetUnificationRuleReturnsNotFoundForAnUnknownRule(t *testing.T) {
 	_, err := (&UnificationRuleService{}).GetUnificationRule(env.ctx, "missing", env.orgID)
 
 	clientError := requireClientError(t, err, http.StatusNotFound)
-	assert.Equal(t, errors2.UNIFICATION_RULE_NOT_FOUND.Code, clientError.Code)
+	assert.Equal(t, errors2.UnificationRuleNotFound.Code, clientError.Code)
 }
 
 func TestGetUnificationRulesMarksOwnedRulesAndOrdersThemByPriority(t *testing.T) {
@@ -171,8 +171,8 @@ func TestGetUnificationRulesMarksOwnedRulesAndOrdersThemByPriority(t *testing.T)
 
 	require.NoError(t, err)
 	require.Len(t, rules, 2)
-	assert.Equal(t, "rule-city", rules[0].RuleId)
-	assert.Equal(t, "rule-phone", rules[1].RuleId)
+	assert.Equal(t, "rule-city", rules[0].RuleID)
+	assert.Equal(t, "rule-phone", rules[1].RuleID)
 	for i, rule := range rules {
 		assert.Equal(t, shareModel.OriginOwned, rule.Origin)
 		assert.Equal(t, shareModel.StateActive, rule.State)
@@ -183,7 +183,7 @@ func TestGetUnificationRulesMarksOwnedRulesAndOrdersThemByPriority(t *testing.T)
 func TestDeletingTheSchemaAttributeDeletesItsRule(t *testing.T) {
 	env := newRulesEnv(t)
 	env.mustAdd(t, env.newRule("city", "traits.city", 1))
-	require.NoError(t, schemaStore.DeleteProfileSchemaAttributeById(env.ctx, env.orgID, "attr-traits.city"))
+	require.NoError(t, schemaStore.DeleteProfileSchemaAttributeByID(env.ctx, env.orgID, "attr-traits.city"))
 
 	rules, err := (&UnificationRuleService{}).GetUnificationRules(env.ctx, env.orgID)
 
@@ -198,11 +198,11 @@ func TestGetUnificationRuleForOrgAndOwned(t *testing.T) {
 
 	forOrg, err := svc.GetUnificationRuleForOrg(env.ctx, "rule-city", env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "rule-city", forOrg.RuleId)
+	assert.Equal(t, "rule-city", forOrg.RuleID)
 
 	owned, err := svc.GetOwnedUnificationRule(env.ctx, "rule-city", env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "rule-city", owned.RuleId)
+	assert.Equal(t, "rule-city", owned.RuleID)
 
 	_, err = svc.GetUnificationRuleForOrg(env.ctx, "missing", env.orgID)
 	_ = requireClientError(t, err, http.StatusNotFound)

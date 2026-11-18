@@ -23,7 +23,6 @@ import "github.com/wso2/identity-customer-data-service/internal/system/config"
 // EnableOrganizationManagement initializes the runtime configuration with organization management
 // enabled. The runtime configuration is set once for each test binary.
 func EnableOrganizationManagement() {
-
 	_ = config.InitializeCDSRuntime("", &config.Config{
 		OrganizationManagement: config.OrganizationManagementConfig{Enabled: true},
 	})

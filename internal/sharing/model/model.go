@@ -16,13 +16,15 @@
  * under the License.
  */
 
+// Package model defines sharing policies, which share a resource of an organization with the
+// organizations below it, and their API requests and responses.
 package model
 
 // The organization access policy selects the sub organizations that can use CDS. Each shareable
 // resource defines its own resource type.
 const (
 	ResourceOrganizationAccess   = "ORGANIZATION_ACCESS"
-	OrganizationAccessResourceId = "CDS"
+	OrganizationAccessResourceID = "CDS"
 )
 
 // Stored target scopes.
@@ -51,25 +53,25 @@ const (
 // Target is one stored target of a policy.
 type Target struct {
 	Scope string
-	OrgId string
+	OrgID string
 }
 
 // Policy defines which organizations can see one resource. There is one policy for each resource
 // and initiating organization.
 type Policy struct {
-	PolicyId        string
+	PolicyID        string
 	ResourceType    string
-	ResourceId      string
-	OwningOrgId     string
-	InitiatingOrgId string
+	ResourceID      string
+	OwningOrgID     string
+	InitiatingOrgID string
 	Targets         []Target
 }
 
 // SharedResource is a resource that an ancestor shares with an organization. OwnerDepth is the
 // number of levels from the organization up to the owner. The parent has the depth 1.
 type SharedResource struct {
-	ResourceId string
-	OwnerOrgId string
+	ResourceID string
+	OwnerOrgID string
 	OwnerDepth int
 }
 
@@ -93,7 +95,7 @@ const (
 
 // ChildOrg is one selected organization of child_orgs, with its reach.
 type ChildOrg struct {
-	OrgId string `json:"org_id"`
+	OrgID string `json:"org_id"`
 	Reach string `json:"reach"`
 }
 
@@ -111,11 +113,11 @@ type PolicyRequest struct {
 
 // PolicyResponse is a sharing policy in the API.
 type PolicyResponse struct {
-	Id              string    `json:"id"`
+	ID              string    `json:"id"`
 	ResourceType    string    `json:"resource_type"`
-	ResourceId      string    `json:"resource_id"`
-	OwningOrgId     string    `json:"owning_org_id"`
-	InitiatingOrgId string    `json:"initiating_org_id"`
+	ResourceID      string    `json:"resource_id"`
+	OwningOrgID     string    `json:"owning_org_id"`
+	InitiatingOrgID string    `json:"initiating_org_id"`
 	ChildOrgs       ChildOrgs `json:"child_orgs"`
 }
 
@@ -127,9 +129,9 @@ type PolicyList struct {
 
 // OrgAccessResponse is the organization access policy of a primary organization in the API.
 type OrgAccessResponse struct {
-	Id              string    `json:"id"`
-	OwningOrgId     string    `json:"owning_org_id"`
-	InitiatingOrgId string    `json:"initiating_org_id"`
+	ID              string    `json:"id"`
+	OwningOrgID     string    `json:"owning_org_id"`
+	InitiatingOrgID string    `json:"initiating_org_id"`
 	ChildOrgs       ChildOrgs `json:"child_orgs"`
 }
 

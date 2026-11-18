@@ -45,12 +45,12 @@ func (e *handlerEnv) withChild(t *testing.T) {
 		VALUES ($1, 'child', $2, $2, 'ACTIVE')`, ruleChildOrgID, e.orgID)
 	require.NoError(t, err)
 	require.NoError(t, sharingStore.CreatePolicy(context.Background(), sharingModel.Policy{
-		PolicyId:        "access-policy",
+		PolicyID:        "access-policy",
 		ResourceType:    sharingModel.ResourceOrganizationAccess,
-		ResourceId:      sharingModel.OrganizationAccessResourceId,
-		OwningOrgId:     e.orgID,
-		InitiatingOrgId: e.orgID,
-		Targets:         []sharingModel.Target{{Scope: sharingModel.ScopeAllChildren, OrgId: e.orgID}},
+		ResourceID:      sharingModel.OrganizationAccessResourceID,
+		OwningOrgID:     e.orgID,
+		InitiatingOrgID: e.orgID,
+		Targets:         []sharingModel.Target{{Scope: sharingModel.ScopeAllChildren, OrgID: e.orgID}},
 	}))
 }
 
@@ -62,7 +62,7 @@ func (e *handlerEnv) callAsChild(t *testing.T, handler http.HandlerFunc, method,
 	request := httptest.NewRequest(method, "/t/"+e.handle+"/o/"+ruleChildOrgID+"/cds/api/v1/unification-rules",
 		strings.NewReader(body))
 	ctx := context.WithValue(request.Context(), constants.TenantContextKey, "child")
-	ctx = context.WithValue(ctx, constants.OrgIdContextKey, ruleChildOrgID)
+	ctx = context.WithValue(ctx, constants.OrgIDContextKey, ruleChildOrgID)
 	request = request.WithContext(ctx)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
@@ -78,7 +78,7 @@ func (e *handlerEnv) callAsChild(t *testing.T, handler http.HandlerFunc, method,
 func (e *handlerEnv) shareAttribute(t *testing.T, attributeID string) {
 	t.Helper()
 	ctx := context.Background()
-	org, err := orgService.GetOrganizationById(ctx, e.orgID)
+	org, err := orgService.GetOrganizationByID(ctx, e.orgID)
 	require.NoError(t, err)
 	require.NotNil(t, org)
 	_, err = schemaService.GetProfileSchemaService().CreateSharingPolicy(ctx, *org, constants.Traits, attributeID,
@@ -94,7 +94,7 @@ func TestRuleSharingPolicyLifecycle(t *testing.T) {
 	env := newHandlerEnv(t)
 	env.withChild(t)
 	rule := env.addRule(t, "City", "traits.city", 1)
-	ruleScope := map[string]string{"ruleId": rule.RuleId}
+	ruleScope := map[string]string{"ruleId": rule.RuleID}
 
 	created := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken,
 		`{"child_orgs":{"mode":"all"}}`, ruleScope)
@@ -107,8 +107,8 @@ func TestRuleSharingPolicyLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &policy))
 	require.NotEmpty(t, policy.ID)
 	assert.Equal(t, "UNIFICATION_RULE", policy.ResourceType)
-	assert.Equal(t, rule.RuleId, policy.ResourceID)
-	ids := rulePolicyIDs(rule.RuleId, policy.ID)
+	assert.Equal(t, rule.RuleID, policy.ResourceID)
+	ids := rulePolicyIDs(rule.RuleID, policy.ID)
 
 	again := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken,
 		`{"child_orgs":{"mode":"all"}}`, ruleScope)
@@ -136,7 +136,7 @@ func TestRuleSharingPolicyRefusals(t *testing.T) {
 	env := newHandlerEnv(t)
 	env.withChild(t)
 	rule := env.addRule(t, "City", "traits.city", 1)
-	ruleScope := map[string]string{"ruleId": rule.RuleId}
+	ruleScope := map[string]string{"ruleId": rule.RuleID}
 
 	tests := []struct {
 		name   string
@@ -161,7 +161,7 @@ func TestRuleSharingPolicyRefusals(t *testing.T) {
 		})
 	}
 
-	unknown := rulePolicyIDs(rule.RuleId, "missing")
+	unknown := rulePolicyIDs(rule.RuleID, "missing")
 	assert.Equal(t, http.StatusNotFound, env.call(t, env.h.GetSharingPolicy, http.MethodGet, env.auth.ValidToken, "",
 		unknown).Code)
 	assert.Equal(t, http.StatusNotFound, env.call(t, env.h.UpdateSharingPolicy, http.MethodPut, env.auth.ValidToken,
@@ -200,7 +200,7 @@ func TestASharedRuleIsReadOnlyInTheChild(t *testing.T) {
 	env := newHandlerEnv(t)
 	env.withChild(t)
 	rule := env.addRule(t, "City", "traits.city", 1)
-	ids := map[string]string{"ruleId": rule.RuleId}
+	ids := map[string]string{"ruleId": rule.RuleID}
 	created := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken,
 		`{"child_orgs":{"mode":"all"}}`, ids)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
@@ -212,7 +212,7 @@ func TestASharedRuleIsReadOnlyInTheChild(t *testing.T) {
 	require.Equal(t, http.StatusOK, get.Code, get.Body.String())
 	var shared model.UnificationRuleAPIResponse
 	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &shared))
-	assert.Equal(t, rule.RuleId, shared.RuleId)
+	assert.Equal(t, rule.RuleID, shared.RuleID)
 	assert.Equal(t, "SHARED", shared.Origin)
 
 	list := env.callAsChild(t, env.h.GetUnificationRules, http.MethodGet, "", nil)
@@ -235,7 +235,7 @@ func TestARuleThatIsNotSharedIsInvisibleToTheChild(t *testing.T) {
 	env.withChild(t)
 	rule := env.addRule(t, "City", "traits.city", 1)
 
-	get := env.callAsChild(t, env.h.GetUnificationRule, http.MethodGet, "", map[string]string{"ruleId": rule.RuleId})
+	get := env.callAsChild(t, env.h.GetUnificationRule, http.MethodGet, "", map[string]string{"ruleId": rule.RuleID})
 	assert.Equal(t, http.StatusNotFound, get.Code)
 
 	list := env.callAsChild(t, env.h.GetUnificationRules, http.MethodGet, "", nil)

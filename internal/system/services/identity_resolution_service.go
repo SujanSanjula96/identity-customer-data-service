@@ -25,18 +25,20 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// IdentityResolutionService registers the identity resolution review task endpoints.
 type IdentityResolutionService struct {
 	handler *handler.IdentityResolutionHandler
 	mux     *http.ServeMux
 }
 
+// NewIdentityResolutionService registers the review task routes on mux and returns the service.
 func NewIdentityResolutionService(mux *http.ServeMux) *IdentityResolutionService {
 	s := &IdentityResolutionService{
 		handler: handler.NewIdentityResolutionHandler(),
 		mux:     mux,
 	}
 
-	const base = constants.ApiBasePath + "/v1"
+	const base = constants.APIBasePath + "/v1"
 
 	// Review tasks management
 	s.mux.HandleFunc("GET "+base+"/identity-resolution/review-tasks", s.handler.GetReviewTasks)

@@ -70,9 +70,15 @@ func TestMergeAttributionNamesTheDecidingRule(t *testing.T) {
 				namedRule("email-rule", "identity_attributes.email", constants.AttributeTypeEmail,
 					constants.UnificationMethodDeterministic, 2),
 			},
-			incoming: map[string]interface{}{"traits.name": "Jonathan Smith", "identity_attributes.email": "j@acme.com"},
-			existing: map[string]interface{}{"traits.name": "Jonathon Smith", "identity_attributes.email": "j@acme.com"},
-			want:     "email-rule",
+			incoming: map[string]interface{}{
+				"traits.name":               "Jonathan Smith",
+				"identity_attributes.email": "j@acme.com",
+			},
+			existing: map[string]interface{}{
+				"traits.name":               "Jonathon Smith",
+				"identity_attributes.email": "j@acme.com",
+			},
+			want: "email-rule",
 		},
 		{
 			// With the short-circuit off, the fuzzy rule really is the primary signal.
@@ -83,9 +89,15 @@ func TestMergeAttributionNamesTheDecidingRule(t *testing.T) {
 				namedRule("email-rule", "identity_attributes.email", constants.AttributeTypeEmail,
 					constants.UnificationMethodDeterministic, 2),
 			},
-			incoming: map[string]interface{}{"traits.name": "Jonathan Smith", "identity_attributes.email": "j@acme.com"},
-			existing: map[string]interface{}{"traits.name": "Jonathon Smith", "identity_attributes.email": "j@acme.com"},
-			want:     "name-rule",
+			incoming: map[string]interface{}{
+				"traits.name":               "Jonathan Smith",
+				"identity_attributes.email": "j@acme.com",
+			},
+			existing: map[string]interface{}{
+				"traits.name":               "Jonathon Smith",
+				"identity_attributes.email": "j@acme.com",
+			},
+			want: "name-rule",
 		},
 		{
 			name:     "a unique identifier matching exactly is attributed to itself",
@@ -132,7 +144,7 @@ func TestMergeAttributionNamesTheDecidingRule(t *testing.T) {
 				ManualReview:               0.75,
 				DeterministicMatchDecisive: tt.decisive,
 			}
-			ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+			ctx := ScoringContext{OrgID: "acme", Thresholds: thresholds}
 			candidate := &model.ProfileData{ProfileID: "candidate", Attributes: tt.existing}
 
 			score, breakdown := ScoreCandidate(tt.incoming, candidate, tt.rules, ctx)

@@ -65,7 +65,7 @@ var (
 func sealer() (*secrets.Sealer, error) {
 	sealerOnce.Do(func() {
 		cachedSealer, sealerErr = secrets.NewSealer(
-			config.GetCDSRuntime().Config.IdP.ServiceCredentials.EncryptionKey)
+			config.GetCDSRuntime().Config.IDP.ServiceCredentials.EncryptionKey)
 	})
 	return cachedSealer, sealerErr
 }
@@ -74,7 +74,7 @@ func sealer() (*secrets.Sealer, error) {
 // which it does once an encryption key is configured. ValidateConfig refuses a
 // key for an identity provider that does not send credentials.
 func Enabled() bool {
-	return config.GetCDSRuntime().Config.IdP.ServiceCredentials.EncryptionKey != ""
+	return config.GetCDSRuntime().Config.IDP.ServiceCredentials.EncryptionKey != ""
 }
 
 // ValidateConfig reports whether the configured encryption key is usable.
@@ -83,13 +83,13 @@ func Enabled() bool {
 // credentials. It is called at start so that a deployment with a broken key
 // fails there, rather than at the first organization that sends credentials.
 func ValidateConfig(cfg config.Config, supported bool) error {
-	key := cfg.IdP.ServiceCredentials.EncryptionKey
+	key := cfg.IDP.ServiceCredentials.EncryptionKey
 	if key == "" {
 		return nil
 	}
 	if !supported {
 		return fmt.Errorf("idp.service_credentials.encryption_key is set, but the identity provider "+
-			"'%s' does not send service credentials, so leave the key empty", cfg.IdP.Type)
+			"'%s' does not send service credentials, so leave the key empty", cfg.IDP.Type)
 	}
 	if _, err := secrets.NewSealer(key); err != nil {
 		return fmt.Errorf("idp.service_credentials.encryption_key is set but not usable: %w", err)

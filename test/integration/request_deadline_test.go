@@ -29,11 +29,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	_ "modernc.org/sqlite"
+
 	healthHandler "github.com/wso2/identity-customer-data-service/internal/health_check/handler"
 	healthService "github.com/wso2/identity-customer-data-service/internal/health_check/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
-	_ "modernc.org/sqlite"
 )
 
 // useSaturatedPool points the stores at a pool that holds one connection, and
@@ -41,7 +42,6 @@ import (
 // is the state a bounded pool reaches under load. The suite datasource is
 // restored when the test ends.
 func useSaturatedPool(t *testing.T) {
-
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "saturated.db")
@@ -65,7 +65,6 @@ func useSaturatedPool(t *testing.T) {
 // handler, through the service, to the pool. The pool has no free connection,
 // so the call can only end on the deadline the request carries.
 func Test_RequestDeadlineReachesTheDatabase(t *testing.T) {
-
 	useSaturatedPool(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -88,7 +87,6 @@ func Test_RequestDeadlineReachesTheDatabase(t *testing.T) {
 // Test_ServiceDeadlineReachesTheDatabase is the same check one layer down, for
 // the callers that reach a service without an HTTP request.
 func Test_ServiceDeadlineReachesTheDatabase(t *testing.T) {
-
 	useSaturatedPool(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -106,7 +104,6 @@ func Test_ServiceDeadlineReachesTheDatabase(t *testing.T) {
 // Test_RequestCancellationReachesTheDatabase covers the client that goes away
 // while the call waits for a connection. The wait must end with it.
 func Test_RequestCancellationReachesTheDatabase(t *testing.T) {
-
 	useSaturatedPool(t)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -33,6 +33,10 @@ const (
 	// needs no external database server and is intended for development, demos
 	// and single-instance deployments.
 	TypeSQLite = "sqlite"
+	// TypeMySQL is the MySQL datasource.
+	TypeMySQL = "mysql"
+	// TypeMSSQL is the Microsoft SQL Server datasource.
+	TypeMSSQL = "mssql"
 )
 
 // DefaultType is the datasource used when `datasource.type` is not configured,
@@ -40,13 +44,12 @@ const (
 const DefaultType = TypeSQLite
 
 // SupportedTypes lists every value `datasource.type` accepts.
-var SupportedTypes = []string{TypePostgres, TypeSQLite}
+var SupportedTypes = []string{TypePostgres, TypeSQLite, TypeMySQL, TypeMSSQL}
 
 // ResolveType normalizes a configured `datasource.type`. An empty value means
 // DefaultType. The returned value may still be unsupported, which
 // IsSupportedType reports on.
 func ResolveType(dbType string) string {
-
 	normalized := strings.ToLower(strings.TrimSpace(dbType))
 	if normalized == "" {
 		return DefaultType
@@ -56,7 +59,6 @@ func ResolveType(dbType string) string {
 
 // IsSupportedType reports whether dbType is a datasource CDS can run on.
 func IsSupportedType(dbType string) bool {
-
 	for _, supported := range SupportedTypes {
 		if dbType == supported {
 			return true
@@ -69,6 +71,8 @@ func IsSupportedType(dbType string) bool {
 const (
 	DriverPostgres = "postgres"
 	DriverSQLite   = "sqlite"
+	DriverMySQL    = "mysql"
+	DriverMSSQL    = "sqlserver"
 )
 
 // SQLite defaults, applied when the corresponding configuration values are
@@ -90,7 +94,7 @@ const (
 	DefaultSQLiteOptions = "_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)" +
 		"&_txlock=immediate&_time_format=sqlite&_timezone=UTC&_texttotime=true"
 
-	// DefaultSQLiteMaxOpenConns bounds the connection pool. SQLite serialises
+	// DefaultSQLiteMaxOpenConns bounds the connection pool. SQLite serializes
 	// writers, so a small pool avoids lock contention.
 	DefaultSQLiteMaxOpenConns = 4
 )
@@ -123,4 +127,24 @@ const (
 	// shorter deadline stops waiting for the connection, but the attempt
 	// itself ends at connect_timeout.
 	DefaultPostgresConnectTimeout = 10 * time.Second
+)
+
+// MySQL connection pool defaults, applied when the corresponding configuration
+// value is zero. They match the PostgreSQL defaults.
+const (
+	DefaultMySQLMaxOpenConns    = DefaultPostgresMaxOpenConns
+	DefaultMySQLMaxIdleConns    = DefaultPostgresMaxIdleConns
+	DefaultMySQLConnMaxLifetime = DefaultPostgresConnMaxLifetime
+	DefaultMySQLConnMaxIdleTime = DefaultPostgresConnMaxIdleTime
+	DefaultMySQLConnectTimeout  = DefaultPostgresConnectTimeout
+)
+
+// MSSQL connection pool defaults, applied when the corresponding configuration
+// value is zero. They match the PostgreSQL defaults.
+const (
+	DefaultMSSQLMaxOpenConns    = DefaultPostgresMaxOpenConns
+	DefaultMSSQLMaxIdleConns    = DefaultPostgresMaxIdleConns
+	DefaultMSSQLConnMaxLifetime = DefaultPostgresConnMaxLifetime
+	DefaultMSSQLConnMaxIdleTime = DefaultPostgresConnMaxIdleTime
+	DefaultMSSQLConnectTimeout  = DefaultPostgresConnectTimeout
 )

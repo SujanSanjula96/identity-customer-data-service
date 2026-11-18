@@ -68,7 +68,7 @@ func newReviewEnv(t *testing.T) *reviewEnv {
 	auth := setup.InstallAuthStub(t, "identity_resolution:view", "identity_resolution:update")
 
 	handle := fmt.Sprintf("acme-%d", reviewOrgCounter.Add(1))
-	env := &reviewEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle),
+	env := &reviewEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle),
 		auth: auth, h: NewIdentityResolutionHandler()}
 	setup.TestOrg(t, handle)
 	return env
@@ -97,8 +97,8 @@ func (e *reviewEnv) addProfile(t *testing.T, id string) {
 	t.Helper()
 	now := time.Now().UTC()
 	require.NoError(t, profileStore.InsertProfile(e.ctx, e.orgID, profileModel.Profile{
-		ProfileId: id,
-		OrgId:     e.orgID,
+		ProfileID: id,
+		OrgID:     e.orgID,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Traits:    map[string]interface{}{"city": id},
@@ -220,8 +220,8 @@ func TestApprovingAReviewTaskMergesTheProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, incoming.ProfileStatus)
 	require.NotNil(t, candidate.ProfileStatus)
-	assert.NotEmpty(t, incoming.ProfileStatus.ReferenceProfileId)
-	assert.Equal(t, incoming.ProfileStatus.ReferenceProfileId, candidate.ProfileStatus.ReferenceProfileId)
+	assert.NotEmpty(t, incoming.ProfileStatus.ReferenceProfileID)
+	assert.Equal(t, incoming.ProfileStatus.ReferenceProfileID, candidate.ProfileStatus.ReferenceProfileID)
 }
 
 func TestResolveReviewTaskRefusals(t *testing.T) {

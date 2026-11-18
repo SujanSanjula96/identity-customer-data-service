@@ -118,7 +118,7 @@ func newFixture(t *testing.T, encryptionKey string) *fixture {
 			TokenEndpoint: "/oauth2/token",
 			// The configured introspection client, which belongs to the super tenant.
 			IntrospectionEndPoint:     "/oauth2/introspect",
-			IntrospectionClientId:     "introspection-client",
+			IntrospectionClientID:     "introspection-client",
 			IntrospectionClientSecret: "introspection-secret",
 			// The configured pair, which the token endpoint does not accept.
 			ClientID:      "configured-client",
@@ -126,7 +126,7 @@ func newFixture(t *testing.T, encryptionKey string) *fixture {
 			AdminUsername: syncUser,
 			AdminPassword: syncPass,
 		},
-		IdP: config.IdPConfig{
+		IDP: config.IDPConfig{
 			ServiceCredentials: config.ServiceCredentialsConfig{EncryptionKey: encryptionKey},
 		},
 	})
@@ -311,7 +311,7 @@ func (a *verifyingAdapter) VerifyServiceCredentials(_ context.Context, orgHandle
 		return idp.Organization{}, errors2.NewClientError(errors2.ServiceCredentialsRejected,
 			http.StatusBadRequest)
 	}
-	return idp.Organization{Id: acmeOrgID, Handle: orgHandle, Name: "Acme"}, nil
+	return idp.Organization{ID: acmeOrgID, Handle: orgHandle, Name: "Acme"}, nil
 }
 
 // Any identity provider whose adapter verifies service credentials can send

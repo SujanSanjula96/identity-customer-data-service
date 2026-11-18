@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package handler serves the admin configuration endpoints.
 package handler
 
 import (
@@ -43,7 +44,6 @@ func NewAdminConfigHandler() *AdminConfigHandler {
 
 // GetAdminConfig handles GET /admin/configs
 func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	if err := security.AuthnAndAuthz(r, "admin_config:view"); err != nil {
@@ -78,7 +78,6 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 
 // UpdateAdminConfig handles PATCH /admin/configs
 func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	if err := authnAdminConfigUpdate(r); err != nil {
@@ -96,8 +95,8 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.UPDATE_CONFIG_BAD_REQUEST.Code,
-			Message:     errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+			Code:        errors.UpdateConfigBadRequest.Code,
+			Message:     errors.UpdateConfigBadRequest.Message,
 			Description: utils.HandleDecodeError(err, "admin configuration"),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
@@ -113,7 +112,7 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	}
 
 	configToUpdate := model.AdminConfig{
-		OrgId:                      org.ID,
+		OrgID:                      org.ID,
 		InitialSchemaSyncDone:      existingConfig.InitialSchemaSyncDone,
 		CDSEnabled:                 existingConfig.CDSEnabled,
 		SystemApplications:         existingConfig.SystemApplications,
@@ -169,7 +168,6 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 // with Basic auth. Identity Server uses the admin credentials to send the tenant CDS enable config
 // (PATCH /api/server/v1/configs/cds in Identity Server).
 func authnAdminConfigUpdate(r *http.Request) error {
-
 	if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
 		return security.AuthnWithAdminCredentials(r)
 	}

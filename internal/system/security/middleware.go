@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package security authenticates and authorizes the requests to the CDS APIs.
 package security
 
 import (
@@ -35,26 +36,24 @@ import (
 
 // AuthnWithAdminCredentials performs authentication using admin credentials from the request.
 func AuthnWithAdminCredentials(r *http.Request) error {
-
 	authHeader := r.Header.Get("Authorization")
 	logger := log.GetLogger()
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Basic ") {
 		logger.Debug("Missing or invalid Authorization header")
 		return errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.UN_AUTHORIZED.Code,
-			Message:     errors.UN_AUTHORIZED.Message,
+			Code:        errors.Unauthorized.Code,
+			Message:     errors.Unauthorized.Message,
 			Description: "Missing or invalid Authorization header",
 		}, http.StatusUnauthorized)
 	}
 
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Basic "))
 
-	isValidAdmin, err := validateAdminCredentials(token)
-	if err != nil || !isValidAdmin {
+	if !validateAdminCredentials(token) {
 		logger.Debug("Invalid admin credentials")
 		return errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.UN_AUTHORIZED.Code,
-			Message:     errors.UN_AUTHORIZED.Message,
+			Code:        errors.Unauthorized.Code,
+			Message:     errors.Unauthorized.Message,
 			Description: "Missing or invalid Authorization header",
 		}, http.StatusUnauthorized)
 	}
@@ -62,15 +61,14 @@ func AuthnWithAdminCredentials(r *http.Request) error {
 	return nil
 }
 
-func validateAdminCredentials(token string) (bool, error) {
-
+func validateAdminCredentials(token string) bool {
 	authServerConfig := config.GetCDSRuntime().Config.AuthServer
 	username := strings.TrimSpace(authServerConfig.AdminUsername)
 	password := strings.TrimSpace(authServerConfig.AdminPassword)
 	logger := log.GetLogger()
 	if username == "" || password == "" || token == "" {
 		logger.Debug("Admin credentials are not set properly in the configuration.")
-		return false, nil
+		return false
 	}
 
 	creds := username + ":" + password
@@ -78,16 +76,15 @@ func validateAdminCredentials(token string) (bool, error) {
 
 	if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1 {
 		logger.Debug("Admin credentials validated successfully.")
-		return true, nil
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 // AuthnAndAuthz performs authentication and authorization for the given HTTP request and operation.
 // In a sub organization, the `org:` form of the operation is authorized.
 func AuthnAndAuthz(r *http.Request, operation string) error {
-
 	claims, err := authenticate(r)
 	if err != nil {
 		return err
@@ -98,7 +95,6 @@ func AuthnAndAuthz(r *http.Request, operation string) error {
 // AuthnAndAuthzPrimary authenticates the request and authorizes an operation that only a primary
 // organization can run. A request in a sub organization is refused.
 func AuthnAndAuthzPrimary(r *http.Request, operation string) error {
-
 	claims, err := authenticate(r)
 	if err != nil {
 		return err
@@ -108,12 +104,11 @@ func AuthnAndAuthzPrimary(r *http.Request, operation string) error {
 
 // authenticate validates the bearer token for the organization of the path and returns its claims.
 func authenticate(r *http.Request) (map[string]interface{}, error) {
-
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") || authHeader == "" {
 		clientError := errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.UN_AUTHORIZED.Code,
-			Message:     errors.UN_AUTHORIZED.Message,
+			Code:        errors.Unauthorized.Code,
+			Message:     errors.Unauthorized.Message,
 			Description: "Missing or invalid Authorization header",
 		}, http.StatusUnauthorized)
 		return nil, clientError
@@ -124,11 +119,11 @@ func authenticate(r *http.Request) (map[string]interface{}, error) {
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	//  Validate token
-	claims, err := authn.ValidateTokenForOrg(token, orgHandle, utils.ExtractPrimaryOrgHandle(r), pathOrgIdOf(r))
+	claims, err := authn.ValidateTokenForOrg(token, orgHandle, utils.ExtractPrimaryOrgHandle(r), pathOrgIDOf(r))
 	if err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.UN_AUTHORIZED.Code,
-			Message:     errors.UN_AUTHORIZED.Message,
+			Code:        errors.Unauthorized.Code,
+			Message:     errors.Unauthorized.Message,
 			Description: "Missing or invalid Authorization header",
 		}, http.StatusUnauthorized)
 		return nil, clientError
@@ -138,7 +133,6 @@ func authenticate(r *http.Request) (map[string]interface{}, error) {
 
 // authorize checks the scopes of the claims against the operation.
 func authorize(r *http.Request, claims map[string]interface{}, operation string) error {
-
 	//  Validate authorization
 	scope, ok := claims["scope"].(string)
 	if !ok {
@@ -150,7 +144,7 @@ func authorize(r *http.Request, claims map[string]interface{}, operation string)
 		return clientError
 	}
 
-	if !authz.ValidatePermission(scope, authz.OperationFor(operation, pathOrgIdOf(r))) {
+	if !authz.ValidatePermission(scope, authz.OperationFor(operation, pathOrgIDOf(r))) {
 		clientError := errors.NewClientError(errors.ErrorMessage{
 			Code:        errors.FORBIDDEN.Code,
 			Message:     errors.FORBIDDEN.Message,
@@ -164,21 +158,19 @@ func authorize(r *http.Request, claims map[string]interface{}, operation string)
 // authorizePrimary refuses the operation in a sub organization, and authorizes it in a primary
 // organization.
 func authorizePrimary(r *http.Request, claims map[string]interface{}, operation string) error {
-
-	if pathOrgIdOf(r) != "" {
+	if pathOrgIDOf(r) != "" {
 		return errors.NewClientError(errors.ErrorMessage{
-			Code:        errors.SUB_ORG_CONFIG_NOT_ALLOWED.Code,
-			Message:     errors.SUB_ORG_CONFIG_NOT_ALLOWED.Message,
+			Code:        errors.SubOrgConfigNotAllowed.Code,
+			Message:     errors.SubOrgConfigNotAllowed.Message,
 			Description: "Only the primary organization can perform this operation.",
 		}, http.StatusBadRequest)
 	}
 	return authorize(r, claims, operation)
 }
 
-// pathOrgIdOf returns the organization ID of a sub organization path, or empty for a primary
+// pathOrgIDOf returns the organization ID of a sub organization path, or empty for a primary
 // organization path.
-func pathOrgIdOf(r *http.Request) string {
-
-	pathOrgId, _ := r.Context().Value(constants.OrgIdContextKey).(string)
-	return pathOrgId
+func pathOrgIDOf(r *http.Request) string {
+	pathOrgID, _ := r.Context().Value(constants.OrgIDContextKey).(string)
+	return pathOrgID
 }

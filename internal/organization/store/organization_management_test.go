@@ -32,7 +32,6 @@ import (
 // disabled.
 
 func setUpDB(t *testing.T) *setup.SQLiteTestDB {
-
 	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
@@ -50,7 +49,6 @@ func setUpDB(t *testing.T) *setup.SQLiteTestDB {
 }
 
 func TestLookupsReadNoTableWhenOrganizationManagementIsDisabled(t *testing.T) {
-
 	testDB := setUpDB(t)
 	for _, table := range []string{"resource_sharing_policy_target", "resource_sharing_policy", "organizations"} {
 		if _, err := testDB.DB.Exec("DROP TABLE " + table); err != nil {
@@ -62,7 +60,7 @@ func TestLookupsReadNoTableWhenOrganizationManagementIsDisabled(t *testing.T) {
 	if org, err := GetOrganizationByHandle(ctx, "acme"); err != nil || org != nil {
 		t.Errorf("GetOrganizationByHandle: want nil, nil, got %v, %v", org, err)
 	}
-	if org, err := GetOrganizationById(ctx, "primary-id"); err != nil || org != nil {
+	if org, err := GetOrganizationByID(ctx, "primary-id"); err != nil || org != nil {
 		t.Errorf("GetOrganizationById: want nil, nil, got %v, %v", org, err)
 	}
 	if chain, err := GetOrganizationChain(ctx, "primary-id"); err != nil || len(chain) != 0 {

@@ -49,7 +49,6 @@ var ErrShutdownIncomplete = errors.New("workers: the shutdown deadline passed wh
 
 // newJobLifecycle returns a lifecycle for one worker.
 func newJobLifecycle() *jobLifecycle {
-
 	ctx, cancel := context.WithCancel(context.Background())
 	return &jobLifecycle{ctx: ctx, cancel: cancel}
 }
@@ -57,7 +56,6 @@ func newJobLifecycle() *jobLifecycle {
 // begin registers a job. It reports false once the worker has started to stop,
 // and the job must then not run.
 func (l *jobLifecycle) begin() bool {
-
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -72,7 +70,6 @@ func (l *jobLifecycle) begin() bool {
 // the handler returns. It refuses a job that arrives after the worker has
 // started to stop.
 func (l *jobLifecycle) run(work func(ctx context.Context)) error {
-
 	if !l.begin() {
 		return ErrWorkerStopping
 	}
@@ -90,7 +87,6 @@ func (l *jobLifecycle) run(work func(ctx context.Context)) error {
 // ErrShutdownIncomplete when ctx expired first. The job contexts are cancelled
 // in that case.
 func (l *jobLifecycle) stop(ctx context.Context, closeQueue func(context.Context) error) error {
-
 	l.mu.Lock()
 	l.stopping = true
 	l.mu.Unlock()
@@ -113,7 +109,6 @@ func (l *jobLifecycle) stop(ctx context.Context, closeQueue func(context.Context
 // waitWithin reports whether every member of the group returned before ctx
 // expired.
 func waitWithin(ctx context.Context, group *sync.WaitGroup) bool {
-
 	done := make(chan struct{})
 	go func() {
 		group.Wait()

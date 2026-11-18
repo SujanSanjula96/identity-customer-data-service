@@ -91,7 +91,6 @@ type ReviewReason struct {
 // Explain builds the explanation for a set of rule evaluations. The reasons are supplied by
 // the caller, which knows why the pair was held.
 func Explain(evaluations []RuleEvaluation, primary *RuleEvaluation, reasons []ReviewReason) MatchExplanation {
-
 	rules := make([]RuleOutcome, 0, len(evaluations))
 	for i := range evaluations {
 		eval := &evaluations[i]
@@ -140,6 +139,7 @@ func (e MatchExplanation) RuleIDsFor(properties []string) []string {
 func (e MatchExplanation) WithReason(reason ReviewReason) MatchExplanation {
 	reasons := make([]ReviewReason, 0, len(e.Reasons)+1)
 	reasons = append(reasons, e.Reasons...)
-	e.Reasons = append(reasons, reason)
+	reasons = append(reasons, reason)
+	e.Reasons = reasons
 	return e
 }

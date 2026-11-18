@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider gives access to the profile schema service.
 package provider
 
 import (

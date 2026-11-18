@@ -67,7 +67,7 @@ func TestGetAdminConfigDefaults(t *testing.T) {
 	got, err := env.svc.GetAdminConfig(env.ctx, env.orgID)
 
 	require.NoError(t, err)
-	assert.Equal(t, env.orgID, got.OrgId)
+	assert.Equal(t, env.orgID, got.OrgID)
 	assert.False(t, got.CDSEnabled)
 	assert.False(t, got.InitialSchemaSyncDone)
 	assert.NotNil(t, got.SystemApplications)

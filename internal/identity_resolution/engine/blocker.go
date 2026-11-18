@@ -30,8 +30,14 @@ import (
 	urModel "github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 )
 
-type CandidateLookupFunc func(orgHandle, attributeName string, keyValues []string, excludeProfileID string, maxResults int) ([]string, error)
+// CandidateLookupFunc returns up to maxResults IDs of the profiles in the organization that are indexed under
+// any of keyValues for attributeName, leaving out excludeProfileID.
+type CandidateLookupFunc func(
+	orgHandle, attributeName string, keyValues []string, excludeProfileID string, maxResults int,
+) ([]string, error)
 
+// FindCandidatesByIndex returns the deduplicated IDs of the profiles that share a blocking key with keys,
+// narrowest key kind first. A lookup that fails is logged and skipped, so the result may be partial.
 func FindCandidatesByIndex(
 	keys []model.BlockingKey,
 	orgHandle string,
@@ -153,7 +159,10 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 				break
 			}
 			for _, lshKey := range algorithms.LSHBandHashes(norm) {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH},
+				)
 			}
 
 		case constants.AttributeTypePhone:
@@ -166,7 +175,10 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 			if len(norm) >= constants.PhoneSuffixBlockingLength {
 				suffix := norm[len(norm)-constants.PhoneSuffixBlockingLength:]
 				if suffix != norm {
-					keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: suffix, Kind: model.KeyKindSuffix})
+					keys = append(
+						keys,
+						model.BlockingKey{AttributeName: attrName, KeyValue: suffix, Kind: model.KeyKindSuffix},
+					)
 				}
 			}
 
@@ -177,13 +189,22 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 			}
 			priPhonetic, altPhonetic := algorithms.DoubleMetaphonePhrase(value)
 			if priPhonetic != "" && priPhonetic != norm {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: priPhonetic, Kind: model.KeyKindPhonetic})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: priPhonetic, Kind: model.KeyKindPhonetic},
+				)
 			}
 			if altPhonetic != "" && altPhonetic != priPhonetic && altPhonetic != norm {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: altPhonetic, Kind: model.KeyKindPhonetic})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: altPhonetic, Kind: model.KeyKindPhonetic},
+				)
 			}
 			for _, lshKey := range algorithms.LSHBandHashes(norm) {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH},
+				)
 			}
 
 		case constants.AttributeTypeLocation:
@@ -192,7 +213,10 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 				break
 			}
 			for _, lshKey := range algorithms.LSHBandHashes(norm) {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH},
+				)
 			}
 
 		case constants.AttributeTypeFuzzyString:
@@ -201,7 +225,10 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 				break
 			}
 			for _, lshKey := range algorithms.LSHBandHashes(norm) {
-				keys = append(keys, model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH})
+				keys = append(
+					keys,
+					model.BlockingKey{AttributeName: attrName, KeyValue: lshKey, Kind: model.KeyKindLSH},
+				)
 			}
 		}
 	} else {
@@ -223,7 +250,10 @@ func GenerateBlockingKeys(attrType string, method string, attrName string, value
 // GenerateBlockingKeysFromRules generates blocking keys only for attributes that have active unification rules.
 // For multi-value attributes (arrays) it generates one set of blocking keys per element so that each
 // individual value is independently searchable during candidate search.
-func GenerateBlockingKeysFromRules(flatAttrs map[string]interface{}, rules []urModel.UnificationRule) []model.BlockingKey {
+func GenerateBlockingKeysFromRules(
+	flatAttrs map[string]interface{},
+	rules []urModel.UnificationRule,
+) []model.BlockingKey {
 	var allKeys []model.BlockingKey
 	for _, rule := range rules {
 		for _, strVal := range getStringValues(flatAttrs, rule.PropertyName) {

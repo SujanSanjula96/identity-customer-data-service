@@ -16,15 +16,15 @@
  * under the License.
  */
 
+// Package model defines the identity resolution types: the profile data and blocking keys the engine works
+// on, rule verdicts and match explanations, review tasks, rejections, and the merge thresholds.
 package model
 
 import (
 	"fmt"
 )
 
-// BlockingKey is one index entry for a profile attribute value.
-//
-// KeyKind separates the key kinds derived from one value. Candidate lookup queries each
+// KeyKind separates the key kinds derived from one attribute value. Candidate lookup queries each
 // kind on its own, because they do not share a selectivity: a phonetic code deliberately
 // covers every spelling variant of a name, while each spelling produces its own LSH bands.
 // Grouping them into one lookup lets the broader kind exhaust the candidate cap and
@@ -52,6 +52,7 @@ type BlockingKey struct {
 	Kind          KeyKind
 }
 
+// ProfileData is the view of a profile that identity resolution compares: its IDs and its flattened attributes.
 type ProfileData struct {
 	ProfileID          string
 	UserID             string

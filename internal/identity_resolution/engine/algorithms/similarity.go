@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package algorithms implements the string similarity, phonetic and locality-sensitive hashing algorithms
+// that the identity resolution engine uses to compare and block attribute values.
 package algorithms
 
 import (
@@ -26,6 +28,8 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
+// JaroWinkler returns the Jaro-Winkler similarity of s1 and s2, from 0 to 1, comparing runes and boosting
+// a shared prefix of up to JaroWinklerMaxPrefix runes.
 func JaroWinkler(s1, s2 string) float64 {
 	if s1 == s2 {
 		return 1.0
@@ -98,6 +102,8 @@ func jaroSimilarity(r1, r2 []rune) float64 {
 	return (m/float64(len(r1)) + m/float64(len(r2)) + (m-float64(transpositions)/2.0)/m) / 3.0
 }
 
+// LevenshteinDistance returns the number of single-rune insertions, deletions and substitutions that turn
+// s1 into s2.
 func LevenshteinDistance(s1, s2 string) int {
 	r1 := []rune(s1)
 	r2 := []rune(s2)
@@ -133,6 +139,8 @@ func LevenshteinDistance(s1, s2 string) int {
 	return prev[m]
 }
 
+// LevenshteinSimilarity returns 1 minus the Levenshtein distance divided by the longer rune length, so 1
+// means identical. Two empty strings score 1.
 func LevenshteinSimilarity(s1, s2 string) float64 {
 	dist := LevenshteinDistance(s1, s2)
 	maxLen := math.Max(float64(utf8.RuneCountInString(s1)), float64(utf8.RuneCountInString(s2)))
@@ -155,6 +163,7 @@ func min3(a, b, c int) int {
 	return c
 }
 
+// AddressAbbreviations maps lower-case address abbreviations to their full forms.
 var AddressAbbreviations = map[string]string{
 	"st":    "street",
 	"st.":   "street",
@@ -207,6 +216,8 @@ func ExpandAddressAbbreviations(addr string) string {
 	return strings.Join(tokens, " ")
 }
 
+// JaccardSimilarity returns the Jaccard index of the lower-cased whitespace tokens of s1 and s2. Two empty
+// strings score 1, and one empty string scores 0.
 func JaccardSimilarity(s1, s2 string) float64 {
 	tokens1 := Tokenize(s1)
 	tokens2 := Tokenize(s2)

@@ -33,7 +33,7 @@ func scoreSoleRule(t *testing.T, attrType, method, a, b string) (float64, string
 	t.Helper()
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "acme", Thresholds: thresholds}
 	rules := []urModel.UnificationRule{testRule("identity_attributes.v", attrType, method, 1)}
 
 	score, _ := ScoreCandidate(
@@ -45,7 +45,7 @@ func scoreSoleRule(t *testing.T, attrType, method, a, b string) (float64, string
 	return score, model.Decide(score, thresholds)
 }
 
-// TestLoneLowStrengthRuleCannotAutoMerge is the property that stops an organisation whose only
+// TestLoneLowStrengthRuleCannotAutoMerge is the property that stops an organization whose only
 // rule is a tolerant name match from merging two different people unattended.
 //
 // Being the sole rule makes an attribute top-priority by default rather than by choice, so

@@ -25,7 +25,6 @@ import (
 
 // An unsupported adapter type is refused.
 func TestNewAdapterRefusesOtherTypes(t *testing.T) {
-
 	cases := map[string]string{
 		"unknownIdP": "not supported",
 	}

@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package handler serves the organization endpoints: lifecycle events, the organization tree sync and
+// the organization access policies.
 package handler
 
 import (
@@ -41,28 +43,28 @@ const (
 // OrganizationHandler handles the organization endpoints.
 type OrganizationHandler struct{}
 
+// NewOrganizationHandler returns a new OrganizationHandler instance.
 func NewOrganizationHandler() *OrganizationHandler {
 	return &OrganizationHandler{}
 }
 
 // SyncOrganization applies an organization lifecycle event.
 func (h *OrganizationHandler) SyncOrganization(w http.ResponseWriter, r *http.Request) {
-
 	if err := security.AuthnWithAdminCredentials(r); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 	var event model.SyncEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil || event.OrgId == "" || event.Event == "" {
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil || event.OrgID == "" || event.Event == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: "The body must have 'event' and 'org_id'.",
 		}, http.StatusBadRequest))
 		return
 	}
 	orgHandle := utils.ExtractOrgHandleFromPath(r)
-	log.GetLogger().Info("Received organization event " + event.Event + " for org " + event.OrgId + " through " +
+	log.GetLogger().Info("Received organization event " + event.Event + " for org " + event.OrgID + " through " +
 		orgHandle)
 	if err := service.HandleSyncEvent(r.Context(), orgHandle, event); err != nil {
 		utils.HandleError(w, err)
@@ -73,7 +75,6 @@ func (h *OrganizationHandler) SyncOrganization(w http.ResponseWriter, r *http.Re
 
 // StartTreeSync starts a background sync of the organization tree.
 func (h *OrganizationHandler) StartTreeSync(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:update")
 	if !ok {
 		return
@@ -88,12 +89,11 @@ func (h *OrganizationHandler) StartTreeSync(w http.ResponseWriter, r *http.Reque
 
 // GetTreeSync returns the state of the organization tree sync.
 func (h *OrganizationHandler) GetTreeSync(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:view")
 	if !ok {
 		return
 	}
-	status, err := service.GetTreeSyncStatus(r.Context(), primary.OrgId)
+	status, err := service.GetTreeSyncStatus(r.Context(), primary.OrgID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -103,8 +103,8 @@ func (h *OrganizationHandler) GetTreeSync(w http.ResponseWriter, r *http.Request
 
 // Organization access endpoints.
 
+// CreateOrgAccess creates the organization access policy of the primary organization.
 func (h *OrganizationHandler) CreateOrgAccess(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:update")
 	if !ok {
 		return
@@ -121,8 +121,8 @@ func (h *OrganizationHandler) CreateOrgAccess(w http.ResponseWriter, r *http.Req
 	utils.RespondJSON(w, http.StatusCreated, resp, orgAccessResource)
 }
 
+// ListOrgAccess returns the organization access policies of the primary organization.
 func (h *OrganizationHandler) ListOrgAccess(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:view")
 	if !ok {
 		return
@@ -135,8 +135,8 @@ func (h *OrganizationHandler) ListOrgAccess(w http.ResponseWriter, r *http.Reque
 	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
 }
 
+// GetOrgAccess returns the organization access policy that the orgPolicyId path value names.
 func (h *OrganizationHandler) GetOrgAccess(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:view")
 	if !ok {
 		return
@@ -149,8 +149,9 @@ func (h *OrganizationHandler) GetOrgAccess(w http.ResponseWriter, r *http.Reques
 	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
 }
 
+// UpdateOrgAccess replaces the selected organizations of the organization access policy that the
+// orgPolicyId path value names.
 func (h *OrganizationHandler) UpdateOrgAccess(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:update")
 	if !ok {
 		return
@@ -167,8 +168,8 @@ func (h *OrganizationHandler) UpdateOrgAccess(w http.ResponseWriter, r *http.Req
 	utils.RespondJSON(w, http.StatusOK, resp, orgAccessResource)
 }
 
+// DeleteOrgAccess deletes the organization access policy that the orgPolicyId path value names.
 func (h *OrganizationHandler) DeleteOrgAccess(w http.ResponseWriter, r *http.Request) {
-
 	primary, ok := primaryOf(w, r, "organization:update")
 	if !ok {
 		return
@@ -183,7 +184,6 @@ func (h *OrganizationHandler) DeleteOrgAccess(w http.ResponseWriter, r *http.Req
 // primaryOf authenticates the request and returns the primary organization of the path. It writes
 // an error response when the organization is not a primary organization with CDS enabled.
 func primaryOf(w http.ResponseWriter, r *http.Request, operation string) (*model.Organization, bool) {
-
 	if err := security.AuthnAndAuthzPrimary(r, operation); err != nil {
 		utils.HandleError(w, err)
 		return nil, false
@@ -204,8 +204,8 @@ func primaryOf(w http.ResponseWriter, r *http.Request, operation string) (*model
 	}
 	if org == nil || !org.IsPrimary() {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Code,
-			Message:     errors2.SUB_ORG_CONFIG_NOT_ALLOWED.Message,
+			Code:        errors2.SubOrgConfigNotAllowed.Code,
+			Message:     errors2.SubOrgConfigNotAllowed.Message,
 			Description: "Only the primary organization manages the organization sync and the organization access.",
 		}, http.StatusBadRequest))
 		return nil, false
@@ -215,8 +215,8 @@ func primaryOf(w http.ResponseWriter, r *http.Request, operation string) (*model
 
 func notEnabled() error {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:        errors2.CDS_NOT_ENABLED.Code,
-		Message:     errors2.CDS_NOT_ENABLED.Message,
-		Description: errors2.CDS_NOT_ENABLED.Description,
+		Code:        errors2.CDSNotEnabled.Code,
+		Message:     errors2.CDSNotEnabled.Message,
+		Description: errors2.CDSNotEnabled.Description,
 	}, http.StatusBadRequest)
 }

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS profile_unification_triggers
 -- Profiles Table
 CREATE TABLE IF NOT EXISTS profiles
 (
-    profile_id          VARCHAR(255) PRIMARY KEY,
+    profile_id          VARCHAR(36) PRIMARY KEY,
     user_id             VARCHAR(255),
     created_at          TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     updated_at          TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS profiles
 
 CREATE TABLE IF NOT EXISTS profile_reference
 (
-    profile_id                   VARCHAR(255) PRIMARY KEY,
+    profile_id                   VARCHAR(36) PRIMARY KEY,
     profile_status               VARCHAR(255),
-    reference_profile_id         VARCHAR(255),
+    reference_profile_id         VARCHAR(36),
     reference_reason             VARCHAR(255),
     org_id                       VARCHAR(255) NOT NULL,
     reference_profile_org_id     VARCHAR(255)
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS unification_rules
 CREATE TABLE IF NOT EXISTS application_data
 (
     app_data_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id       VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    profile_id       VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
     app_id           VARCHAR(255) NOT NULL,
     application_data JSONB DEFAULT '{}',
     UNIQUE (profile_id, app_id)
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS consent_categories
 (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     category_name       VARCHAR(255)        NOT NULL,
-    category_identifier VARCHAR(255) UNIQUE NOT NULL,
+    category_identifier VARCHAR(36) UNIQUE NOT NULL,
     purpose             VARCHAR(255)        NOT NULL,
     destinations        TEXT,
     is_mandatory        BOOLEAN             NOT NULL DEFAULT FALSE,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS consent_categories
 CREATE TABLE IF NOT EXISTS consent_category_attributes
 (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-    category_id            VARCHAR(255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    category_id            VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     scope                  VARCHAR(50)  NOT NULL,
     attribute_name         VARCHAR(255) NOT NULL,
     attribute_id           VARCHAR(255) REFERENCES profile_schema (attribute_id) ON DELETE CASCADE,
@@ -123,8 +123,8 @@ CREATE TABLE IF NOT EXISTS consent_category_attributes
 CREATE TABLE IF NOT EXISTS profile_consents
 (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id     VARCHAR(255) REFERENCES profiles (profile_id) ON DELETE CASCADE,
-    category_id    VARCHAR(255) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
+    profile_id     VARCHAR(36) REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    category_id    VARCHAR(36) REFERENCES consent_categories (category_identifier) ON DELETE CASCADE,
     consent_status BOOLEAN   NOT NULL,
     consented_at   TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now') || '+00:00'),
     UNIQUE (profile_id, category_id)
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS profile_consents
 CREATE TABLE IF NOT EXISTS profile_cookies
 (
     cookie_id  VARCHAR(255) PRIMARY KEY,
-    profile_id VARCHAR(255) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    profile_id VARCHAR(36) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
     is_active  BOOLEAN      NOT NULL DEFAULT TRUE
 );
 
@@ -259,10 +259,10 @@ CREATE INDEX IF NOT EXISTS idx_resource_sharing_policy_owning_org_type
 -- nor the scale. See "How the index is stored" in docs/concepts/how-unification-works.md.
 CREATE TABLE IF NOT EXISTS blocking_keys
 (
-    profile_id     VARCHAR(255) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
-    attribute_name VARCHAR(255) NOT NULL, -- Rule property name (e.g. "identity_attributes.emailaddress")
+    profile_id     VARCHAR(36) NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    attribute_name VARCHAR(128) NOT NULL, -- Rule property name (e.g. "identity_attributes.emailaddress")
     key_value      VARCHAR(512) NOT NULL, -- Normalized blocking key
-    org_id         VARCHAR(255) NOT NULL,
+    org_id         VARCHAR(36) NOT NULL,
     PRIMARY KEY (org_id, attribute_name, key_value, profile_id)
 );
 
@@ -271,8 +271,8 @@ CREATE INDEX IF NOT EXISTS idx_blocking_keys_org_id_profile ON blocking_keys (or
 CREATE TABLE IF NOT EXISTS review_tasks
 (
     id                   VARCHAR(255) PRIMARY KEY,
-    incoming_profile_id  VARCHAR(255)  NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
-    candidate_profile_id VARCHAR(255)  NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    incoming_profile_id  VARCHAR(36)  NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
+    candidate_profile_id VARCHAR(36)  NOT NULL REFERENCES profiles (profile_id) ON DELETE CASCADE,
     match_score          DECIMAL(5, 4) NOT NULL,
     status               VARCHAR(50)   NOT NULL DEFAULT 'PENDING',
     match_reason         TEXT,
@@ -293,8 +293,8 @@ CREATE TABLE IF NOT EXISTS rejection_pairs
 (
     id           VARCHAR(255) PRIMARY KEY,
     -- Lower id first, so one row is one pair whichever way the review task ran.
-    profile_id_1 VARCHAR(255) NOT NULL,
-    profile_id_2 VARCHAR(255) NOT NULL,
+    profile_id_1 VARCHAR(36) NOT NULL,
+    profile_id_2 VARCHAR(36) NOT NULL,
     -- The evidence the decision was made against; see the PostgreSQL schema for why.
     match_score     DECIMAL(5, 4),
     score_breakdown TEXT DEFAULT '{}',

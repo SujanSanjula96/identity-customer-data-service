@@ -67,7 +67,7 @@ func newProfileEnv(t *testing.T) *profileEnv {
 	})
 
 	handle := fmt.Sprintf("acme-%d", profileOrgCounter.Add(1))
-	env := &profileEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle),
+	env := &profileEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle),
 		svc: &ProfilesService{}}
 	require.NoError(t, setup.InsertTestOrganization(testDB.DB, env.orgID, handle))
 
@@ -83,7 +83,7 @@ func (e *profileEnv) seedSchema(t *testing.T, scope, name, valueType, mutability
 	t.Helper()
 	full := scope + "." + name
 	err := schemaStore.AddProfileSchemaAttributesForScope(e.ctx, []schemaModel.ProfileSchemaAttribute{{
-		AttributeId:   "attr-" + full,
+		AttributeID:   "attr-" + full,
 		AttributeName: full,
 		Scope:         scope,
 		ValueType:     valueType,
@@ -111,12 +111,12 @@ func (e *profileEnv) addChild(t *testing.T, parentID, id string) {
 	t.Helper()
 	now := time.Now().UTC()
 	err := profileStore.InsertProfile(e.ctx, e.orgID, profileModel.Profile{
-		ProfileId: id,
-		OrgId:     e.orgID,
+		ProfileID: id,
+		OrgID:     e.orgID,
 		CreatedAt: now,
 		UpdatedAt: now,
 		ProfileStatus: &profileModel.ProfileStatus{
-			ReferenceProfileId: parentID,
+			ReferenceProfileID: parentID,
 			ReferenceReason:    "email",
 		},
 	})
@@ -135,16 +135,16 @@ func TestCreateProfileStoresAndReturnsTheProfile(t *testing.T) {
 	env := newProfileEnv(t)
 
 	created := env.create(t, profileModel.ProfileRequest{
-		UserId:             "u-1",
+		UserID:             "u-1",
 		IdentityAttributes: map[string]interface{}{"email": "a@b.c"},
 		Traits:             map[string]interface{}{"city": "Colombo", "age": float64(30)},
 	})
 
-	assert.NotEmpty(t, created.ProfileId)
-	assert.Equal(t, "u-1", created.UserId)
+	assert.NotEmpty(t, created.ProfileID)
+	assert.Equal(t, "u-1", created.UserID)
 	assert.Equal(t, "a@b.c", created.IdentityAttributes["email"])
 	assert.Equal(t, "Colombo", created.Traits["city"])
-	assert.Contains(t, created.Meta.Location, created.ProfileId)
+	assert.Contains(t, created.Meta.Location, created.ProfileID)
 	assert.Contains(t, created.Meta.Location, env.handle)
 	assert.False(t, created.Meta.CreatedAt.IsZero())
 	assert.Nil(t, created.MergedFrom)
@@ -185,7 +185,7 @@ func (e *profileEnv) seedSchemaForApp(t *testing.T, appID string) {
 	t.Helper()
 	full := constants.ApplicationData + ".theme"
 	err := schemaStore.AddProfileSchemaAttributesForScope(e.ctx, []schemaModel.ProfileSchemaAttribute{{
-		AttributeId:           "attr-" + appID + "-theme",
+		AttributeID:           "attr-" + appID + "-theme",
 		AttributeName:         full,
 		Scope:                 constants.ApplicationData,
 		ApplicationIdentifier: appID,
@@ -200,67 +200,67 @@ func TestGetProfile(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.createWithCity(t, "Colombo")
 
-	got, err := env.svc.GetProfile(env.ctx, created.ProfileId, env.orgID)
+	got, err := env.svc.GetProfile(env.ctx, created.ProfileID, env.orgID)
 
 	require.NoError(t, err)
-	assert.Equal(t, created.ProfileId, got.ProfileId)
+	assert.Equal(t, created.ProfileID, got.ProfileID)
 	assert.Equal(t, "Colombo", got.Traits["city"])
 
 	_, err = env.svc.GetProfile(env.ctx, "missing", env.orgID)
 	clientError := requireStatus(t, err, http.StatusNotFound)
-	assert.Equal(t, errors2.PROFILE_NOT_FOUND.Code, clientError.Code)
+	assert.Equal(t, errors2.ProfileNotFound.Code, clientError.Code)
 }
 
 func TestGetProfileIsScopedToTheOrganization(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.createWithCity(t, "Colombo")
 
-	_, err := env.svc.GetProfile(env.ctx, created.ProfileId, "another-org")
+	_, err := env.svc.GetProfile(env.ctx, created.ProfileID, "another-org")
 
 	_ = requireStatus(t, err, http.StatusNotFound)
 }
 
 func TestFindProfileByUserId(t *testing.T) {
 	env := newProfileEnv(t)
-	env.create(t, profileModel.ProfileRequest{UserId: "u-7", Traits: map[string]interface{}{"city": "Kandy"}})
+	env.create(t, profileModel.ProfileRequest{UserID: "u-7", Traits: map[string]interface{}{"city": "Kandy"}})
 
-	got, err := env.svc.FindProfileByUserId(env.ctx, "u-7", env.orgID)
+	got, err := env.svc.FindProfileByUserID(env.ctx, "u-7", env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "u-7", got.UserId)
+	assert.Equal(t, "u-7", got.UserID)
 	assert.Equal(t, "Kandy", got.Traits["city"])
 
-	_, err = env.svc.FindProfileByUserId(env.ctx, "nobody", env.orgID)
+	_, err = env.svc.FindProfileByUserID(env.ctx, "nobody", env.orgID)
 	_ = requireStatus(t, err, http.StatusNotFound)
 }
 
 func TestAMergedProfileReadsAsItsMasterAndTheMasterListsIt(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
+	env.addChild(t, master.ProfileID, "child-1")
 
 	child, err := env.svc.GetProfile(env.ctx, "child-1", env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "child-1", child.ProfileId)
+	assert.Equal(t, "child-1", child.ProfileID)
 	assert.Equal(t, "Colombo", child.Traits["city"])
 	require.NotNil(t, child.MergedTo)
-	assert.Equal(t, master.ProfileId, child.MergedTo.ProfileId)
+	assert.Equal(t, master.ProfileID, child.MergedTo.ProfileID)
 	assert.Equal(t, "email", child.MergedTo.Reason)
 
-	parent, err := env.svc.GetProfile(env.ctx, master.ProfileId, env.orgID)
+	parent, err := env.svc.GetProfile(env.ctx, master.ProfileID, env.orgID)
 	require.NoError(t, err)
 	require.Len(t, parent.MergedFrom, 1)
-	assert.Equal(t, "child-1", parent.MergedFrom[0].ProfileId)
+	assert.Equal(t, "child-1", parent.MergedFrom[0].ProfileID)
 }
 
 func TestUpdateProfileReplacesTheProfileData(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.create(t, profileModel.ProfileRequest{
-		UserId: "u-1",
+		UserID: "u-1",
 		Traits: map[string]interface{}{"city": "Colombo", "tier": "gold"},
 	})
 
-	updated, err := env.svc.UpdateProfile(env.ctx, created.ProfileId, env.orgID, profileModel.ProfileRequest{
-		UserId: "u-1",
+	updated, err := env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfileRequest{
+		UserID: "u-1",
 		Traits: map[string]interface{}{"city": "Kandy"},
 	})
 
@@ -270,7 +270,7 @@ func TestUpdateProfileReplacesTheProfileData(t *testing.T) {
 	assert.NotContains(t, updated.Traits, "tier")
 	assert.True(t, !updated.Meta.UpdatedAt.Before(created.Meta.UpdatedAt))
 
-	fetched, err := env.svc.GetProfile(env.ctx, created.ProfileId, env.orgID)
+	fetched, err := env.svc.GetProfile(env.ctx, created.ProfileID, env.orgID)
 	require.NoError(t, err)
 	assert.Equal(t, "Kandy", fetched.Traits["city"])
 }
@@ -282,16 +282,16 @@ func TestUpdateProfileRefusals(t *testing.T) {
 	_, err := env.svc.UpdateProfile(env.ctx, "missing", env.orgID, profileModel.ProfileRequest{})
 	_ = requireStatus(t, err, http.StatusNotFound)
 
-	_, err = env.svc.UpdateProfile(env.ctx, created.ProfileId, env.orgID,
+	_, err = env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID,
 		profileModel.ProfileRequest{Traits: map[string]interface{}{"age": "old"}})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 
 	// A write-once attribute cannot change once it has a value.
-	_, err = env.svc.UpdateProfile(env.ctx, created.ProfileId, env.orgID,
+	_, err = env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID,
 		profileModel.ProfileRequest{Traits: map[string]interface{}{"ssn": "222"}})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 
-	same, err := env.svc.UpdateProfile(env.ctx, created.ProfileId, env.orgID,
+	same, err := env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID,
 		profileModel.ProfileRequest{Traits: map[string]interface{}{"ssn": "111"}})
 	require.NoError(t, err)
 	assert.Equal(t, "111", same.Traits["ssn"])
@@ -300,13 +300,13 @@ func TestUpdateProfileRefusals(t *testing.T) {
 func TestUpdatingAMergedProfileUpdatesItsMaster(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
+	env.addChild(t, master.ProfileID, "child-1")
 
 	_, err := env.svc.UpdateProfile(env.ctx, "child-1", env.orgID,
 		profileModel.ProfileRequest{Traits: map[string]interface{}{"city": "Galle"}})
 
 	require.NoError(t, err)
-	fetched, err := env.svc.GetProfile(env.ctx, master.ProfileId, env.orgID)
+	fetched, err := env.svc.GetProfile(env.ctx, master.ProfileID, env.orgID)
 	require.NoError(t, err)
 	assert.Equal(t, "Galle", fetched.Traits["city"])
 }
@@ -314,12 +314,12 @@ func TestUpdatingAMergedProfileUpdatesItsMaster(t *testing.T) {
 func TestPatchProfileMergesIntoTheExistingData(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.create(t, profileModel.ProfileRequest{
-		UserId:             "u-1",
+		UserID:             "u-1",
 		IdentityAttributes: map[string]interface{}{"email": "a@b.c"},
 		Traits:             map[string]interface{}{"city": "Colombo", "tier": "gold"},
 	})
 
-	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileId, env.orgID, map[string]interface{}{
+	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
 		"traits": map[string]interface{}{"city": "Kandy"},
 	})
 
@@ -327,20 +327,20 @@ func TestPatchProfileMergesIntoTheExistingData(t *testing.T) {
 	assert.Equal(t, "Kandy", patched.Traits["city"])
 	assert.Equal(t, "gold", patched.Traits["tier"], "a trait that was not patched stays")
 	assert.Equal(t, "a@b.c", patched.IdentityAttributes["email"])
-	assert.Equal(t, "u-1", patched.UserId)
+	assert.Equal(t, "u-1", patched.UserID)
 }
 
 func TestPatchProfileCanPatchIdentityAttributesAndTheUserId(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.createWithCity(t, "Colombo")
 
-	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileId, env.orgID, map[string]interface{}{
+	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
 		"user_id":             "u-9",
 		"identity_attributes": map[string]interface{}{"email": "new@b.c"},
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "u-9", patched.UserId)
+	assert.Equal(t, "u-9", patched.UserID)
 	assert.Equal(t, "new@b.c", patched.IdentityAttributes["email"])
 	assert.Equal(t, "Colombo", patched.Traits["city"])
 }
@@ -352,12 +352,12 @@ func TestPatchProfileRefusals(t *testing.T) {
 	_, err := env.svc.PatchProfile(env.ctx, "missing", env.orgID, map[string]interface{}{})
 	_ = requireStatus(t, err, http.StatusNotFound)
 
-	_, err = env.svc.PatchProfile(env.ctx, created.ProfileId, env.orgID, map[string]interface{}{
+	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
 		"traits": map[string]interface{}{"age": "old"},
 	})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 
-	_, err = env.svc.PatchProfile(env.ctx, created.ProfileId, env.orgID, map[string]interface{}{
+	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
 		"traits": map[string]interface{}{"nope": "x"},
 	})
 	_ = requireStatus(t, err, http.StatusBadRequest)
@@ -368,14 +368,14 @@ func TestPatchingAMergedProfilePatchesItsMasterData(t *testing.T) {
 	master := env.create(t, profileModel.ProfileRequest{
 		Traits: map[string]interface{}{"city": "Colombo", "tier": "gold"},
 	})
-	env.addChild(t, master.ProfileId, "child-1")
+	env.addChild(t, master.ProfileID, "child-1")
 
 	_, err := env.svc.PatchProfile(env.ctx, "child-1", env.orgID, map[string]interface{}{
 		"traits": map[string]interface{}{"city": "Galle"},
 	})
 
 	require.NoError(t, err)
-	fetched, err := env.svc.GetProfile(env.ctx, master.ProfileId, env.orgID)
+	fetched, err := env.svc.GetProfile(env.ctx, master.ProfileID, env.orgID)
 	require.NoError(t, err)
 	assert.Equal(t, "Galle", fetched.Traits["city"])
 	assert.Equal(t, "gold", fetched.Traits["tier"], "the master's other data is kept")
@@ -385,24 +385,24 @@ func TestDeleteProfile(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.createWithCity(t, "Colombo")
 
-	require.NoError(t, env.svc.DeleteProfile(env.ctx, created.ProfileId, env.orgID))
+	require.NoError(t, env.svc.DeleteProfile(env.ctx, created.ProfileID, env.orgID))
 
-	_, err := env.svc.GetProfile(env.ctx, created.ProfileId, env.orgID)
+	_, err := env.svc.GetProfile(env.ctx, created.ProfileID, env.orgID)
 	_ = requireStatus(t, err, http.StatusNotFound)
 	// Deleting a profile that is gone is not an error.
-	assert.NoError(t, env.svc.DeleteProfile(env.ctx, created.ProfileId, env.orgID))
+	assert.NoError(t, env.svc.DeleteProfile(env.ctx, created.ProfileID, env.orgID))
 	assert.NoError(t, env.svc.DeleteProfile(env.ctx, "never-existed", env.orgID))
 }
 
 func TestDeletingAMasterDeletesItsMergedProfiles(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
-	env.addChild(t, master.ProfileId, "child-2")
+	env.addChild(t, master.ProfileID, "child-1")
+	env.addChild(t, master.ProfileID, "child-2")
 
-	require.NoError(t, env.svc.DeleteProfile(env.ctx, master.ProfileId, env.orgID))
+	require.NoError(t, env.svc.DeleteProfile(env.ctx, master.ProfileID, env.orgID))
 
-	for _, id := range []string{master.ProfileId, "child-1", "child-2"} {
+	for _, id := range []string{master.ProfileID, "child-1", "child-2"} {
 		_, err := env.svc.GetProfile(env.ctx, id, env.orgID)
 		_ = requireStatus(t, err, http.StatusNotFound)
 	}
@@ -411,11 +411,11 @@ func TestDeletingAMasterDeletesItsMergedProfiles(t *testing.T) {
 func TestDeletingTheOnlyMergedProfileDeletesItsMasterToo(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
+	env.addChild(t, master.ProfileID, "child-1")
 
 	require.NoError(t, env.svc.DeleteProfile(env.ctx, "child-1", env.orgID))
 
-	for _, id := range []string{master.ProfileId, "child-1"} {
+	for _, id := range []string{master.ProfileID, "child-1"} {
 		_, err := env.svc.GetProfile(env.ctx, id, env.orgID)
 		_ = requireStatus(t, err, http.StatusNotFound)
 	}
@@ -424,24 +424,24 @@ func TestDeletingTheOnlyMergedProfileDeletesItsMasterToo(t *testing.T) {
 func TestDeletingOneOfSeveralMergedProfilesKeepsTheMaster(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
-	env.addChild(t, master.ProfileId, "child-2")
+	env.addChild(t, master.ProfileID, "child-1")
+	env.addChild(t, master.ProfileID, "child-2")
 
 	require.NoError(t, env.svc.DeleteProfile(env.ctx, "child-1", env.orgID))
 
 	_, err := env.svc.GetProfile(env.ctx, "child-1", env.orgID)
 	_ = requireStatus(t, err, http.StatusNotFound)
-	parent, err := env.svc.GetProfile(env.ctx, master.ProfileId, env.orgID)
+	parent, err := env.svc.GetProfile(env.ctx, master.ProfileID, env.orgID)
 	require.NoError(t, err)
 	require.Len(t, parent.MergedFrom, 1)
-	assert.Equal(t, "child-2", parent.MergedFrom[0].ProfileId)
+	assert.Equal(t, "child-2", parent.MergedFrom[0].ProfileID)
 }
 
 func TestGetAllProfilesCursorPagesThroughTheMasters(t *testing.T) {
 	env := newProfileEnv(t)
 	created := map[string]bool{}
 	for i := 0; i < 5; i++ {
-		created[env.createWithCity(t, fmt.Sprintf("city-%d", i)).ProfileId] = true
+		created[env.createWithCity(t, fmt.Sprintf("city-%d", i)).ProfileID] = true
 	}
 
 	seen := map[string]bool{}
@@ -451,14 +451,14 @@ func TestGetAllProfilesCursorPagesThroughTheMasters(t *testing.T) {
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page), 2)
 		for _, profile := range page {
-			assert.False(t, seen[profile.ProfileId], "no profile appears twice")
-			seen[profile.ProfileId] = true
+			assert.False(t, seen[profile.ProfileID], "no profile appears twice")
+			seen[profile.ProfileID] = true
 		}
 		if !hasMore {
 			break
 		}
 		last := page[len(page)-1]
-		cursor = &profileModel.ProfileCursor{CreatedAt: last.Meta.CreatedAt, ProfileId: last.ProfileId,
+		cursor = &profileModel.ProfileCursor{CreatedAt: last.Meta.CreatedAt, ProfileID: last.ProfileID,
 			Direction: "next"}
 	}
 
@@ -478,12 +478,12 @@ func TestGetAllProfilesCursorOfAnEmptyOrganizationIsEmpty(t *testing.T) {
 func TestGetAllProfilesCursorListsMastersNotMergedProfiles(t *testing.T) {
 	env := newProfileEnv(t)
 	master := env.createWithCity(t, "Colombo")
-	env.addChild(t, master.ProfileId, "child-1")
+	env.addChild(t, master.ProfileID, "child-1")
 
 	page, _, err := env.svc.GetAllProfilesCursor(env.ctx, env.orgID, 10, nil)
 
 	require.NoError(t, err)
 	require.Len(t, page, 1)
-	assert.Equal(t, master.ProfileId, page[0].ProfileId)
+	assert.Equal(t, master.ProfileID, page[0].ProfileID)
 	require.Len(t, page[0].MergedFrom, 1)
 }

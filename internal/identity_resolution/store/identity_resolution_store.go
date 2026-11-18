@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package store persists identity resolution data: the blocking key index used to find candidate profiles,
+// merge review tasks, and rejected profile pairs.
 package store
 
 import (
@@ -26,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
@@ -37,45 +40,44 @@ import (
 // GetProfilesForOrgAfter returns up to limit profiles whose id sorts after afterProfileID.
 // Pass an empty afterProfileID to start. See IRGetProfilesForOrgAfter for why this is keyed
 // rather than offset-based.
-func GetProfilesForOrgAfter(ctx context.Context, orgId string, afterProfileID string, limit int) ([]model.ProfileData, error) {
-	logger := log.GetLogger()
-
+func GetProfilesForOrgAfter(
+	ctx context.Context,
+	orgID string,
+	afterProfileID string,
+	limit int,
+) ([]model.ProfileData, error) {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_SEARCH_FAILED.Code,
-			Message:     errors2.IR_SEARCH_FAILED.Message,
+			Code:        errors2.IRSearchFailed.Code,
+			Message:     errors2.IRSearchFailed.Message,
 			Description: "Failed to connect to database for paginated profile lookup.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRGetProfilesForOrgAfter
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, afterProfileID, limit)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, afterProfileID, limit)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_SEARCH_FAILED.Code,
-			Message:     errors2.IR_SEARCH_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load profiles after '%s' for org: %s", afterProfileID, orgId),
+			Code:        errors2.IRSearchFailed.Code,
+			Message:     errors2.IRSearchFailed.Message,
+			Description: fmt.Sprintf("Failed to load profiles after '%s' for org: %s", afterProfileID, orgID),
 		}, err)
 	}
 
 	profiles := make([]model.ProfileData, 0, len(results))
 	for _, row := range results {
-		pd, err := scanProfileData(row)
-		if err != nil {
-			logger.Warn("Store: skipping profile due to scan error", log.Error(err))
-			continue
-		}
+		pd := scanProfileData(row)
 		profiles = append(profiles, pd)
 	}
 
 	return profiles, nil
 }
 
-func scanProfileData(row map[string]interface{}) (model.ProfileData, error) {
+func scanProfileData(row map[string]interface{}) model.ProfileData {
 	pd := model.ProfileData{
 		Attributes: make(map[string]interface{}),
 	}
@@ -108,21 +110,23 @@ func scanProfileData(row map[string]interface{}) (model.ProfileData, error) {
 		}
 	}
 
-	return pd, nil
+	return pd
 }
 
-func InsertReviewTask(ctx context.Context, orgId string, task model.ReviewTask) error {
+// InsertReviewTask stores a pending review task. If the reverse pair already has a pending task, that task is
+// flipped to this direction and updated with the new score and explanation instead.
+func InsertReviewTask(ctx context.Context, orgID string, task model.ReviewTask) error {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	// Mirror check: if the reverse pair already exists as PENDING,
 	// update its score/breakdown to reflect the latest data instead of creating a duplicate.
@@ -164,13 +168,13 @@ func InsertReviewTask(ctx context.Context, orgId string, task model.ReviewTask) 
 
 	query := scripts.IRInsertReviewTask
 	_, err = dbClient.ExecuteQueryContext(ctx, query,
-		task.ID, orgId, task.IncomingProfileID, task.CandidateProfileID,
+		task.ID, orgID, task.IncomingProfileID, task.CandidateProfileID,
 		task.MatchScore, task.Status, string(breakdownJSON), explanationJSON(task.Explanation))
 	if err != nil {
 		logger.Error("Store: failed to insert review task", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:    errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message: errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:    errors2.IRReviewTaskFailed.Code,
+			Message: errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to create review task for profiles %s → %s",
 				task.IncomingProfileID, task.CandidateProfileID),
 		}, err)
@@ -181,7 +185,10 @@ func InsertReviewTask(ctx context.Context, orgId string, task model.ReviewTask) 
 
 // CancelRelatedReviewTasks cancels all PENDING review tasks that reference either of the given profile IDs.
 // Returns the incoming profile IDs of the cancelled tasks so they can be re-evaluated.
-func CancelRelatedReviewTasks(ctx context.Context, excludeTaskID, IncomingProfileID, CandidateProfileID, cancelledBy string) ([]string, error) {
+func CancelRelatedReviewTasks(
+	ctx context.Context,
+	excludeTaskID, incomingProfileID, candidateProfileID, cancelledBy string,
+) ([]string, error) {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -189,13 +196,13 @@ func CancelRelatedReviewTasks(ctx context.Context, excludeTaskID, IncomingProfil
 		logger.Error("Store: failed to get DB client for cascade cancel", log.Error(err))
 		return nil, err
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	// Step 1: Find incoming profile IDs that will be affected before cancelling.
+	// Step 1: Find incoming profile IDs that will be affected before canceling.
 	findQuery := scripts.IRFindRelatedPendingReviewTasks
 	rows, err := dbClient.ExecuteQueryContext(ctx, findQuery,
 		excludeTaskID, constants.ReviewStatusPending,
-		IncomingProfileID, CandidateProfileID)
+		incomingProfileID, candidateProfileID)
 	if err != nil {
 		logger.Warn("Store: failed to query related tasks for re-evaluation", log.Error(err))
 		// Non-fatal for the find step — proceed with cancel anyway.
@@ -206,7 +213,7 @@ func CancelRelatedReviewTasks(ctx context.Context, excludeTaskID, IncomingProfil
 		if v, ok := row["incoming_profile_id"]; ok && v != nil {
 			id := fmt.Sprintf("%v", v)
 			// Don't re-evaluate profiles that were just merged (incoming or candidate of the resolved task).
-			if id != IncomingProfileID && id != CandidateProfileID {
+			if id != incomingProfileID && id != candidateProfileID {
 				affectedIncomingIDs = append(affectedIncomingIDs, id)
 			}
 		}
@@ -218,7 +225,7 @@ func CancelRelatedReviewTasks(ctx context.Context, excludeTaskID, IncomingProfil
 		constants.ReviewStatusCancelled, cancelledBy,
 		fmt.Sprintf("Auto-cancelled: related task %s was resolved", excludeTaskID),
 		excludeTaskID, constants.ReviewStatusPending,
-		IncomingProfileID, CandidateProfileID)
+		incomingProfileID, candidateProfileID)
 	if err != nil {
 		logger.Error("Store: failed to cancel related review tasks", log.Error(err))
 		return nil, err
@@ -227,24 +234,24 @@ func CancelRelatedReviewTasks(ctx context.Context, excludeTaskID, IncomingProfil
 	return affectedIncomingIDs, nil
 }
 
+// GetReviewTaskByID returns the review task with the given ID, or nil without an error when there is none.
 func GetReviewTaskByID(ctx context.Context, taskID string) (*model.ReviewTask, error) {
-
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRGetReviewTaskByID
 	results, err := dbClient.ExecuteQueryContext(ctx, query, taskID)
 	if err != nil {
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to load review task %s", taskID),
 		}, err)
 	}
@@ -257,25 +264,26 @@ func GetReviewTaskByID(ctx context.Context, taskID string) (*model.ReviewTask, e
 	return &task, nil
 }
 
-func GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) ([]model.ReviewTask, int, error) {
-
+// GetPendingReviewTasks returns up to pageSize of the organization's pending review tasks, newest first, and
+// the total number of pending tasks.
+func GetPendingReviewTasks(ctx context.Context, orgID string, pageSize int) ([]model.ReviewTask, int, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	countQuery := scripts.IRCountPendingReviewTasks
-	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgId, constants.ReviewStatusPending)
+	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgID, constants.ReviewStatusPending)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
-			Description: fmt.Sprintf("Failed to count review tasks for org: %s", orgId),
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
+			Description: fmt.Sprintf("Failed to count review tasks for org: %s", orgID),
 		}, err)
 	}
 	totalCount := 0
@@ -291,12 +299,12 @@ func GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) ([]m
 	}
 
 	query := scripts.IRGetPendingReviewTasks
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, constants.ReviewStatusPending, pageSize)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, constants.ReviewStatusPending, pageSize)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
-			Description: fmt.Sprintf("Failed to load review tasks for org: %s", orgId),
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
+			Description: fmt.Sprintf("Failed to load review tasks for org: %s", orgID),
 		}, err)
 	}
 
@@ -309,24 +317,29 @@ func GetPendingReviewTasks(ctx context.Context, orgId string, pageSize int) ([]m
 	return tasks, totalCount, nil
 }
 
-func GetPendingReviewTasksByProfile(ctx context.Context, orgId, profileID string, pageSize int) ([]model.ReviewTask, int, error) {
-
+// GetPendingReviewTasksByProfile returns up to pageSize pending review tasks whose incoming profile is
+// profileID, highest match score first, and the total number of pending tasks that involve the profile.
+func GetPendingReviewTasksByProfile(
+	ctx context.Context,
+	orgID, profileID string,
+	pageSize int,
+) ([]model.ReviewTask, int, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	countQuery := scripts.IRCountPendingReviewTasksByProfile
-	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgId, constants.ReviewStatusPending, profileID)
+	countRows, err := dbClient.ExecuteQueryContext(ctx, countQuery, orgID, constants.ReviewStatusPending, profileID)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to count review tasks for profile: %s", profileID),
 		}, err)
 	}
@@ -343,11 +356,11 @@ func GetPendingReviewTasksByProfile(ctx context.Context, orgId, profileID string
 	}
 
 	query := scripts.IRGetPendingReviewTasksByProfile
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, constants.ReviewStatusPending, profileID, pageSize)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, constants.ReviewStatusPending, profileID, pageSize)
 	if err != nil {
 		return nil, 0, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to load review tasks for profile: %s", profileID),
 		}, err)
 	}
@@ -361,26 +374,28 @@ func GetPendingReviewTasksByProfile(ctx context.Context, orgId, profileID string
 	return tasks, totalCount, nil
 }
 
+// UpdateReviewTaskStatus sets a review task's status, records who resolved it with their notes, and stamps
+// the resolution time.
 func UpdateReviewTaskStatus(ctx context.Context, taskID string, status string, resolvedBy string, notes string) error {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRUpdateReviewTaskStatus
 	_, err = dbClient.ExecuteQueryContext(ctx, query, status, resolvedBy, notes, taskID)
 	if err != nil {
 		logger.Error("Store: failed to update review task", log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to update review task %s to status %s", taskID, status),
 		}, err)
 	}
@@ -429,7 +444,7 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 		task.ID = fmt.Sprintf("%v", v)
 	}
 	if v, ok := row["org_id"]; ok && v != nil {
-		task.OrgId = fmt.Sprintf("%v", v)
+		task.OrgID = fmt.Sprintf("%v", v)
 	}
 	if v, ok := row["incoming_profile_id"]; ok && v != nil {
 		task.IncomingProfileID = fmt.Sprintf("%v", v)
@@ -501,9 +516,8 @@ func scanReviewTask(row map[string]interface{}) model.ReviewTask {
 // The pair is stored with the lower id first so one row means one pair, whichever direction
 // the review task happened to run in — the unique constraint is on the ordered columns, and
 // without normalising here the same pair could occupy two rows.
-func InsertRejectionPair(ctx context.Context, orgId, profileIDA, profileIDB, rejectedBy string,
+func InsertRejectionPair(ctx context.Context, orgID, profileIDA, profileIDB, rejectedBy string,
 	matchScore float64, breakdown map[string]float64) error {
-
 	logger := log.GetLogger()
 
 	first, second := profileIDA, profileIDB
@@ -514,12 +528,12 @@ func InsertRejectionPair(ctx context.Context, orgId, profileIDA, profileIDB, rej
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database for rejection pair insertion.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	breakdownJSON, marshalErr := json.Marshal(breakdown)
 	if marshalErr != nil {
@@ -527,13 +541,13 @@ func InsertRejectionPair(ctx context.Context, orgId, profileIDA, profileIDB, rej
 	}
 
 	query := scripts.IRInsertRejectionPair
-	if _, err := dbClient.ExecuteQueryContext(ctx, query, uuid.New().String(), orgId,
+	if _, err := dbClient.ExecuteQueryContext(ctx, query, uuid.New().String(), orgID,
 		first, second, matchScore, string(breakdownJSON), rejectedBy); err != nil {
 		logger.Error(fmt.Sprintf("Store: failed to record rejection for '%s' and '%s'",
 			first, second), log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: fmt.Sprintf("Failed to record rejection for profiles %s and %s", first, second),
 		}, err)
 	}
@@ -543,17 +557,17 @@ func InsertRejectionPair(ctx context.Context, orgId, profileIDA, profileIDB, rej
 
 // DeleteRejectionPairsForProfile removes all rejection pairs involving the given profile so that
 // a re-evaluation triggered by a profile update can match previously rejected candidates.
-func DeleteRejectionPairsForProfile(ctx context.Context, orgId, profileID string) error {
+func DeleteRejectionPairsForProfile(ctx context.Context, orgID, profileID string) error {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return err
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRDeleteRejectionPairsForProfile
-	_, err = dbClient.ExecuteQueryContext(ctx, query, orgId, profileID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, orgID, profileID)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to delete rejection pairs for profile '%s'", profileID), log.Error(err))
 		return err
@@ -562,21 +576,19 @@ func DeleteRejectionPairsForProfile(ctx context.Context, orgId, profileID string
 	return nil
 }
 
-// GetRejectedProfileIDs returns the set of profile IDs that have been rejected against the given profileID.
 // GetRejectionsForProfile returns every rejection involving the profile, keyed by the
 // profile on the other side of the pair, with the evidence each decision was made against.
-func GetRejectionsForProfile(ctx context.Context, orgId, profileID string) (map[string]model.Rejection, error) {
-
+func GetRejectionsForProfile(ctx context.Context, orgID, profileID string) (map[string]model.Rejection, error) {
 	logger := log.GetLogger()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, err
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRGetRejectionsForProfile
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, profileID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, profileID)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to load rejections for '%s'", profileID), log.Error(err))
 		return nil, err
@@ -619,7 +631,7 @@ func GetRejectionsForProfile(ctx context.Context, orgId, profileID string) (map[
 // decision is silently orphaned and the same pair is proposed again through the master.
 // Rows that would name the master on both sides are left alone rather than made
 // self-referential.
-func RepointRejectionPairs(ctx context.Context, orgId, fromProfileID, toProfileID string) error {
+func RepointRejectionPairs(ctx context.Context, orgID, fromProfileID, toProfileID string) error {
 	logger := log.GetLogger()
 
 	if fromProfileID == "" || toProfileID == "" || fromProfileID == toProfileID {
@@ -629,15 +641,15 @@ func RepointRejectionPairs(ctx context.Context, orgId, fromProfileID, toProfileI
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IR_REVIEW_TASK_FAILED.Code,
-			Message:     errors2.IR_REVIEW_TASK_FAILED.Message,
+			Code:        errors2.IRReviewTaskFailed.Code,
+			Message:     errors2.IRReviewTaskFailed.Message,
 			Description: "Failed to connect to database for rejection pair repointing.",
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.IRRepointRejectionPairs
-	if _, err := dbClient.ExecuteQueryContext(ctx, query, orgId, fromProfileID, toProfileID); err != nil {
+	if _, err := dbClient.ExecuteQueryContext(ctx, query, orgID, fromProfileID, toProfileID); err != nil {
 		logger.Warn(fmt.Sprintf("Store: failed to repoint rejection pairs from '%s' to '%s'",
 			fromProfileID, toProfileID), log.Error(err))
 		return err

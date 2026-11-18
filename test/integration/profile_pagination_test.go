@@ -21,11 +21,13 @@ package integration
 import (
 	"context"
 	"fmt"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/stretchr/testify/require"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
@@ -36,7 +38,6 @@ import (
 // the data access layer most sensitive to how a datasource stores and compares
 // timestamps. It runs against whichever datasource CDS_TEST_DB selects.
 func Test_ProfileCursorPagination(t *testing.T) {
-
 	const (
 		totalProfiles = 7
 		pageSize      = 3
@@ -70,10 +71,10 @@ func Test_ProfileCursorPagination(t *testing.T) {
 			require.LessOrEqual(t, len(profiles), pageSize, "page %d is over the limit", page)
 
 			for _, profile := range profiles {
-				require.False(t, visited[profile.ProfileId],
-					"profile %s was returned on more than one page", profile.ProfileId)
-				visited[profile.ProfileId] = true
-				seen = append(seen, profile.ProfileId)
+				require.False(t, visited[profile.ProfileID],
+					"profile %s was returned on more than one page", profile.ProfileID)
+				visited[profile.ProfileID] = true
+				seen = append(seen, profile.ProfileID)
 			}
 
 			requireDescending(t, profiles)
@@ -84,7 +85,7 @@ func Test_ProfileCursorPagination(t *testing.T) {
 			last := profiles[len(profiles)-1]
 			cursor = &profileModel.ProfileCursor{
 				CreatedAt: last.Meta.CreatedAt,
-				ProfileId: last.ProfileId,
+				ProfileID: last.ProfileID,
 				Direction: "next",
 			}
 		}
@@ -99,26 +100,36 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		require.Len(t, firstPage, pageSize)
 
 		last := firstPage[len(firstPage)-1]
-		secondPage, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org.ID, pageSize, &profileModel.ProfileCursor{
-			CreatedAt: last.Meta.CreatedAt,
-			ProfileId: last.ProfileId,
-			Direction: "next",
-		})
+		secondPage, _, err := profileSvc.GetAllProfilesCursor(
+			context.Background(),
+			org.ID,
+			pageSize,
+			&profileModel.ProfileCursor{
+				CreatedAt: last.Meta.CreatedAt,
+				ProfileID: last.ProfileID,
+				Direction: "next",
+			},
+		)
 		require.NoError(t, err)
 		require.Len(t, secondPage, pageSize)
 
 		// Stepping back from the start of the second page must reproduce the
 		// first page.
 		first := secondPage[0]
-		backwards, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org.ID, pageSize, &profileModel.ProfileCursor{
-			CreatedAt: first.Meta.CreatedAt,
-			ProfileId: first.ProfileId,
-			Direction: "prev",
-		})
+		backwards, _, err := profileSvc.GetAllProfilesCursor(
+			context.Background(),
+			org.ID,
+			pageSize,
+			&profileModel.ProfileCursor{
+				CreatedAt: first.Meta.CreatedAt,
+				ProfileID: first.ProfileID,
+				Direction: "prev",
+			},
+		)
 		require.NoError(t, err)
 		require.Len(t, backwards, pageSize)
 
-		require.ElementsMatch(t, profileIds(firstPage), profileIds(backwards),
+		require.ElementsMatch(t, profileIDs(firstPage), profileIDs(backwards),
 			"paging back did not return the first page")
 	})
 
@@ -130,14 +141,14 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		last := page[len(page)-1]
 		original := profileModel.ProfileCursor{
 			CreatedAt: last.Meta.CreatedAt,
-			ProfileId: last.ProfileId,
+			ProfileID: last.ProfileID,
 			Direction: "next",
 		}
 
 		decoded, err := profileModel.DecodeProfileCursor(profileModel.EncodeProfileCursor(original))
 		require.NoError(t, err)
 		require.NotNil(t, decoded)
-		require.Equal(t, original.ProfileId, decoded.ProfileId)
+		require.Equal(t, original.ProfileID, decoded.ProfileID)
 		require.Equal(t, original.Direction, decoded.Direction)
 		require.True(t, original.CreatedAt.Equal(decoded.CreatedAt),
 			"expected %s, got %s", original.CreatedAt, decoded.CreatedAt)
@@ -148,25 +159,24 @@ func Test_ProfileCursorPagination(t *testing.T) {
 		fromOriginal, _, err := profileSvc.GetAllProfilesCursor(context.Background(), org.ID, pageSize, &original)
 		require.NoError(t, err)
 
-		require.Equal(t, profileIds(fromOriginal), profileIds(fromEncoded),
+		require.Equal(t, profileIDs(fromOriginal), profileIDs(fromEncoded),
 			"an encoded cursor selected a different page")
 	})
 }
 
 // forceSharedCreatedAt gives the oldest count profiles of an organization the same
 // creation time, and returns their ids.
-func forceSharedCreatedAt(t *testing.T, orgId string, count int) []string {
-
+func forceSharedCreatedAt(t *testing.T, orgID string, count int) []string {
 	t.Helper()
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	require.NoError(t, err)
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	rows, err := dbClient.ExecuteQueryContext(context.Background(), dbmodel.DBQuery{
 		ID:    "TEST-PAG-01",
 		Query: `SELECT profile_id FROM profiles WHERE org_id = $1 ORDER BY created_at ASC`,
-	}, orgId)
+	}, orgID)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(rows), count)
 
@@ -174,16 +184,16 @@ func forceSharedCreatedAt(t *testing.T, orgId string, count int) []string {
 
 	ids := make([]string, 0, count)
 	for _, row := range rows[:count] {
-		profileId, ok := row["profile_id"].(string)
+		profileID, ok := row["profile_id"].(string)
 		require.True(t, ok, "unexpected profile_id type %T", row["profile_id"])
 
 		_, err := dbClient.ExecuteQueryContext(context.Background(), dbmodel.DBQuery{
 			ID:    "TEST-PAG-02",
 			Query: `UPDATE profiles SET created_at = $1 WHERE profile_id = $2`,
-		}, shared, profileId)
+		}, shared, profileID)
 		require.NoError(t, err)
 
-		ids = append(ids, profileId)
+		ids = append(ids, profileID)
 	}
 
 	return ids
@@ -192,13 +202,12 @@ func forceSharedCreatedAt(t *testing.T, orgId string, count int) []string {
 // requireDescending asserts that a page is ordered newest first, with the
 // profile id breaking ties.
 func requireDescending(t *testing.T, profiles []profileModel.ProfileResponse) {
-
 	t.Helper()
 
 	for i := 1; i < len(profiles); i++ {
 		previous, current := profiles[i-1], profiles[i]
 		if previous.Meta.CreatedAt.Equal(current.Meta.CreatedAt) {
-			require.Greater(t, previous.ProfileId, current.ProfileId,
+			require.Greater(t, previous.ProfileID, current.ProfileID,
 				"profiles sharing a creation time are not ordered by profile id")
 			continue
 		}
@@ -207,11 +216,10 @@ func requireDescending(t *testing.T, profiles []profileModel.ProfileResponse) {
 	}
 }
 
-func profileIds(profiles []profileModel.ProfileResponse) []string {
-
+func profileIDs(profiles []profileModel.ProfileResponse) []string {
 	ids := make([]string, 0, len(profiles))
 	for _, profile := range profiles {
-		ids = append(ids, profile.ProfileId)
+		ids = append(ids, profile.ProfileID)
 	}
 
 	return ids

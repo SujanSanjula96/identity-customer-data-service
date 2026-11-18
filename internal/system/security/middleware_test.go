@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	stderrors "errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,10 +40,9 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
-const subOrgId = "6b1f0d2e-4c1a-4f0e-9a51-2d0c3f7a9b10"
+const subOrgID = "6b1f0d2e-4c1a-4f0e-9a51-2d0c3f7a9b10"
 
 func setUp(t *testing.T) {
-
 	t.Helper()
 	require.NoError(t, log.Init("ERROR"))
 	config.OverrideCDSRuntime(config.Config{AuthServer: config.AuthServerConfig{RequiredScopes: map[string][]string{
@@ -56,17 +56,15 @@ func setUp(t *testing.T) {
 
 // primaryOrgRequest returns a request for the primary organization carbon.super.
 func primaryOrgRequest() *http.Request {
-
 	r := httptest.NewRequest(http.MethodPost, "/t/carbon.super/cds/api/v1/profiles", nil)
 	return r.WithContext(context.WithValue(r.Context(), constants.TenantContextKey, "carbon.super"))
 }
 
 // subOrgRequest returns a request for a sub organization of carbon.super.
 func subOrgRequest() *http.Request {
-
-	r := httptest.NewRequest(http.MethodPost, "/t/carbon.super/o/"+subOrgId+"/cds/api/v1/profiles", nil)
+	r := httptest.NewRequest(http.MethodPost, "/t/carbon.super/o/"+subOrgID+"/cds/api/v1/profiles", nil)
 	ctx := context.WithValue(r.Context(), constants.TenantContextKey, "region1")
-	ctx = context.WithValue(ctx, constants.OrgIdContextKey, subOrgId)
+	ctx = context.WithValue(ctx, constants.OrgIDContextKey, subOrgID)
 	return r.WithContext(ctx)
 }
 
@@ -75,15 +73,13 @@ func claims(scope string) map[string]interface{} {
 }
 
 func statusOf(t *testing.T, err error) (int, string) {
-
 	t.Helper()
-	clientErr, ok := err.(*errors.ClientError)
-	require.True(t, ok, "expected a client error, got %v", err)
+	var clientErr *errors.ClientError
+	require.True(t, stderrors.As(err, &clientErr), "expected a client error, got %v", err)
 	return clientErr.StatusCode, clientErr.Code
 }
 
 func TestAuthorize_primaryOrgRequest(t *testing.T) {
-
 	setUp(t)
 
 	assert.NoError(t, authorize(primaryOrgRequest(), claims("internal_cds_profile_create"), "profile:create"))
@@ -94,7 +90,6 @@ func TestAuthorize_primaryOrgRequest(t *testing.T) {
 }
 
 func TestAuthorize_subOrgRequest(t *testing.T) {
-
 	setUp(t)
 
 	assert.NoError(t, authorize(subOrgRequest(), claims("internal_org_cds_profile_create"), "profile:create"))
@@ -104,7 +99,6 @@ func TestAuthorize_subOrgRequest(t *testing.T) {
 }
 
 func TestAuthorize_sameScopeForBothOperations(t *testing.T) {
-
 	setUp(t)
 
 	assert.NoError(t, authorize(primaryOrgRequest(), claims("cds_profile_view"), "profile:view"))
@@ -112,7 +106,6 @@ func TestAuthorize_sameScopeForBothOperations(t *testing.T) {
 }
 
 func TestAuthorize_existingPrimaryOrgBehavior(t *testing.T) {
-
 	setUp(t)
 
 	assert.NoError(t, authorize(primaryOrgRequest(), claims("openid internal_cds_profile_create"), "profile:create"))
@@ -125,7 +118,6 @@ func TestAuthorize_existingPrimaryOrgBehavior(t *testing.T) {
 }
 
 func TestAuthorizePrimary(t *testing.T) {
-
 	setUp(t)
 
 	assert.NoError(t, authorizePrimary(primaryOrgRequest(), claims("internal_cds_admin_config_update"),
@@ -138,7 +130,7 @@ func TestAuthorizePrimary(t *testing.T) {
 	status, code := statusOf(t, authorizePrimary(subOrgRequest(),
 		claims("internal_cds_admin_config_update internal_org_cds_admin_config_update"), "admin_config:update"))
 	assert.Equal(t, http.StatusBadRequest, status, "an operation of the primary org in a sub org")
-	assert.Equal(t, errors.SUB_ORG_CONFIG_NOT_ALLOWED.Code, code)
+	assert.Equal(t, errors.SubOrgConfigNotAllowed.Code, code)
 }
 
 // newIntrospectionServer starts a stub identity server with system app grant enabled, and returns the
@@ -153,9 +145,9 @@ func newIntrospectionServer(t *testing.T) *[]string {
 		require.NoError(t, r.ParseForm())
 		body := map[string]interface{}{"active": false}
 		if r.URL.Path == "/t/acme/oauth2/introspect" && r.PostForm.Get("token") == "switched-token" {
-			body = map[string]interface{}{"active": true, "client_id": constants.CONSOLE_APP, "org_id": subOrgId}
+			body = map[string]interface{}{"active": true, "client_id": constants.ConsoleApp, "org_id": subOrgID}
 		} else if r.URL.Path == "/t/acme/oauth2/introspect" && r.PostForm.Get("token") == "primary-token" {
-			body = map[string]interface{}{"active": true, "client_id": constants.CONSOLE_APP, "org_handle": "acme"}
+			body = map[string]interface{}{"active": true, "client_id": constants.ConsoleApp, "org_handle": "acme"}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(body)
@@ -185,11 +177,11 @@ func authenticatePath(t *testing.T, path, token string) error {
 	defer func(resolver func(context.Context, string, string) (string, error)) {
 		utils.SubOrgResolver = resolver
 	}(utils.SubOrgResolver)
-	utils.SubOrgResolver = func(_ context.Context, primaryHandle, orgId string) (string, error) {
-		if primaryHandle == "acme" && orgId == subOrgId {
+	utils.SubOrgResolver = func(_ context.Context, primaryHandle, orgID string) (string, error) {
+		if primaryHandle == "acme" && orgID == subOrgID {
 			return "region1", nil
 		}
-		return "", errors.NewClientError(errors.ORGANIZATION_NOT_FOUND, http.StatusNotFound)
+		return "", errors.NewClientError(errors.OrganizationNotFound, http.StatusNotFound)
 	}
 
 	mux := http.NewServeMux()
@@ -209,7 +201,7 @@ func authenticatePath(t *testing.T, path, token string) error {
 func TestAuthenticate_subOrgPathIntrospectsAtThePrimaryOrg(t *testing.T) {
 	paths := newIntrospectionServer(t)
 
-	err := authenticatePath(t, "/t/acme/o/"+subOrgId+"/cds/api/v1/profiles", "switched-token")
+	err := authenticatePath(t, "/t/acme/o/"+subOrgID+"/cds/api/v1/profiles", "switched-token")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/t/acme/oauth2/introspect"}, *paths)
@@ -218,7 +210,7 @@ func TestAuthenticate_subOrgPathIntrospectsAtThePrimaryOrg(t *testing.T) {
 func TestAuthenticate_subOrgPathRejectsATokenOfAnotherOrg(t *testing.T) {
 	newIntrospectionServer(t)
 
-	err := authenticatePath(t, "/t/acme/o/"+subOrgId+"/cds/api/v1/profiles", "primary-token")
+	err := authenticatePath(t, "/t/acme/o/"+subOrgID+"/cds/api/v1/profiles", "primary-token")
 
 	require.Error(t, err)
 	status, _ := statusOf(t, err)

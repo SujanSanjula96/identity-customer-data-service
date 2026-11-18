@@ -64,9 +64,9 @@ func (e *indexEnv) addProfile(t *testing.T, id, city, email string) {
 	t.Helper()
 	now := time.Now().UTC()
 	require.NoError(t, profileStore.InsertProfile(e.ctx, e.orgID, profileModel.Profile{
-		ProfileId:          id,
-		OrgId:              e.orgID,
-		UserId:             "user-" + id,
+		ProfileID:          id,
+		OrgID:              e.orgID,
+		UserID:             "user-" + id,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 		Traits:             map[string]interface{}{"city": city},

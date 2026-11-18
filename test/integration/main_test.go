@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -42,13 +43,24 @@ import (
 var (
 	suiteDB     *sql.DB
 	suiteDBType string
-	// suitePostgres is the running container, for the tests that build their
-	// own pool from the runtime configuration rather than from suiteDB.
-	suitePostgres *setup.TestPostgres
+	// suiteServer is where the running container listens, for the tests that
+	// build their own pool from the runtime configuration rather than from
+	// suiteDB. It is nil on the inbuilt database, which has no server.
+	suiteServer *serverEndpoint
 )
 
+// serverEndpoint is the address and credentials of a server datasource's test
+// container.
+type serverEndpoint struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	Database string
+}
+
 // TestMain runs the suite against the datasource named by CDS_TEST_DB:
-// "postgres" (the default) or "sqlite".
+// "postgres" (the default), "sqlite", "mysql" or "mssql".
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -88,7 +100,8 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		db = pg.DB
-		suitePostgres = pg
+		suiteServer = &serverEndpoint{Host: pg.Host, Port: pg.Port, Username: pg.Username,
+			Password: pg.Password, Database: pg.Database}
 		teardown = func() {
 			// Terminate container manually after tests complete
 			_ = pg.Container.Terminate(ctx)
@@ -103,9 +116,55 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 
+	case database.TypeMySQL:
+		my, err := setup.SetupTestMySQL(ctx)
+		if err != nil {
+			fmt.Println("Failed to start test DB:", err)
+			os.Exit(1)
+		}
+		db = my.DB
+		suiteServer = &serverEndpoint{Host: my.Host, Port: my.Port, Username: my.Username,
+			Password: my.Password, Database: my.Database}
+		teardown = func() {
+			_ = my.Container.Terminate(ctx)
+
+			cmd := exec.Command("docker", "rm", "-f", "cds-test-mysql")
+			_, _ = cmd.CombinedOutput()
+		}
+
+		// The schema is the one operators apply, so the suite tests it too.
+		schemaPath := filepath.Join(utils.GetTestHome(), "dbscripts", "mysql.sql")
+		if err := my.ApplySchemaFile(schemaPath); err != nil {
+			fmt.Println("Failed to create tables from schema:", err)
+			os.Exit(1)
+		}
+
+	case database.TypeMSSQL:
+		ms, err := setup.SetupTestMSSQL(ctx)
+		if err != nil {
+			fmt.Println("Failed to start test DB:", err)
+			os.Exit(1)
+		}
+		db = ms.DB
+		suiteServer = &serverEndpoint{Host: ms.Host, Port: ms.Port, Username: ms.Username,
+			Password: ms.Password, Database: ms.Database}
+		teardown = func() {
+			_ = ms.Container.Terminate(ctx)
+
+			cmd := exec.Command("docker", "rm", "-f", "cds-test-mssql")
+			_, _ = cmd.CombinedOutput()
+		}
+
+		// The schema is the one operators apply, so the suite tests it too.
+		schemaPath := filepath.Join(utils.GetTestHome(), "dbscripts", "mssql.sql")
+		if err := ms.ApplySchemaFile(schemaPath); err != nil {
+			fmt.Println("Failed to create tables from schema:", err)
+			os.Exit(1)
+		}
+
 	default:
-		fmt.Printf("Unsupported CDS_TEST_DB value: %s (want %q or %q)\n",
-			dbType, database.TypePostgres, database.TypeSQLite)
+		fmt.Printf("Unsupported CDS_TEST_DB value: %s (want %q, %q, %q or %q)\n",
+			dbType, database.TypePostgres, database.TypeSQLite, database.TypeMySQL, database.TypeMSSQL)
 		os.Exit(1)
 	}
 

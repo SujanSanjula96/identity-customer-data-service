@@ -46,6 +46,8 @@ type TestPostgres struct {
 	Database  string
 }
 
+// SetupTestPostgres starts a PostgreSQL container and returns it once it answers a query. The caller
+// terminates the container.
 func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:15-alpine",
@@ -85,7 +87,11 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable", host, port.Port())
+	dsn := fmt.Sprintf(
+		"host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable",
+		host,
+		port.Port(),
+	)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		_ = container.Terminate(ctx)
@@ -116,7 +122,6 @@ func SetupTestPostgres(ctx context.Context) (*TestPostgres, error) {
 // this normally succeeds on the first attempt. It is the last guard: the
 // readiness of the test database is a successful query, not an open port.
 func waitForQuery(ctx context.Context, db *sql.DB) error {
-
 	deadline, cancel := context.WithTimeout(ctx, postgresReadyTimeout)
 	defer cancel()
 

@@ -38,8 +38,8 @@ func schemaAttr(name, valueType, mutability string) schemaModel.ProfileSchemaAtt
 func testSchema() schemaModel.ProfileSchema {
 	address := schemaAttr("traits.address", constants.ComplexDataType, constants.MutabilityReadWrite)
 	address.SubAttributes = []schemaModel.SubAttribute{
-		{AttributeId: "city", AttributeName: "traits.address.city"},
-		{AttributeId: "zip", AttributeName: "traits.address.zip"},
+		{AttributeID: "city", AttributeName: "traits.address.city"},
+		{AttributeID: "zip", AttributeName: "traits.address.zip"},
 	}
 	tier := schemaAttr("traits.tier", constants.StringDataType, constants.MutabilityReadWrite)
 	tier.CanonicalValues = []schemaModel.CanonicalValue{{Value: "gold"}, {Value: "silver"}}
@@ -272,7 +272,7 @@ func TestIsValidType(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, isValidType(tc.value, tc.valueType, tc.multiValued, nil))
+			assert.Equal(t, tc.want, isValidType(tc.value, tc.valueType, tc.multiValued))
 		})
 	}
 }
@@ -291,7 +291,7 @@ func TestIsValidCanonicalValue(t *testing.T) {
 
 func TestGetAppDataValue(t *testing.T) {
 	data := []profileModel.ApplicationData{
-		{AppId: "app-1", AppSpecificData: map[string]interface{}{"theme": "dark"}},
+		{AppID: "app-1", AppSpecificData: map[string]interface{}{"theme": "dark"}},
 	}
 
 	val, ok := getAppDataValue(data, "app-1", "theme")
@@ -310,7 +310,7 @@ func TestConvertAppData(t *testing.T) {
 	got, err := ConvertAppData(map[string]interface{}{"app-1": map[string]interface{}{"theme": "dark"}})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.Equal(t, "app-1", got[0].AppId)
+	assert.Equal(t, "app-1", got[0].AppID)
 	assert.Equal(t, map[string]interface{}{"theme": "dark"}, got[0].AppSpecificData)
 
 	empty, err := ConvertAppData(nil)

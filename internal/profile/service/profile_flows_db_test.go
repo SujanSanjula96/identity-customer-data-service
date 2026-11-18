@@ -39,42 +39,42 @@ func TestProfileCookieLifecycle(t *testing.T) {
 	env := newProfileEnv(t)
 	profile := env.createWithCity(t, "Colombo")
 
-	cookie, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileId)
+	cookie, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileID)
 	require.NoError(t, err)
-	assert.NotEmpty(t, cookie.CookieId)
+	assert.NotEmpty(t, cookie.CookieID)
 	assert.True(t, cookie.IsActive)
 
-	byProfile, err := env.svc.GetProfileCookieByProfileId(env.ctx, profile.ProfileId)
+	byProfile, err := env.svc.GetProfileCookieByProfileID(env.ctx, profile.ProfileID)
 	require.NoError(t, err)
-	assert.Equal(t, cookie.CookieId, byProfile.CookieId)
-	byCookie, err := env.svc.GetProfileCookieById(env.ctx, cookie.CookieId, env.orgID)
+	assert.Equal(t, cookie.CookieID, byProfile.CookieID)
+	byCookie, err := env.svc.GetProfileCookieByID(env.ctx, cookie.CookieID, env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, profile.ProfileId, byCookie.ProfileId)
+	assert.Equal(t, profile.ProfileID, byCookie.ProfileID)
 
-	require.NoError(t, env.svc.UpdateCookieStatusByProfileId(env.ctx, profile.ProfileId, false))
-	inactive, err := env.svc.GetProfileCookieByProfileId(env.ctx, profile.ProfileId)
+	require.NoError(t, env.svc.UpdateCookieStatusByProfileID(env.ctx, profile.ProfileID, false))
+	inactive, err := env.svc.GetProfileCookieByProfileID(env.ctx, profile.ProfileID)
 	require.NoError(t, err)
 	assert.False(t, inactive.IsActive)
 
-	require.NoError(t, env.svc.UpdateCookieStatusByCookieId(env.ctx, cookie.CookieId, true))
-	active, err := env.svc.GetProfileCookieById(env.ctx, cookie.CookieId, env.orgID)
+	require.NoError(t, env.svc.UpdateCookieStatusByCookieID(env.ctx, cookie.CookieID, true))
+	active, err := env.svc.GetProfileCookieByID(env.ctx, cookie.CookieID, env.orgID)
 	require.NoError(t, err)
 	assert.True(t, active.IsActive)
 
-	require.NoError(t, env.svc.DeleteCookieByProfileId(env.ctx, profile.ProfileId))
-	_, err = env.svc.GetProfileCookieByProfileId(env.ctx, profile.ProfileId)
+	require.NoError(t, env.svc.DeleteCookieByProfileID(env.ctx, profile.ProfileID))
+	_, err = env.svc.GetProfileCookieByProfileID(env.ctx, profile.ProfileID)
 	_ = requireStatus(t, err, http.StatusNotFound)
-	_, err = env.svc.GetProfileCookieById(env.ctx, cookie.CookieId, env.orgID)
+	_, err = env.svc.GetProfileCookieByID(env.ctx, cookie.CookieID, env.orgID)
 	_ = requireStatus(t, err, http.StatusNotFound)
 }
 
 func TestACookieIsOnlyFoundInItsOrganization(t *testing.T) {
 	env := newProfileEnv(t)
 	profile := env.createWithCity(t, "Colombo")
-	cookie, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileId)
+	cookie, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileID)
 	require.NoError(t, err)
 
-	_, err = env.svc.GetProfileCookieById(env.ctx, cookie.CookieId, "another-org")
+	_, err = env.svc.GetProfileCookieByID(env.ctx, cookie.CookieID, "another-org")
 
 	_ = requireStatus(t, err, http.StatusNotFound)
 }
@@ -84,18 +84,18 @@ func TestInactiveCookiesAreCleanedUpInBatches(t *testing.T) {
 	var profiles []string
 	for i := 0; i < 3; i++ {
 		profile := env.createWithCity(t, fmt.Sprintf("city-%d", i))
-		_, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileId)
+		_, err := env.svc.CreateProfileCookie(env.ctx, profile.ProfileID)
 		require.NoError(t, err)
-		profiles = append(profiles, profile.ProfileId)
+		profiles = append(profiles, profile.ProfileID)
 	}
 	for _, id := range profiles[:2] {
-		require.NoError(t, env.svc.UpdateCookieStatusByProfileId(env.ctx, id, false))
+		require.NoError(t, env.svc.UpdateCookieStatusByProfileID(env.ctx, id, false))
 	}
 
 	remaining := func() int {
 		count := 0
 		for _, id := range profiles {
-			if _, err := env.svc.GetProfileCookieByProfileId(env.ctx, id); err == nil {
+			if _, err := env.svc.GetProfileCookieByProfileID(env.ctx, id); err == nil {
 				count++
 			}
 		}
@@ -113,7 +113,7 @@ func TestInactiveCookiesAreCleanedUpInBatches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, remaining(), "nothing is left to clean up")
 
-	_, err = env.svc.GetProfileCookieByProfileId(env.ctx, profiles[2])
+	_, err = env.svc.GetProfileCookieByProfileID(env.ctx, profiles[2])
 	assert.NoError(t, err, "an active cookie stays")
 }
 
@@ -124,7 +124,7 @@ func (e *profileEnv) addCategory(t *testing.T, name string) string {
 	require.NoError(t, consentStore.AddConsentCategory(e.ctx, e.orgID, consentModel.ConsentCategory{
 		CategoryName:       name,
 		CategoryIdentifier: id,
-		OrgId:              e.orgID,
+		OrgID:              e.orgID,
 		Purpose:            "profiling",
 	}))
 	return id
@@ -137,13 +137,13 @@ func TestProfileConsentsAreStoredAndReadBack(t *testing.T) {
 	offers := env.addCategory(t, "Offers")
 	before := time.Now().UTC().Add(-time.Second)
 
-	require.NoError(t, env.svc.UpdateProfileConsents(env.ctx, profile.ProfileId, env.orgID,
+	require.NoError(t, env.svc.UpdateProfileConsents(env.ctx, profile.ProfileID, env.orgID,
 		[]profileModel.ConsentRecord{
 			{CategoryIdentifier: analytics, IsConsented: true},
 			{CategoryIdentifier: offers, IsConsented: false, ConsentedAt: before},
 		}))
 
-	records, err := env.svc.GetProfileConsents(env.ctx, profile.ProfileId, env.orgID)
+	records, err := env.svc.GetProfileConsents(env.ctx, profile.ProfileID, env.orgID)
 	require.NoError(t, err)
 	byCategory := map[string]profileModel.ConsentRecord{}
 	for _, record := range records {
@@ -156,9 +156,9 @@ func TestProfileConsentsAreStoredAndReadBack(t *testing.T) {
 	assert.WithinDuration(t, before, byCategory[offers].ConsentedAt, time.Second, "a time that was sent is kept")
 
 	// An update replaces the profile's consents.
-	require.NoError(t, env.svc.UpdateProfileConsents(env.ctx, profile.ProfileId, env.orgID,
+	require.NoError(t, env.svc.UpdateProfileConsents(env.ctx, profile.ProfileID, env.orgID,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: offers, IsConsented: true}}))
-	records, err = env.svc.GetProfileConsents(env.ctx, profile.ProfileId, env.orgID)
+	records, err = env.svc.GetProfileConsents(env.ctx, profile.ProfileID, env.orgID)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, offers, records[0].CategoryIdentifier)
@@ -169,16 +169,16 @@ func TestProfileConsentRefusals(t *testing.T) {
 	profile := env.createWithCity(t, "Colombo")
 	analytics := env.addCategory(t, "Analytics")
 	require.NoError(t, consentStore.SeedDefaultIdentityDataCategory(env.ctx, env.orgID))
-	mandatory, err := consentStore.GetMandatoryConsentCategoryIds(env.ctx, env.orgID)
+	mandatory, err := consentStore.GetMandatoryConsentCategoryIDs(env.ctx, env.orgID)
 	require.NoError(t, err)
 	require.Len(t, mandatory, 1)
 
-	err = env.svc.UpdateProfileConsents(env.ctx, profile.ProfileId, env.orgID,
+	err = env.svc.UpdateProfileConsents(env.ctx, profile.ProfileID, env.orgID,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: mandatory[0], IsConsented: false}})
 	clientError := requireStatus(t, err, http.StatusForbidden)
-	assert.Equal(t, errors2.CONSENT_CAT_MANDATORY.Code, clientError.Code)
+	assert.Equal(t, errors2.ConsentCatMandatory.Code, clientError.Code)
 
-	err = env.svc.UpdateProfileConsents(env.ctx, profile.ProfileId, env.orgID,
+	err = env.svc.UpdateProfileConsents(env.ctx, profile.ProfileID, env.orgID,
 		[]profileModel.ConsentRecord{{CategoryIdentifier: analytics}, {CategoryIdentifier: "not-a-category"}})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 
@@ -193,13 +193,13 @@ func TestFilteredListByTraitIdentityAndIDs(t *testing.T) {
 	env := newProfileEnv(t)
 	env.seedSchema(t, constants.IdentityAttributes, "nickname", constants.StringDataType, constants.MutabilityReadWrite)
 	colombo, err := env.svc.CreateProfile(env.ctx, profileModel.ProfileRequest{
-		UserId:             "u-1",
+		UserID:             "u-1",
 		Traits:             map[string]interface{}{"city": "Colombo", "tier": "gold"},
 		IdentityAttributes: map[string]interface{}{"nickname": "Colly"},
 	}, env.orgID)
 	require.NoError(t, err)
 	kandy, err := env.svc.CreateProfile(env.ctx, profileModel.ProfileRequest{
-		UserId: "u-2",
+		UserID: "u-2",
 		Traits: map[string]interface{}{"city": "Kandy", "tier": "gold"},
 	}, env.orgID)
 	require.NoError(t, err)
@@ -210,19 +210,19 @@ func TestFilteredListByTraitIdentityAndIDs(t *testing.T) {
 		require.NoError(t, err)
 		ids := make([]string, 0, len(page))
 		for _, profile := range page {
-			ids = append(ids, profile.ProfileId)
+			ids = append(ids, profile.ProfileID)
 		}
 		return ids
 	}
 
-	assert.ElementsMatch(t, []string{colombo.ProfileId}, list("traits.city eq Colombo"))
-	assert.ElementsMatch(t, []string{colombo.ProfileId, kandy.ProfileId}, list("traits.tier eq gold"))
+	assert.ElementsMatch(t, []string{colombo.ProfileID}, list("traits.city eq Colombo"))
+	assert.ElementsMatch(t, []string{colombo.ProfileID, kandy.ProfileID}, list("traits.tier eq gold"))
 	assert.Empty(t, list("traits.city co an", "traits.city sw Ga"), "every condition has to hold")
-	assert.ElementsMatch(t, []string{kandy.ProfileId}, list("traits.city co an", "traits.city sw Ka"))
-	assert.ElementsMatch(t, []string{kandy.ProfileId}, list("traits.city co an", "traits.tier eq gold"))
-	assert.ElementsMatch(t, []string{galle.ProfileId}, list("traits.city sw Ga"))
-	assert.ElementsMatch(t, []string{colombo.ProfileId}, list("identity_attributes.nickname eq Colly"))
-	assert.ElementsMatch(t, []string{kandy.ProfileId}, list("user_id eq u-2"))
-	assert.ElementsMatch(t, []string{galle.ProfileId}, list("profile_id eq "+galle.ProfileId))
+	assert.ElementsMatch(t, []string{kandy.ProfileID}, list("traits.city co an", "traits.city sw Ka"))
+	assert.ElementsMatch(t, []string{kandy.ProfileID}, list("traits.city co an", "traits.tier eq gold"))
+	assert.ElementsMatch(t, []string{galle.ProfileID}, list("traits.city sw Ga"))
+	assert.ElementsMatch(t, []string{colombo.ProfileID}, list("identity_attributes.nickname eq Colly"))
+	assert.ElementsMatch(t, []string{kandy.ProfileID}, list("user_id eq u-2"))
+	assert.ElementsMatch(t, []string{galle.ProfileID}, list("profile_id eq "+galle.ProfileID))
 	assert.Empty(t, list("traits.city eq Nowhere"))
 }

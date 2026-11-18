@@ -16,11 +16,13 @@
  * under the License.
  */
 
+// Package handler serves the unification rules REST API endpoints.
 package handler
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -38,16 +40,18 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/unification_rules/provider"
 
 	"github.com/google/uuid"
+
 	shareHandler "github.com/wso2/identity-customer-data-service/internal/sharing/handler"
 )
 
+// UnificationRulesHandler handles HTTP requests for unification rules.
 type UnificationRulesHandler struct {
 	store map[string]model.UnificationRule
 	mu    *sync.RWMutex
 }
 
+// NewUnificationRulesHandler creates a UnificationRulesHandler.
 func NewUnificationRulesHandler() *UnificationRulesHandler {
-
 	return &UnificationRulesHandler{
 		store: make(map[string]model.UnificationRule),
 		mu:    &sync.RWMutex{},
@@ -56,7 +60,6 @@ func NewUnificationRulesHandler() *UnificationRulesHandler {
 
 // AddUnificationRule handles adding a new rule
 func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	err := security.AuthnAndAuthz(r, "unification_rules:create")
@@ -70,8 +73,8 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&ruleInRequest); err != nil {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: utils.HandleDecodeError(err, "unification rule"),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
@@ -85,9 +88,9 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	}
 	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -102,14 +105,14 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 
 	// The type is only load-bearing when matching is approximate: it picks the algorithm, and
 	// not every kind of value has one. Asking for it then is asking for something the server
-	// genuinely cannot infer. Under exact matching it still shapes behaviour — dates and
+	// genuinely cannot infer. Under exact matching it still shapes behavior — dates and
 	// identifiers are normalized before comparing, and it seeds the evidence strengths — but a
 	// caller that omits it is choosing the same default the engine has always applied.
 	if ruleInRequest.AttributeType == "" {
 		if ruleInRequest.UnificationMethod == constants.UnificationMethodFuzzy {
 			clientError := errors2.NewClientError(errors2.ErrorMessage{
-				Code:    errors2.BAD_REQUEST.Code,
-				Message: errors2.BAD_REQUEST.Message,
+				Code:    errors2.BadRequest.Code,
+				Message: errors2.BadRequest.Message,
 				Description: "attribute_type is required when unification_method is 'fuzzy', because it " +
 					"selects how two values are compared. Allowed values for fuzzy matching: " +
 					"FUZZY_STRING, NAME, EMAIL, PHONE, LOCATION.",
@@ -125,20 +128,28 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	// Validate AttributeType.
 	if !constants.AllowedAttributeTypes[ruleInRequest.AttributeType] {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("Invalid attribute_type: '%s'. Allowed values: PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, LOCATION, DATE, UNIQUE_ID.", ruleInRequest.AttributeType),
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
+			Description: fmt.Sprintf(
+				"Invalid attribute_type: '%s'. Allowed values: PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, "+
+					"LOCATION, DATE, UNIQUE_ID.",
+				ruleInRequest.AttributeType,
+			),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
 		return
 	}
 
 	// Validate UnificationMethod.
-	if ruleInRequest.UnificationMethod != constants.UnificationMethodFuzzy && ruleInRequest.UnificationMethod != constants.UnificationMethodDeterministic {
+	if ruleInRequest.UnificationMethod != constants.UnificationMethodFuzzy &&
+		ruleInRequest.UnificationMethod != constants.UnificationMethodDeterministic {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("Invalid unification_method: '%s'. Allowed values: fuzzy, deterministic.", ruleInRequest.UnificationMethod),
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
+			Description: fmt.Sprintf(
+				"Invalid unification_method: '%s'. Allowed values: fuzzy, deterministic.",
+				ruleInRequest.UnificationMethod,
+			),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
 		return
@@ -150,11 +161,15 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	}
 
 	// Reject fuzzy for attribute types that only support exact matching.
-	if ruleInRequest.UnificationMethod == constants.UnificationMethodFuzzy && !constants.FuzzyCapableAttributeTypes[ruleInRequest.AttributeType] {
+	if ruleInRequest.UnificationMethod == constants.UnificationMethodFuzzy &&
+		!constants.FuzzyCapableAttributeTypes[ruleInRequest.AttributeType] {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("Attribute type '%s' does not support fuzzy matching. Use 'deterministic' instead.", ruleInRequest.AttributeType),
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
+			Description: fmt.Sprintf(
+				"Attribute type '%s' does not support fuzzy matching. Use 'deterministic' instead.",
+				ruleInRequest.AttributeType,
+			),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
 		return
@@ -175,8 +190,8 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 	// Set timestamps
 	now := time.Now().UTC()
 	rule := model.UnificationRule{
-		RuleId:            uuid.New().String(),
-		OrgId:             org.ID,
+		RuleID:            uuid.New().String(),
+		OrgID:             org.ID,
 		RuleName:          ruleInRequest.RuleName,
 		PropertyName:      ruleInRequest.PropertyName,
 		Priority:          ruleInRequest.Priority,
@@ -196,7 +211,7 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 		utils.HandleError(w, err)
 		return
 	}
-	addedRule, err := ruleService.GetUnificationRule(ctx, rule.RuleId, org.ID)
+	addedRule, err := ruleService.GetUnificationRule(ctx, rule.RuleID, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -213,7 +228,6 @@ func (urh *UnificationRulesHandler) AddUnificationRule(w http.ResponseWriter, r 
 
 // GetUnificationRules handles fetching all rules
 func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	err := security.AuthnAndAuthz(r, "unification_rules:view")
@@ -230,9 +244,9 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 	}
 	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -252,7 +266,6 @@ func (urh *UnificationRulesHandler) GetUnificationRules(w http.ResponseWriter, r
 
 // GetUnificationRule Fetches a specific resolution rule.
 func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	err := security.AuthnAndAuthz(r, "unification_rules:view")
@@ -267,18 +280,18 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 	}
 	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
 	}
-	ruleId := r.PathValue("ruleId")
-	if ruleId == "" {
+	ruleID := r.PathValue("ruleId")
+	if ruleID == "" {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.GET_UNIFICATION_RULE_WITHOUT_ID.Code,
-			Message:     errors2.GET_UNIFICATION_RULE_WITHOUT_ID.Message,
+			Code:        errors2.GetUnificationRuleWithoutID.Code,
+			Message:     errors2.GetUnificationRuleWithoutID.Message,
 			Description: "Invalid path for unification rule retrieval",
 		}, http.StatusNotFound)
 		utils.HandleError(w, clientError)
@@ -286,7 +299,7 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 	}
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
-	rule, err := ruleService.GetUnificationRuleForOrg(ctx, ruleId, org.ID)
+	rule, err := ruleService.GetUnificationRuleForOrg(ctx, ruleID, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -296,7 +309,6 @@ func (urh *UnificationRulesHandler) GetUnificationRule(w http.ResponseWriter, r 
 
 // PatchUnificationRule applies partial updates to a unification rule.
 func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	err := security.AuthnAndAuthz(r, "unification_rules:update")
@@ -304,8 +316,8 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		utils.HandleError(w, err)
 		return
 	}
-	ruleId := r.PathValue("ruleId")
-	if ruleId == "" {
+	ruleID := r.PathValue("ruleId")
+	if ruleID == "" {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -316,9 +328,9 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -328,8 +340,8 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&ruleUpdateRequest); err != nil {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: utils.HandleDecodeError(err, "unification rule"),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
@@ -339,7 +351,7 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	ruleService := ruleProvider.GetUnificationRuleService()
 
 	// Fetch old rule to detect is_active changes. Only a rule that the organization owns can change.
-	oldRule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, org.ID)
+	oldRule, err := ruleService.GetOwnedUnificationRule(ctx, ruleID, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -347,10 +359,6 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	wasActive := oldRule.IsActive
 
 	updatedRule := *oldRule
-
-	if ruleUpdateRequest.RuleName != nil {
-		updatedRule.RuleName = *ruleUpdateRequest.RuleName
-	}
 
 	if ruleUpdateRequest.Priority != nil {
 		updatedRule.Priority = *ruleUpdateRequest.Priority
@@ -363,9 +371,13 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	if ruleUpdateRequest.AttributeType != nil {
 		if !constants.AllowedAttributeTypes[*ruleUpdateRequest.AttributeType] {
 			clientError := errors2.NewClientError(errors2.ErrorMessage{
-				Code:        errors2.BAD_REQUEST.Code,
-				Message:     errors2.BAD_REQUEST.Message,
-				Description: fmt.Sprintf("Invalid attribute_type: '%s'. Allowed values: PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, LOCATION, DATE, UNIQUE_ID.", *ruleUpdateRequest.AttributeType),
+				Code:    errors2.BadRequest.Code,
+				Message: errors2.BadRequest.Message,
+				Description: fmt.Sprintf(
+					"Invalid attribute_type: '%s'. Allowed values: PRIMITIVE_EXACT, FUZZY_STRING, NAME, EMAIL, PHONE, "+
+						"LOCATION, DATE, UNIQUE_ID.",
+					*ruleUpdateRequest.AttributeType,
+				),
 			}, http.StatusBadRequest)
 			utils.WriteErrorResponse(w, clientError)
 			return
@@ -374,11 +386,15 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 
 	if ruleUpdateRequest.UnificationMethod != nil {
-		if *ruleUpdateRequest.UnificationMethod != constants.UnificationMethodFuzzy && *ruleUpdateRequest.UnificationMethod != constants.UnificationMethodDeterministic {
+		if *ruleUpdateRequest.UnificationMethod != constants.UnificationMethodFuzzy &&
+			*ruleUpdateRequest.UnificationMethod != constants.UnificationMethodDeterministic {
 			clientError := errors2.NewClientError(errors2.ErrorMessage{
-				Code:        errors2.BAD_REQUEST.Code,
-				Message:     errors2.BAD_REQUEST.Message,
-				Description: fmt.Sprintf("Invalid unification_method: '%s'. Allowed values: fuzzy, deterministic.", *ruleUpdateRequest.UnificationMethod),
+				Code:    errors2.BadRequest.Code,
+				Message: errors2.BadRequest.Message,
+				Description: fmt.Sprintf(
+					"Invalid unification_method: '%s'. Allowed values: fuzzy, deterministic.",
+					*ruleUpdateRequest.UnificationMethod,
+				),
 			}, http.StatusBadRequest)
 			utils.WriteErrorResponse(w, clientError)
 			return
@@ -392,11 +408,15 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 	}
 
 	// Cross-validate: reject fuzzy for attribute types that only support exact matching.
-	if updatedRule.UnificationMethod == constants.UnificationMethodFuzzy && !constants.FuzzyCapableAttributeTypes[updatedRule.AttributeType] {
+	if updatedRule.UnificationMethod == constants.UnificationMethodFuzzy &&
+		!constants.FuzzyCapableAttributeTypes[updatedRule.AttributeType] {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
-			Description: fmt.Sprintf("Attribute type '%s' does not support fuzzy matching. Use 'deterministic' instead.", updatedRule.AttributeType),
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
+			Description: fmt.Sprintf(
+				"Attribute type '%s' does not support fuzzy matching. Use 'deterministic' instead.",
+				updatedRule.AttributeType,
+			),
 		}, http.StatusBadRequest)
 		utils.WriteErrorResponse(w, clientError)
 		return
@@ -418,13 +438,13 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		}
 		updatedRule.MismatchStrength = strength
 	}
-	err = ruleService.PatchUnificationRule(ctx, ruleId, org.ID, updatedRule)
+	err = ruleService.PatchUnificationRule(ctx, ruleID, org.ID, updatedRule)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
 
-	newRule, err := ruleService.GetUnificationRule(ctx, ruleId, org.ID)
+	newRule, err := ruleService.GetUnificationRule(ctx, ruleID, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -436,7 +456,10 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 		utils.SafeGo("unification rule index backfill", func() { worker.IndexNewAttribute(ctx, org.ID, *newRule) })
 	}
 	if wasActive && !nowActive {
-		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, org.ID, newRule.PropertyName) })
+		utils.SafeGo(
+			"unification rule index removal",
+			func() { worker.RemoveAttributeIndex(ctx, org.ID, newRule.PropertyName) },
+		)
 	}
 
 	// Either of these changes the shape of the keys the rule writes, so what is already in
@@ -462,7 +485,6 @@ func (urh *UnificationRulesHandler) PatchUnificationRule(w http.ResponseWriter, 
 
 // DeleteUnificationRule removes a resolution rule.
 func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter, r *http.Request) {
-
 	ctx := r.Context()
 
 	err := security.AuthnAndAuthz(r, "unification_rules:delete")
@@ -470,8 +492,8 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 		utils.HandleError(w, err)
 		return
 	}
-	ruleId := r.PathValue("ruleId")
-	if ruleId == "" {
+	ruleID := r.PathValue("ruleId")
+	if ruleID == "" {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
@@ -482,9 +504,9 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	}
 	if !isCDSEnabled(ctx, org.ID) {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.CDS_NOT_ENABLED.Code,
-			Message:     errors2.CDS_NOT_ENABLED.Message,
-			Description: errors2.CDS_NOT_ENABLED.Description,
+			Code:        errors2.CDSNotEnabled.Code,
+			Message:     errors2.CDSNotEnabled.Message,
+			Description: errors2.CDSNotEnabled.Description,
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -492,16 +514,17 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 	ruleProvider := provider.NewUnificationRuleProvider()
 	ruleService := ruleProvider.GetUnificationRuleService()
 	// Delete only a rule that the organization owns.
-	rule, err := ruleService.GetOwnedUnificationRule(ctx, ruleId, org.ID)
+	rule, err := ruleService.GetOwnedUnificationRule(ctx, ruleID, org.ID)
 	if err != nil {
-		if clientErr, ok := err.(*errors2.ClientError); ok && clientErr.StatusCode == http.StatusNotFound {
+		if clientErr := new(errors2.ClientError); errors.As(err, &clientErr) &&
+			clientErr.StatusCode == http.StatusNotFound {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		utils.HandleError(w, err)
 		return
 	}
-	err = ruleService.DeleteUnificationRule(ctx, ruleId, org.ID)
+	err = ruleService.DeleteUnificationRule(ctx, ruleID, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -509,7 +532,10 @@ func (urh *UnificationRulesHandler) DeleteUnificationRule(w http.ResponseWriter,
 
 	// If the deleted rule was active, trigger cleanup of its blocking keys.
 	if rule != nil && rule.IsActive {
-		utils.SafeGo("unification rule index removal", func() { worker.RemoveAttributeIndex(ctx, org.ID, rule.PropertyName) })
+		utils.SafeGo(
+			"unification rule index removal",
+			func() { worker.RemoveAttributeIndex(ctx, org.ID, rule.PropertyName) },
+		)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -530,13 +556,12 @@ func (urh *UnificationRulesHandler) GetUnificationOptions(w http.ResponseWriter,
 }
 
 // isCDSEnabled checks if CDS is enabled for the given tenant
-func isCDSEnabled(ctx context.Context, orgId string) bool {
-	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgId)
+func isCDSEnabled(ctx context.Context, orgID string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgID)
 }
 
 // CreateSharingPolicy shares a rule of the organization.
 func (h *UnificationRulesHandler) CreateSharingPolicy(w http.ResponseWriter, r *http.Request) {
-
 	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
@@ -557,7 +582,6 @@ func (h *UnificationRulesHandler) CreateSharingPolicy(w http.ResponseWriter, r *
 
 // ListSharingPolicies returns the sharing policies of a rule of the organization.
 func (h *UnificationRulesHandler) ListSharingPolicies(w http.ResponseWriter, r *http.Request) {
-
 	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_view")
 	if !ok {
 		return
@@ -574,7 +598,6 @@ func (h *UnificationRulesHandler) ListSharingPolicies(w http.ResponseWriter, r *
 
 // GetSharingPolicy returns a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) GetSharingPolicy(w http.ResponseWriter, r *http.Request) {
-
 	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_view")
 	if !ok {
 		return
@@ -592,7 +615,6 @@ func (h *UnificationRulesHandler) GetSharingPolicy(w http.ResponseWriter, r *htt
 
 // UpdateSharingPolicy replaces a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) UpdateSharingPolicy(w http.ResponseWriter, r *http.Request) {
-
 	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
@@ -614,7 +636,6 @@ func (h *UnificationRulesHandler) UpdateSharingPolicy(w http.ResponseWriter, r *
 
 // DeleteSharingPolicy removes a sharing policy of a rule of the organization.
 func (h *UnificationRulesHandler) DeleteSharingPolicy(w http.ResponseWriter, r *http.Request) {
-
 	org, ok := shareHandler.InitiatorOf(w, r, "unification_rules:share_update")
 	if !ok {
 		return
@@ -640,8 +661,8 @@ func fuzzyMatchingAllowed() bool {
 // merge decision the rule takes part in.
 func refuseFuzzy() *errors2.ClientError {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:    errors2.BAD_REQUEST.Code,
-		Message: errors2.BAD_REQUEST.Message,
+		Code:    errors2.BadRequest.Code,
+		Message: errors2.BadRequest.Message,
 		Description: "unification_method 'fuzzy' is not available on this server. Enable " +
 			"identity_resolution.fuzzy_matching_enabled to use tolerant matching.",
 	}, http.StatusBadRequest)
@@ -664,8 +685,8 @@ func resolveEvidenceStrength(supplied string, field string) (string, *errors2.Cl
 	}
 	if !evidenceStrengthOverrideAllowed() {
 		return "", errors2.NewClientError(errors2.ErrorMessage{
-			Code:    errors2.BAD_REQUEST.Code,
-			Message: errors2.BAD_REQUEST.Message,
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
 			Description: fmt.Sprintf(
 				"%s cannot be set on this server. It is derived from attribute_type; enable "+
 					"identity_resolution.allow_evidence_strength_override to set it per rule.", field),
@@ -711,8 +732,8 @@ func evidenceStrengthOverrideAllowed() bool {
 
 func invalidEvidenceStrength(field, value string) *errors2.ClientError {
 	return errors2.NewClientError(errors2.ErrorMessage{
-		Code:    errors2.BAD_REQUEST.Code,
-		Message: errors2.BAD_REQUEST.Message,
+		Code:    errors2.BadRequest.Code,
+		Message: errors2.BadRequest.Message,
 		Description: fmt.Sprintf("Invalid %s: '%s'. Allowed values: %s, %s, %s.", field, value,
 			constants.EvidenceStrengthHigh, constants.EvidenceStrengthMedium, constants.EvidenceStrengthLow),
 	}, http.StatusBadRequest)

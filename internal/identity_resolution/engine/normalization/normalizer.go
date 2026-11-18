@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package normalization reduces attribute values to a canonical form by attribute type, so that values the
+// matcher should treat as equal compare and index the same way.
 package normalization
 
 import (
@@ -35,6 +37,8 @@ var multiSpace = regexp.MustCompile(`\s+`)
 // parts into one token and the two spellings stop matching.
 var nameSeparators = map[rune]bool{'-': true, '–': true, '—': true, '/': true, '\\': true, '_': true, ',': true}
 
+// NormalizeName lowercases and trims a name, keeps only letters and spaces, turns name separators such as
+// hyphens into spaces, and collapses repeated spaces.
 func NormalizeName(name string) string {
 	name = strings.TrimSpace(strings.ToLower(name))
 
@@ -53,6 +57,7 @@ func NormalizeName(name string) string {
 	return strings.TrimSpace(multiSpace.ReplaceAllString(string(cleaned), " "))
 }
 
+// TokenSortName normalizes a name and sorts its parts, so that "Smith John" and "John Smith" are equal.
 func TokenSortName(name string) string {
 	normalized := NormalizeName(name)
 	tokens := strings.Fields(normalized)
@@ -95,6 +100,7 @@ func NormalizeEmail(email string) string {
 	return local + "@" + domain
 }
 
+// NormalizePhone keeps only the digits of a phone number.
 func NormalizePhone(phone string) string {
 	var digits []rune
 	for _, r := range phone {
@@ -117,6 +123,8 @@ var dateFormats = []string{
 	"2006-01-02T15:04:05Z07:00",
 }
 
+// NormalizeDate rewrites a date in one of the known formats as "2006.01.02". A date in any other format is
+// returned trimmed but otherwise unchanged.
 func NormalizeDate(date string) string {
 	date = strings.TrimSpace(date)
 	if date == "" {
@@ -130,6 +138,8 @@ func NormalizeDate(date string) string {
 	return date
 }
 
+// NormalizeForType normalizes a value as its attribute type requires. Types without a dedicated normalizer are
+// lowercased and trimmed, and a blank value returns "".
 func NormalizeForType(value string, attrType string) string {
 	if strings.TrimSpace(value) == "" {
 		return ""

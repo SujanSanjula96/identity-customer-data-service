@@ -33,7 +33,6 @@ var (
 
 // InitializeCDSRuntime initializes the CDSRuntime configuration.
 func InitializeCDSRuntime(home string, config *Config) error {
-
 	once.Do(func() {
 		runtimeConfig = &CDSRuntime{
 			CDSHome: home,
@@ -46,7 +45,6 @@ func InitializeCDSRuntime(home string, config *Config) error {
 
 // GetCDSRuntime returns the CDSRuntime configuration.
 func GetCDSRuntime() *CDSRuntime {
-
 	if runtimeConfig == nil {
 		panic("CDSRuntime is not initialized")
 	}
@@ -56,6 +54,5 @@ func GetCDSRuntime() *CDSRuntime {
 // OrganizationManagementEnabled reports whether organization management is enabled. It is false
 // before the runtime configuration is initialized.
 func OrganizationManagementEnabled() bool {
-
 	return runtimeConfig != nil && runtimeConfig.Config.OrganizationManagement.Enabled
 }

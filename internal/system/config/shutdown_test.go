@@ -29,7 +29,6 @@ import (
 
 // Test_ResolveShutdownGracePeriod covers the three answers the setting has.
 func Test_ResolveShutdownGracePeriod(t *testing.T) {
-
 	tests := []struct {
 		name    string
 		seconds int
@@ -85,7 +84,6 @@ func Test_ResolveShutdownGracePeriod(t *testing.T) {
 // Test_ResolveShutdownGracePeriod_readsTheDefault checks the default itself, so
 // that a change to the constant does not pass unnoticed.
 func Test_ResolveShutdownGracePeriod_readsTheDefault(t *testing.T) {
-
 	got, err := ResolveShutdownGracePeriod(ShutdownConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -99,7 +97,6 @@ func Test_ResolveShutdownGracePeriod_readsTheDefault(t *testing.T) {
 // the shipped deployment.yaml uses. A wrong tag would leave the setting at zero
 // and hide itself behind the default.
 func Test_ShutdownConfig_readsTheDeploymentKey(t *testing.T) {
-
 	const document = "shutdown:\n  grace_period_seconds: 40\n"
 
 	var cfg Config

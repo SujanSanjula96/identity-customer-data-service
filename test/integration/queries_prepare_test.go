@@ -26,14 +26,12 @@ import (
 )
 
 // Test_QueriesPrepare prepares every declared statement against the datasource
-// the suite runs on, which is PostgreSQL by default. The unit tests cover the
-// SQLite text.
+// the suite runs on, which is PostgreSQL by default.
 func Test_QueriesPrepare(t *testing.T) {
-
 	for name, query := range scripts.AllQueries() {
 		t.Run(name, func(t *testing.T) {
 			statement := setup.CompleteStatement(name, query.GetQuery(suiteDBType))
-			stmt, err := suiteDB.Prepare(statement)
+			stmt, err := setup.PrepareStatement(suiteDB, suiteDBType, statement)
 			if err != nil {
 				t.Fatalf("failed to prepare the query: %v\n%s", err, statement)
 			}

@@ -114,7 +114,7 @@ func TestPrimaryRuleNameFallsBackToTheFirstAgreement(t *testing.T) {
 
 func TestToAPIResponseLeavesOutEvidenceStrengths(t *testing.T) {
 	rule := UnificationRule{
-		RuleId:            "r-1",
+		RuleID:            "r-1",
 		RuleName:          "Email",
 		PropertyName:      "identity_attributes.email",
 		Priority:          2,
@@ -129,7 +129,7 @@ func TestToAPIResponseLeavesOutEvidenceStrengths(t *testing.T) {
 	got := ToAPIResponse(rule)
 
 	assert.Equal(t, UnificationRuleAPIResponse{
-		RuleId:            "r-1",
+		RuleID:            "r-1",
 		RuleName:          "Email",
 		PropertyName:      "identity_attributes.email",
 		Priority:          2,
@@ -149,8 +149,8 @@ func TestDefaultConfig(t *testing.T) {
 		modes[mode.MergeType] = mode.Rule
 	}
 	assert.Equal(t, map[string]string{
-		constants.TempProfile_TempProfile_Merge: constants.MergeOnTrigger,
-		constants.PermProfile_PermProfile_Merge: constants.MergeOnTrigger,
-		constants.TempProfile_PermProfile_Merge: constants.MergeOnTrigger,
+		constants.TempProfileTempProfileMerge: constants.MergeOnTrigger,
+		constants.PermProfilePermProfileMerge: constants.MergeOnTrigger,
+		constants.TempProfilePermProfileMerge: constants.MergeOnTrigger,
 	}, modes)
 }

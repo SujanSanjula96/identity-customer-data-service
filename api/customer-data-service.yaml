@@ -835,9 +835,10 @@ paths:
       tags: [Sharing]
       summary: Share a profile schema attribute with child organizations
       description: |
-        Only the organization that owns the attribute can share it. Identity attributes, complex
-        attributes, and sub-attributes cannot be shared. An organization has a maximum of one policy
-        for each attribute.
+        Only the organization that owns the attribute can share it. Identity attributes cannot be
+        shared. A complex attribute is shared as one unit: its sub-attributes follow the sharing
+        policies of the parent, and a sub-attribute cannot be shared alone. An organization has a
+        maximum of one policy for each attribute.
 
         <br><b>Scope required:</b> `profile_schema:share_update`
       operationId: createSchemaAttributeSharingPolicy
@@ -1090,8 +1091,9 @@ paths:
       summary: Update unification rule
       description: |
         Only the fields in the body change.
-        `property_name` cannot be changed. Fields that are not part of the request schema are
-        rejected with a 400.
+        `rule_name` and `property_name` cannot be changed. Fields that are not part of the request
+        schema are rejected with a 400. A merge records the name of the rule that matched the
+        profiles, so the name stays fixed after the rule is created.
 
         Only a rule that the organization owns can change. A rule that a parent organization
         shares (`origin` is `SHARED`) is read-only and gives a 403.
@@ -2322,12 +2324,10 @@ components:
 
     UnificationRulePatch:
       type: object
-      description: Fields that are not listed here are rejected. `property_name` cannot be changed.
+      description: |
+        Fields that are not listed here are rejected. `rule_name` and `property_name` cannot be
+        changed.
       properties:
-        rule_name:
-          type: string
-          description: Descriptive name for the rule
-          example: "email based"
         priority:
           type: integer
           description: Priority of the rule (lower number = higher priority)

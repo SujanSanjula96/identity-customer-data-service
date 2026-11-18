@@ -16,6 +16,8 @@
  * under the License.
  */
 
+// Package constants holds the shared constants of the service: API paths, token claim names, attribute
+// types and scopes, admin config keys, and the tuning values of the identity resolution engine.
 package constants
 
 import (
@@ -23,50 +25,108 @@ import (
 	"time"
 )
 
-const ApiBasePath = "/cds/api"
-const ProfileApiPath = "profiles"
-const UnificationRulesApiPath = "unification-rules"
-const ConsentApiPath = "consent"
-const ProfileSchemaApiPath = "profile-schema"
+// APIBasePath is the path prefix under which the service exposes its REST APIs.
+const APIBasePath = "/cds/api"
+
+// ProfileAPIPath is the path segment of the profile APIs.
+const ProfileAPIPath = "profiles"
+
+// UnificationRulesAPIPath is the path segment of the unification rule APIs.
+const UnificationRulesAPIPath = "unification-rules"
+
+// ConsentAPIPath is the path segment of the consent APIs.
+const ConsentAPIPath = "consent"
+
+// ProfileSchemaAPIPath is the path segment of the profile schema APIs.
+const ProfileSchemaAPIPath = "profile-schema"
+
+// IdentityServerDialectsPath is the identity server API path that lists claim dialects.
 const IdentityServerDialectsPath = "/api/server/v1/claim-dialects"
+
+// Filter is the query parameter that carries exact-match filters.
 const Filter = "filter"
+
+// FuzzyFilter is the query parameter that carries fuzzy-match filters on profiles.
 const FuzzyFilter = "fuzzyFilter"
-const Attributes = "attributes"     // Query parameter to filter attributes in the request.
-const ProfileCookie = "cds_profile" // Cookie name to store cookie that corresponds to profile ID.
+
+// Attributes is the query parameter to filter attributes in the request.
+const Attributes = "attributes"
+
+// ProfileCookie is the name of the cookie that holds the profile ID.
+const ProfileCookie = "cds_profile"
+
+// DefaultTenant is the identity server's root tenant domain.
 const DefaultTenant = "carbon.super"
+
+// SpaceSeparator is a single space, used to join scopes and to separate an auth scheme from its token.
 const SpaceSeparator = " "
+
+// SystemAppHeader is the Authorization scheme the service uses on its own calls to the identity server.
 const SystemAppHeader = "SystemApp"
+
+// DefaultQueueSize is the buffer size of the in-memory profile and schema sync queues.
 const DefaultQueueSize = 1000
+
+// DefaultLimit is the default number of items a list request returns.
 const DefaultLimit = 50
-const CONSOLE_APP = "CONSOLE"
+
+// ConsoleApp is the client ID of the Console, the only client allowed to call with an opaque token.
+const ConsoleApp = "CONSOLE"
+
+// AZPClaim is the token claim that names the authorized party.
 const AZPClaim = "azp"
+
+// SUBClaim is the token claim that names the subject.
 const SUBClaim = "sub"
-const ClientIdClaim = "client_id"
+
+// ClientIDClaim is the token claim that names the client application.
+const ClientIDClaim = "client_id"
+
+// ActiveClaim is the introspection response field that says whether a token is active.
 const ActiveClaim = "active"
+
+// OrgHandleClaim is the token claim that names the organization handle.
 const OrgHandleClaim = "org_handle"
-const OrgIdClaim = "org_id"
+
+// OrgIDClaim is the token claim that names the organization ID.
+const OrgIDClaim = "org_id"
+
+// AudienceClaim is the token claim that names the audience.
 const AudienceClaim = "aud"
+
+// ExpiryClaim is the token claim that holds the expiry time.
 const ExpiryClaim = "exp"
+
+// FilterRegex matches the identifiers that are safe to use as filter fields and JSON keys in queries.
 const FilterRegex = `^[a-zA-Z0-9._-]+$`
+
+// MaxAttributeDisplayNameLength is the maximum length of a generated attribute display name.
 const MaxAttributeDisplayNameLength = 50
+
+// GetProfilesPageSize is how many profiles are read per page when walking all profiles of an organization.
 const GetProfilesPageSize = 500
 
+// DisplayNameCamelCaseSplitter finds the camel case boundaries where a space is inserted in a display name.
 var DisplayNameCamelCaseSplitter = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// DisplayNameRegex matches the characters that are not allowed in an attribute display name.
 var DisplayNameRegex = regexp.MustCompile(`[^a-zA-Z0-9.\-_+ ]`)
 
 type contextKey string
 
+// TenantContextKey holds the organization handle of the request.
 const TenantContextKey contextKey = "org_handle"
 
 // OrgBasePathContextKey holds the path of the organization of the request.
 const OrgBasePathContextKey contextKey = "org_base_path"
 
-// OrgIdContextKey holds the organization ID of a sub organization path.
-const OrgIdContextKey contextKey = "org_id"
+// OrgIDContextKey holds the organization ID of a sub organization path.
+const OrgIDContextKey contextKey = "org_id"
 
 // PrimaryOrgHandleContextKey holds the handle of the primary organization of the path.
 const PrimaryOrgHandleContextKey contextKey = "primary_org_handle"
 
+// Resource names used in API responses and messages.
 const (
 	ProfileResource            = "profile"
 	UnificationRuleResource    = "unification rule"
@@ -75,6 +135,7 @@ const (
 	UnificationOptionsResource = "unification options"
 )
 
+// Value types a profile schema attribute can have.
 const (
 	StringDataType   = "string"
 	IntegerDataType  = "integer"
@@ -86,6 +147,7 @@ const (
 	EpochDataType    = "epoch"
 )
 
+// Identity server event names the service handles.
 const (
 	AddScimAttributeEvent     = "POST_ADD_EXTERNAL_CLAIM"
 	UpdateScimAttributeEvent  = "POST_UPDATE_EXTERNAL_CLAIM"
@@ -100,6 +162,7 @@ const (
 	SessionTermination        = "SESSION_TERMINATE"
 )
 
+// AllowedValueTypes is the set of valid attribute value types.
 var AllowedValueTypes = map[string]bool{
 	StringDataType:   true,
 	IntegerDataType:  true,
@@ -121,6 +184,7 @@ const (
 	MutabilityComputed  = "computed"  // Value is derived or calculated, not directly stored.
 )
 
+// Merge strategies decide which value an attribute keeps when two profiles merge.
 const (
 	MergeStrategyOverwrite = "overwrite" // Overwrite the existing value with the new one.
 	MergeStrategyLatest    = "latest"
@@ -137,45 +201,53 @@ var AllowedMutabilityValues = map[string]bool{
 	MutabilityWriteOnce: true, // Can be empty initially, but once set, cannot be updated. (userId)
 }
 
+// AllowedAttributesScope is the set of valid profile attribute scopes.
 var AllowedAttributesScope = map[string]bool{
 	IdentityAttributes: true,
 	Traits:             true,
 	ApplicationData:    true,
 }
 
+// Scopes that group the attributes of a profile.
 const (
 	IdentityAttributes = "identity_attributes"
 	Traits             = "traits"
 	ApplicationData    = "application_data"
 )
 
+// Keys of the core attribute properties in the profile schema.
 const (
 	ValueType  = "value_type"
 	Mutability = "mutability"
 )
 
+// AllowedMergeStrategies is the set of merge strategies a schema attribute may use.
 var AllowedMergeStrategies = map[string]bool{
 	"combine":   true, // Combine values from both profiles (the value type has to be arrayOfString or arrayOfInt)
 	"overwrite": true, // todo: Remove later.
 }
 
+// AllowedConsentPurposes is the set of valid consent category purposes.
 var AllowedConsentPurposes = map[string]bool{
 	"profiling":       true,
 	"personalization": true,
 	"destination":     true,
 }
 
+// Name and purpose of the default consent category for identity data.
 const (
 	DefaultIdentityDataCategoryName    = "Identity Data"
 	DefaultIdentityDataCategoryPurpose = "profiling"
 )
 
+// Attribute scopes a consent category can cover.
 const (
 	ScopeIdentityAttributes = "identityAttributes"
 	ScopeTraits             = "traits"
 	ScopeApplicationData    = "applicationData"
 )
 
+// AllowedConsentAttributeScopes is the set of attribute scopes a consent category can cover.
 var AllowedConsentAttributeScopes = map[string]bool{
 	ScopeIdentityAttributes: true,
 	ScopeTraits:             true,
@@ -184,9 +256,9 @@ var AllowedConsentAttributeScopes = map[string]bool{
 
 // Merge usecases
 const (
-	TempProfile_TempProfile_Merge = "TEMP_TEMP"
-	TempProfile_PermProfile_Merge = "TEMP_PERM"
-	PermProfile_PermProfile_Merge = "PERM_PERM"
+	TempProfileTempProfileMerge = "TEMP_TEMP"
+	TempProfilePermProfileMerge = "TEMP_PERM"
+	PermProfilePermProfileMerge = "PERM_PERM"
 )
 
 // Sync Profile usecases
@@ -210,11 +282,13 @@ const (
 	MergedTo         = "MERGED_TO"
 )
 
+// AllowedFilterFieldsForSchema is the set of fields a profile schema query may filter on.
 var AllowedFilterFieldsForSchema = map[string]bool{
 	"attribute_name":         true,
 	"application_identifier": true,
 }
 
+// Keys of the per-organization admin config.
 const (
 	ConfigCDSEnabled            = "cds_enabled"
 	ConfigInitialSchemaSyncDone = "initial_schema_sync_done"
@@ -226,10 +300,11 @@ const (
 	ConfigAutoMergeThreshold    = "auto_merge_threshold"
 	ConfigManualReviewThreshold = "manual_review_threshold"
 	// ConfigDeterministicMatchDecisive: when true, a pair agreeing on any deterministic rule
-	// merges without the other rules being consulted — the behaviour before typed matching.
+	// merges without the other rules being consulted — the behavior before typed matching.
 	ConfigDeterministicMatchDecisive = "deterministic_match_decisive"
 )
 
+// Attribute types decide how a unification rule compares the values of its attribute.
 const (
 	AttributeTypePrimitiveExact = "PRIMITIVE_EXACT"
 	AttributeTypeFuzzyString    = "FUZZY_STRING"
@@ -241,6 +316,7 @@ const (
 	AttributeTypeUniqueID       = "UNIQUE_ID"
 )
 
+// Display labels of the attribute types.
 const (
 	AttributeTypeLabelPrimitiveExact = "Exact Match (Strictly identical)"
 	AttributeTypeLabelFuzzyString    = "General Text (Tolerates typos)"
@@ -252,6 +328,7 @@ const (
 	AttributeTypeLabelUniqueID       = "Unique Identifier"
 )
 
+// AllowedAttributeTypes is the set of valid attribute types.
 var AllowedAttributeTypes = map[string]bool{
 	AttributeTypePrimitiveExact: true,
 	AttributeTypeFuzzyString:    true,
@@ -263,11 +340,13 @@ var AllowedAttributeTypes = map[string]bool{
 	AttributeTypeUniqueID:       true,
 }
 
+// Unification methods say whether a rule matches values exactly or tolerates differences.
 const (
 	UnificationMethodFuzzy         = "fuzzy"
 	UnificationMethodDeterministic = "deterministic"
 )
 
+// Display labels of the unification methods.
 const (
 	UnificationMethodLabelDeterministic = "Deterministic (Exact)"
 	UnificationMethodLabelFuzzyGeneral  = "Fuzzy (Typo tolerant)"
@@ -275,6 +354,7 @@ const (
 	UnificationMethodLabelFuzzyFormat   = "Fuzzy (Format tolerant)"
 )
 
+// AllowedUnificationMethods is the set of valid unification methods.
 var AllowedUnificationMethods = map[string]bool{
 	UnificationMethodFuzzy:         true,
 	UnificationMethodDeterministic: true,
@@ -291,6 +371,7 @@ var FuzzyCapableAttributeTypes = map[string]bool{
 	AttributeTypeLocation:    true,
 }
 
+// Statuses of a merge review task.
 const (
 	ReviewStatusPending   = "PENDING"
 	ReviewStatusApproved  = "APPROVED"
@@ -298,34 +379,40 @@ const (
 	ReviewStatusCancelled = "CANCELLED"
 )
 
+// Decisions the identity resolution engine makes for a candidate pair.
 const (
 	DecisionAutoMerge    = "AUTO_MERGE"
 	DecisionManualReview = "MANUAL_REVIEW"
 	DecisionUnique       = "UNIQUE"
 )
 
+// Profile types.
 const (
 	ProfileTypePermanent = "PERMANENT"
 	ProfileTypeTemp      = "TEMP"
 )
 
+// Unification modes: strict matches only identical values, smart normalizes them and tolerates differences.
 const (
 	UnificationModeStrict = "STRICT"
 	UnificationModeSmart  = "SMART"
 )
 
+// Reasons recorded for a profile merge.
 const (
 	MergeReasonAutoMerge   = "auto_merge"
 	MergeReasonReviewMerge = "review_merge"
 	MergeReasonManualMerge = "manual_merge"
 )
 
+// CanceledBySystem is recorded as the actor when the service cancels a review task itself.
 const (
 	CanceledBySystem = "SYSTEM"
 )
 
+// SystemUserIDMatchReason is the merge reason recorded when two profiles share a user ID.
 const (
-	SystemUserIdMatchReason = "system:user_id_match"
+	SystemUserIDMatchReason = "system:user_id_match"
 )
 
 const (
@@ -338,13 +425,14 @@ const (
 	MaxCandidatesPerRule = 100
 )
 
+// Default identity resolution thresholds.
 const (
-	// Shipped defaults for an organisation that has set no thresholds of its own. Both are
+	// Shipped defaults for an organization that has set no thresholds of its own. Both are
 	// per-org admin config, and validation requires manual_review <= auto_merge - ScorePenaltyOffset.
 	//
 	// 1.0 merges unattended only on a perfect score: an exact match, which is how unification
-	// worked before typed matching, so an organisation upgrading keeps the merges it had. Every
-	// tolerant match — a typo, a spelling variant — goes to review until the organisation
+	// worked before typed matching, so an organization upgrading keeps the merges it had. Every
+	// tolerant match — a typo, a spelling variant — goes to review until the organization
 	// lowers the threshold itself, since a wrong merge is far harder to undo than a pending
 	// review. (Jonathan Smith / Jonathon Smyth measures 0.9429, for scale.)
 	// 0.75 is also the bar a rule must clear to count as agreeing, which is why it is kept
@@ -353,6 +441,7 @@ const (
 	DefaultManualReviewThreshold = 0.75
 )
 
+// Locality-sensitive hashing and phonetic blocking settings.
 const (
 	// LSHSignatureSize is the total number of MinHash signatures generated.
 	LSHSignatureSize = 8
@@ -395,7 +484,7 @@ const (
 	// highest-priority rule when its evidence is not marked LOW.
 	//
 	// Priority alone is not enough. It says which signal to prefer among several, and an
-	// organisation with one configured rule has made no such statement — everything is
+	// organization with one configured rule has made no such statement — everything is
 	// rank 0. Letting rank promote LOW evidence would merge two people who merely share a
 	// name, which is the outcome LOW exists to prevent.
 	MinAgreeingRulesForAutoMerge = 2
@@ -433,21 +522,26 @@ const (
 // Labels and descriptions for the evidence-strength choices, worded per direction because
 // the same value carries a different meaning on a match than on a mismatch.
 const (
-	MatchStrengthLabelHigh         = "Strong — can merge on its own"
-	MatchStrengthLabelMedium       = "Moderate — needs a second match"
-	MatchStrengthLabelLow          = "Weak — supporting evidence only"
-	MatchStrengthDescriptionHigh   = "Two profiles sharing this value are almost certainly the same person, so a match here can merge them unattended."
-	MatchStrengthDescriptionMedium = "A match is real evidence but not conclusive; another attribute must agree before profiles merge automatically."
-	MatchStrengthDescriptionLow    = "Many unrelated people share this value, so a match on its own is close to coincidence."
+	MatchStrengthLabelHigh       = "Strong — can merge on its own"
+	MatchStrengthLabelMedium     = "Moderate — needs a second match"
+	MatchStrengthLabelLow        = "Weak — supporting evidence only"
+	MatchStrengthDescriptionHigh = "Two profiles sharing this value are almost certainly the same person, " +
+		"so a match here can merge them unattended."
+	MatchStrengthDescriptionMedium = "A match is real evidence but not conclusive; " +
+		"another attribute must agree before profiles merge automatically."
+	MatchStrengthDescriptionLow = "Many unrelated people share this value, " +
+		"so a match on its own is close to coincidence."
 
-	MismatchStrengthLabelHigh         = "Decisive — different values mean different people"
-	MismatchStrengthLabelMedium       = "Moderate — counts against a match"
-	MismatchStrengthLabelLow          = "Weak — people legitimately have several"
-	MismatchStrengthDescriptionHigh   = "If both profiles hold this attribute and the values differ, they are treated as different people and never merged automatically."
+	MismatchStrengthLabelHigh       = "Decisive — different values mean different people"
+	MismatchStrengthLabelMedium     = "Moderate — counts against a match"
+	MismatchStrengthLabelLow        = "Weak — people legitimately have several"
+	MismatchStrengthDescriptionHigh = "If both profiles hold this attribute and the values differ, " +
+		"they are treated as different people and never merged automatically."
 	MismatchStrengthDescriptionMedium = "A difference counts against the match but does not block it on its own."
 	MismatchStrengthDescriptionLow    = "One person routinely has several of these, so differing values say little."
 )
 
+// AllowedEvidenceStrengths is the set of valid evidence strengths.
 var AllowedEvidenceStrengths = map[string]bool{
 	EvidenceStrengthHigh:   true,
 	EvidenceStrengthMedium: true,
@@ -479,6 +573,7 @@ var DefaultMatchStrength = map[string]string{
 	AttributeTypeDate:           EvidenceStrengthLow,
 }
 
+// DefaultMismatchStrength is the default mismatch evidence strength for each attribute type.
 var DefaultMismatchStrength = map[string]string{
 	AttributeTypeUniqueID:       EvidenceStrengthHigh,
 	AttributeTypeDate:           EvidenceStrengthHigh,
@@ -572,6 +667,7 @@ const (
 	JaroWinklerPFactor = 0.1
 )
 
+// DefaultCookieCleanupTime is the default interval of the cookie cleanup worker, in seconds.
 const (
 	DefaultCookieCleanupTime = 24 * 60 * 60 // 24 hours in seconds
 )

@@ -68,7 +68,7 @@ func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, c
 	}
 	primary := toOrganization(org)
 	primary.Handle = orgHandle
-	primary.ParentId = ""
+	primary.ParentID = ""
 	return primary, nil
 }
 
@@ -90,8 +90,9 @@ func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle,
 	return a.client.IntrospectToken(token, primaryHandle)
 }
 
+// GetPrimaryOrganization returns the primary organization with the handle, with no parent set. A handle
+// the identity server does not know is a not-found client error.
 func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle string) (Organization, error) {
-
 	// Only a primary organization answers the self call on its own tenant path. A primary
 	// organization can still have a parent, such as the super organization.
 	org, found, err := a.client.GetSelfOrganization(primaryHandle)
@@ -102,18 +103,19 @@ func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle 
 	// handle, so it is a client error.
 	if !found {
 		return Organization{}, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.ORGANIZATION_NOT_FOUND.Code,
-			Message:     errors2.ORGANIZATION_NOT_FOUND.Message,
+			Code:        errors2.OrganizationNotFound.Code,
+			Message:     errors2.OrganizationNotFound.Message,
 			Description: fmt.Sprintf("The identity provider does not know the organization '%s'.", primaryHandle),
 		}, http.StatusNotFound)
 	}
 	primary := toOrganization(org)
-	primary.ParentId = ""
+	primary.ParentID = ""
 	return primary, nil
 }
 
+// ListDescendants returns all organizations below the primary organization. It reads each organization
+// to get its parent, and skips any that no longer exist.
 func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string) ([]Organization, error) {
-
 	listed, err := a.client.ListDescendantOrganizations(primaryHandle)
 	if err != nil {
 		return nil, err
@@ -121,7 +123,7 @@ func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string)
 	result := make([]Organization, 0, len(listed))
 	for _, item := range listed {
 		// The list API does not return the parent. Read each organization to get it.
-		org, found, err := a.client.GetOrganization(primaryHandle, item.Id)
+		org, found, err := a.client.GetOrganization(primaryHandle, item.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -133,9 +135,10 @@ func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string)
 	return result, nil
 }
 
-func (a *WSO2ISAdapter) GetOrganization(_ context.Context, primaryHandle, orgId string) (*Organization, error) {
-
-	org, found, err := a.client.GetOrganization(primaryHandle, orgId)
+// GetOrganization returns one organization below the primary organization, or nil when it does not
+// exist.
+func (a *WSO2ISAdapter) GetOrganization(_ context.Context, primaryHandle, orgID string) (*Organization, error) {
+	org, found, err := a.client.GetOrganization(primaryHandle, orgID)
 	if err != nil || !found {
 		return nil, err
 	}
@@ -150,15 +153,14 @@ func (a *WSO2ISAdapter) IdentityAttributeSourceHandle(_ string, primaryHandle st
 }
 
 func toOrganization(org client.ISOrganization) Organization {
-
 	result := Organization{
-		Id:     org.Id,
+		ID:     org.ID,
 		Handle: org.OrgHandle,
 		Name:   org.Name,
 		Status: org.Status,
 	}
 	if org.Parent != nil {
-		result.ParentId = org.Parent.Id
+		result.ParentID = org.Parent.ID
 	}
 	return result
 }

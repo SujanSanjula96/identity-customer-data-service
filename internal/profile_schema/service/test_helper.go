@@ -4,10 +4,11 @@ import (
 	"context"
 )
 
+// OverrideValidateApplicationIdentifierForTest replaces the application identifier validation for tests and
+// returns a function that restores the original.
 func OverrideValidateApplicationIdentifierForTest(
 	fn func(ctx context.Context, appIdentifier string, orgId string) (error, bool),
 ) (restore func()) {
-
 	prev := validateApplicationIdentifierFn
 	validateApplicationIdentifierFn = fn
 

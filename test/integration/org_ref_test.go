@@ -23,13 +23,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 )
 
-// resolveOrgId returns the org ID of the organization, as a request handler resolves it. It stores the
+// resolveOrgID returns the org ID of the organization, as a request handler resolves it. It stores the
 // organization when it is not stored yet.
-func resolveOrgId(t testing.TB, org string) string {
-
+func resolveOrgID(t testing.TB, org string) string {
 	t.Helper()
 	ref, err := orgService.ResolveOrganization(context.Background(), org)
 	require.NoError(t, err)

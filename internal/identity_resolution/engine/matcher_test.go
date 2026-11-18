@@ -39,12 +39,24 @@ func TestMatchAttributeReportsUnknownSeparatelyFromDisagreement(t *testing.T) {
 		{"empty right", "j@acme.com", "", constants.AttributeTypeEmail, model.VerdictUnknown},
 		{"role mailbox", "noreply@acme.com", "noreply@acme.com", constants.AttributeTypeEmail, model.VerdictUnknown},
 		{"reserved domain", "a@example.com", "b@example.com", constants.AttributeTypeEmail, model.VerdictUnknown},
-		{"plus-tagged role mailbox", "info+sales@acme.com", "info@acme.com", constants.AttributeTypeEmail, model.VerdictUnknown},
+		{
+			"plus-tagged role mailbox",
+			"info+sales@acme.com",
+			"info@acme.com",
+			constants.AttributeTypeEmail,
+			model.VerdictUnknown,
+		},
 		{"n/a text", "N/A", "N/A", constants.AttributeTypeFuzzyString, model.VerdictUnknown},
 		{"sentinel date", "1970-01-01", "1970-01-01", constants.AttributeTypeDate, model.VerdictUnknown},
 		{"repeated digits phone", "0000000000", "0000000000", constants.AttributeTypePhone, model.VerdictUnknown},
 		{"single character name", "J", "J", constants.AttributeTypeName, model.VerdictUnknown},
-		{"real values that differ", "a@acme.com", "b@acme.com", constants.AttributeTypeEmail, model.VerdictInconclusive},
+		{
+			"real values that differ",
+			"a@acme.com",
+			"b@acme.com",
+			constants.AttributeTypeEmail,
+			model.VerdictInconclusive,
+		},
 		{"real values that agree", "a@acme.com", "a@acme.com", constants.AttributeTypeEmail, model.VerdictInconclusive},
 	}
 

@@ -75,7 +75,7 @@ func newOrgHandlerEnv(t *testing.T) *orgHandlerEnv {
 	config.OverrideCDSRuntime(conf)
 
 	handle := fmt.Sprintf("acme-%d", orgHandlerCounter.Add(1))
-	env := &orgHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle), auth: auth,
+	env := &orgHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle), auth: auth,
 		h: NewOrganizationHandler()}
 	setup.TestOrg(t, handle)
 	_, err = env.db.Exec(`INSERT INTO cds_config (org_id, config, value) VALUES (?, 'cds_enabled', 'true')`, env.orgID)

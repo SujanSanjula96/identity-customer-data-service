@@ -72,7 +72,7 @@ func newProfileHandlerEnv(t *testing.T) *profileHandlerEnv {
 		"profile:link")
 
 	handle := fmt.Sprintf("acme-%d", profileHandlerOrgCounter.Add(1))
-	env := &profileHandlerEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle),
+	env := &profileHandlerEnv{ctx: context.Background(), db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle),
 		auth: auth, h: &ProfileHandler{}, svc: &profileService.ProfilesService{}}
 	setup.TestOrg(t, handle)
 	_, err = env.db.Exec(`INSERT INTO cds_config (org_id, config, value) VALUES (?, 'cds_enabled', 'true')`, env.orgID)
@@ -86,7 +86,7 @@ func (e *profileHandlerEnv) addTrait(t *testing.T, name, valueType string) {
 	t.Helper()
 	full := constants.Traits + "." + name
 	require.NoError(t, schemaStore.AddProfileSchemaAttributesForScope(e.ctx, []schemaModel.ProfileSchemaAttribute{{
-		AttributeId:   "attr-" + full,
+		AttributeID:   "attr-" + full,
 		AttributeName: full,
 		Scope:         constants.Traits,
 		ValueType:     valueType,
@@ -138,10 +138,10 @@ func TestInitProfileCreatesAProfileAndSetsTheCookie(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, recorder.Code, recorder.Body.String())
 	profile := decodeProfile(t, recorder)
-	assert.NotEmpty(t, profile.ProfileId)
+	assert.NotEmpty(t, profile.ProfileID)
 	assert.Equal(t, "Colombo", profile.Traits["city"])
-	assert.NotEmpty(t, profile.AnonymousProfileTracker)
-	assert.Contains(t, recorder.Header().Get("Location"), "/profiles/"+profile.ProfileId)
+	assert.NotEmpty(t, profile.AnonymousTracker)
+	assert.Contains(t, recorder.Header().Get("Location"), "/profiles/"+profile.ProfileID)
 	var cookie *http.Cookie
 	for _, c := range recorder.Result().Cookies() {
 		if c.Name == constants.ProfileCookie {
@@ -149,7 +149,7 @@ func TestInitProfileCreatesAProfileAndSetsTheCookie(t *testing.T) {
 		}
 	}
 	require.NotNil(t, cookie, "the profile cookie is set")
-	assert.Equal(t, profile.AnonymousProfileTracker, cookie.Value)
+	assert.Equal(t, profile.AnonymousTracker, cookie.Value)
 }
 
 func TestInitProfileRefusals(t *testing.T) {
@@ -173,10 +173,10 @@ func TestGetProfile(t *testing.T) {
 	env := newProfileHandlerEnv(t)
 	created := env.createProfile(t, "Colombo")
 
-	found := env.call(t, env.h.GetProfile, http.MethodGet, env.auth.ValidToken, "", "", profileIDOf(created.ProfileId))
+	found := env.call(t, env.h.GetProfile, http.MethodGet, env.auth.ValidToken, "", "", profileIDOf(created.ProfileID))
 	require.Equal(t, http.StatusOK, found.Code, found.Body.String())
 	assert.Equal(t, "application/json", found.Header().Get("Content-Type"))
-	assert.Equal(t, created.ProfileId, decodeProfile(t, found).ProfileId)
+	assert.Equal(t, created.ProfileID, decodeProfile(t, found).ProfileID)
 
 	missing := env.call(t, env.h.GetProfile, http.MethodGet, env.auth.ValidToken, "", "", profileIDOf("missing"))
 	assert.Equal(t, http.StatusNotFound, missing.Code)
@@ -189,7 +189,7 @@ func TestGetAllProfilesPagesThroughTheProfiles(t *testing.T) {
 	env := newProfileHandlerEnv(t)
 	created := map[string]bool{}
 	for i := 0; i < 5; i++ {
-		created[env.createProfile(t, fmt.Sprintf("city-%d", i)).ProfileId] = true
+		created[env.createProfile(t, fmt.Sprintf("city-%d", i)).ProfileID] = true
 	}
 
 	seen := map[string]bool{}
@@ -205,8 +205,8 @@ func TestGetAllProfilesPagesThroughTheProfiles(t *testing.T) {
 		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
 		require.LessOrEqual(t, len(page.Items), 2)
 		for _, item := range page.Items {
-			assert.False(t, seen[item.ProfileId], "no profile appears twice")
-			seen[item.ProfileId] = true
+			assert.False(t, seen[item.ProfileID], "no profile appears twice")
+			seen[item.ProfileID] = true
 		}
 		cursor = page.Pagination.NextCursor
 		if cursor == "" {
@@ -260,7 +260,7 @@ func TestGetAllProfilesFiltersByTrait(t *testing.T) {
 	var page model.ProfileListAPIResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
 	require.Len(t, page.Items, 1)
-	assert.Equal(t, colombo.ProfileId, page.Items[0].ProfileId)
+	assert.Equal(t, colombo.ProfileID, page.Items[0].ProfileID)
 }
 
 func TestUpdateProfile(t *testing.T) {
@@ -268,12 +268,12 @@ func TestUpdateProfile(t *testing.T) {
 	created := env.createProfile(t, "Colombo")
 
 	updated := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "",
-		`{"traits":{"city":"Kandy"}}`, profileIDOf(created.ProfileId))
+		`{"traits":{"city":"Kandy"}}`, profileIDOf(created.ProfileID))
 	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
 	assert.Equal(t, "Kandy", decodeProfile(t, updated).Traits["city"])
 
 	invalid := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "",
-		`{"traits":{"age":"old"}}`, profileIDOf(created.ProfileId))
+		`{"traits":{"age":"old"}}`, profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, invalid.Code)
 
 	missing := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "",
@@ -281,7 +281,7 @@ func TestUpdateProfile(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 
 	malformed := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "", `{"traits":`,
-		profileIDOf(created.ProfileId))
+		profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, malformed.Code)
 
 	noID := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "", `{}`, nil)
@@ -295,14 +295,14 @@ func TestPatchProfile(t *testing.T) {
 	require.NoError(t, err)
 
 	patched := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "",
-		`{"traits":{"city":"Kandy"}}`, profileIDOf(created.ProfileId))
+		`{"traits":{"city":"Kandy"}}`, profileIDOf(created.ProfileID))
 	require.Equal(t, http.StatusOK, patched.Code, patched.Body.String())
 	traits := decodeProfile(t, patched).Traits
 	assert.Equal(t, "Kandy", traits["city"])
 	assert.EqualValues(t, 30, traits["age"], "a trait that was not patched stays")
 
 	invalid := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "",
-		`{"traits":{"age":"old"}}`, profileIDOf(created.ProfileId))
+		`{"traits":{"age":"old"}}`, profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, invalid.Code)
 
 	missing := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "",
@@ -310,7 +310,7 @@ func TestPatchProfile(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 
 	malformed := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "", `{"traits":`,
-		profileIDOf(created.ProfileId))
+		profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, malformed.Code)
 
 	noID := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "", `{}`, nil)
@@ -322,15 +322,15 @@ func TestDeleteProfile(t *testing.T) {
 	created := env.createProfile(t, "Colombo")
 
 	first := env.call(t, env.h.DeleteProfile, http.MethodDelete, env.auth.ValidToken, "", "",
-		profileIDOf(created.ProfileId))
+		profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusNoContent, first.Code)
 
 	// A profile that is gone is not an error.
 	again := env.call(t, env.h.DeleteProfile, http.MethodDelete, env.auth.ValidToken, "", "",
-		profileIDOf(created.ProfileId))
+		profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusNoContent, again.Code)
 
-	get := env.call(t, env.h.GetProfile, http.MethodGet, env.auth.ValidToken, "", "", profileIDOf(created.ProfileId))
+	get := env.call(t, env.h.GetProfile, http.MethodGet, env.auth.ValidToken, "", "", profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusNotFound, get.Code)
 
 	noID := env.call(t, env.h.DeleteProfile, http.MethodDelete, env.auth.ValidToken, "", "", nil)
@@ -345,23 +345,23 @@ func TestLinkProfile(t *testing.T) {
 			fmt.Sprintf(`{"profile_id":%q,"user_id":%q}`, profileId, userId), nil)
 	}
 
-	linked := link(anonymous.ProfileId, "u-1")
+	linked := link(anonymous.ProfileID, "u-1")
 	require.Equal(t, http.StatusOK, linked.Code, linked.Body.String())
 	var response model.ProfileLinkResponse
 	require.NoError(t, json.Unmarshal(linked.Body.Bytes(), &response))
-	assert.Equal(t, model.ProfileLinkResponse{ProfileId: anonymous.ProfileId, UserId: "u-1"}, response)
+	assert.Equal(t, model.ProfileLinkResponse{ProfileID: anonymous.ProfileID, UserID: "u-1"}, response)
 
-	stored, err := env.svc.GetProfile(env.ctx, anonymous.ProfileId, env.orgID)
+	stored, err := env.svc.GetProfile(env.ctx, anonymous.ProfileID, env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "u-1", stored.UserId)
+	assert.Equal(t, "u-1", stored.UserID)
 	assert.Equal(t, "Colombo", stored.Traits["city"], "the profile keeps its data")
 
 	// Linking the same user again is a no-op, linking another user is refused.
-	assert.Equal(t, http.StatusOK, link(anonymous.ProfileId, "u-1").Code)
-	assert.Equal(t, http.StatusConflict, link(anonymous.ProfileId, "u-2").Code)
+	assert.Equal(t, http.StatusOK, link(anonymous.ProfileID, "u-1").Code)
+	assert.Equal(t, http.StatusConflict, link(anonymous.ProfileID, "u-2").Code)
 
 	assert.Equal(t, http.StatusBadRequest, link("", "u-1").Code)
-	assert.Equal(t, http.StatusBadRequest, link(anonymous.ProfileId, " ").Code)
+	assert.Equal(t, http.StatusBadRequest, link(anonymous.ProfileID, " ").Code)
 	assert.Equal(t, http.StatusNotFound, link("missing", "u-1").Code)
 
 	malformed := env.call(t, env.h.LinkProfile, http.MethodPost, env.auth.ValidToken, "", `{"profile_id":`, nil)
@@ -371,7 +371,7 @@ func TestLinkProfile(t *testing.T) {
 func TestProfileHandlersRequireAuthentication(t *testing.T) {
 	env := newProfileHandlerEnv(t)
 	created := env.createProfile(t, "Colombo")
-	ids := profileIDOf(created.ProfileId)
+	ids := profileIDOf(created.ProfileID)
 
 	calls := []struct {
 		name    string
@@ -422,7 +422,7 @@ func TestProfileHandlersRefuseAnOrganizationWithoutCDS(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			recorder := env.call(t, handler, http.MethodPost, env.auth.ValidToken, "", `{}`,
-				profileIDOf(created.ProfileId))
+				profileIDOf(created.ProfileID))
 
 			assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		})

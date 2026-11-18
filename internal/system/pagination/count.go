@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package pagination reads page parameters from requests and describes a page of results.
 package pagination
 
 import (
@@ -29,6 +30,9 @@ const (
 	maxPageSize     = 200
 )
 
+// ParsePageSize reads the page_size query parameter. It returns 5 when the parameter is absent and caps
+// the value at 200. Zero is allowed and asks for an empty page; a negative or non-numeric value is an
+// error.
 func ParsePageSize(r *http.Request) (int, error) {
 	raw := r.URL.Query().Get("page_size")
 

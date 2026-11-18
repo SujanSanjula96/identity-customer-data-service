@@ -18,6 +18,7 @@
 
 package model
 
+// ProfileSchemaSync is an attribute change event sent by the identity server for an organization.
 type ProfileSchemaSync struct {
 	OrgHandle string `json:"orgHandle" bson:"orgHandle"`
 	Event     string `json:"event" bson:"event"`

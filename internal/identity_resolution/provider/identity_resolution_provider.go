@@ -16,22 +16,27 @@
  * under the License.
  */
 
+// Package provider supplies the identity resolution service to its callers.
 package provider
 
 import (
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/service"
 )
 
+// IdentityResolutionProviderInterface supplies the identity resolution service.
 type IdentityResolutionProviderInterface interface {
 	GetIdentityResolutionService() service.IdentityResolutionServiceInterface
 }
 
+// IdentityResolutionProvider implements IdentityResolutionProviderInterface.
 type IdentityResolutionProvider struct{}
 
+// NewIdentityResolutionProvider returns a new IdentityResolutionProvider.
 func NewIdentityResolutionProvider() IdentityResolutionProviderInterface {
 	return &IdentityResolutionProvider{}
 }
 
+// GetIdentityResolutionService returns the identity resolution service.
 func (p *IdentityResolutionProvider) GetIdentityResolutionService() service.IdentityResolutionServiceInterface {
 	return service.GetIdentityResolutionService()
 }

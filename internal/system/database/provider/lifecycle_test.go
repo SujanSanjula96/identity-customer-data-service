@@ -32,7 +32,6 @@ import (
 // sqliteDataSource points the runtime at an inbuilt database in a temporary
 // directory. The path is absolute, so nothing is written into the repository.
 func sqliteDataSource(t *testing.T) config.Config {
-
 	t.Helper()
 
 	return config.Config{
@@ -46,7 +45,6 @@ func sqliteDataSource(t *testing.T) config.Config {
 // Test_CloseDB_isSafeToRepeat checks the shutdown contract. The caller that
 // owns shutdown calls CloseDB once, but a second call must not fail or panic.
 func Test_CloseDB_isSafeToRepeat(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 
@@ -65,7 +63,6 @@ func Test_CloseDB_isSafeToRepeat(t *testing.T) {
 // shutdown. CloseDB clears the handle, so without a shutdown state the next
 // call would open a whole new pool that nothing would ever close.
 func Test_getPostgresDB_refusesAfterShutdown(t *testing.T) {
-
 	config.OverrideCDSRuntime(postgresDataSource("postgres"))
 	seedPostgresHandle(t)
 
@@ -93,7 +90,6 @@ func Test_getPostgresDB_refusesAfterShutdown(t *testing.T) {
 // Test_getSQLiteDB_refusesAfterShutdown checks the same rule for the inbuilt
 // datasource.
 func Test_getSQLiteDB_refusesAfterShutdown(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 
@@ -113,7 +109,6 @@ func Test_getSQLiteDB_refusesAfterShutdown(t *testing.T) {
 // caller a store uses. A worker that has not stopped yet asks for a client,
 // not for a pool.
 func Test_GetDBClient_refusesAfterShutdown(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 
@@ -136,7 +131,6 @@ func Test_GetDBClient_refusesAfterShutdown(t *testing.T) {
 // Test_getSQLiteDB_neverReturnsAClosedHandle checks that a pool the process
 // closed is not handed out again.
 func Test_getSQLiteDB_neverReturnsAClosedHandle(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 
@@ -170,7 +164,6 @@ func Test_getSQLiteDB_neverReturnsAClosedHandle(t *testing.T) {
 // still asking for a pool. Every caller must get a pool it can use or
 // ErrDatabaseClosed, and no pool may outlive CloseDB. Run it with -race.
 func Test_CloseDB_racesWithInitialization(t *testing.T) {
-
 	config.OverrideCDSRuntime(sqliteDataSource(t))
 	isolatePools(t)
 

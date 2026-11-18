@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,6 +31,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wso2/identity-customer-data-service/test/setup"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,6 @@ import (
 const linkTestScope = "internal_cds_profile_link"
 
 func Test_ProfileLink(t *testing.T) {
-
 	org := setup.TestOrg(t, fmt.Sprintf("carbon.super-link-%d", time.Now().UnixNano()))
 	profileSvc := profileService.GetProfilesService()
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
@@ -65,15 +65,15 @@ func Test_ProfileLink(t *testing.T) {
 
 	t.Run("PreRequisite_EnableCDSAndAddSchema", func(t *testing.T) {
 		err := adminConfigStore.UpdateAdminConfig(context.Background(), adminConfigModel.AdminConfig{
-			OrgId:      org.ID,
+			OrgID:      org.ID,
 			CDSEnabled: true,
 		}, org.ID)
 		require.NoError(t, err)
 
 		identityAttributes := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         org.ID,
-				AttributeId:   uuid.New().String(),
+				OrgID:         org.ID,
+				AttributeID:   uuid.New().String(),
 				AttributeName: "identity_attributes.email",
 				ValueType:     constants.StringDataType,
 				MergeStrategy: "combine",
@@ -91,20 +91,20 @@ func Test_ProfileLink(t *testing.T) {
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"anon-1@wso2.com"}},
 		}, org.ID)
 		require.NoError(t, err)
-		require.Empty(t, anonymous.UserId)
+		require.Empty(t, anonymous.UserID)
 
-		userId := "user-" + uuid.New().String()
-		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, userId))
+		userID := "user-" + uuid.New().String()
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileID, userID))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		var linkResponse profileModel.ProfileLinkResponse
 		require.NoError(t, json.Unmarshal(body, &linkResponse))
-		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
-		require.Equal(t, userId, linkResponse.UserId)
+		require.Equal(t, anonymous.ProfileID, linkResponse.ProfileID)
+		require.Equal(t, userID, linkResponse.UserID)
 
-		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org.ID)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileID, org.ID)
 		require.NoError(t, err)
-		require.Equal(t, userId, linked.UserId)
+		require.Equal(t, userID, linked.UserID)
 		// Nothing to unify against, so the profile stays a master of its own.
 		require.Nil(t, linked.MergedTo)
 	})
@@ -116,9 +116,9 @@ func Test_ProfileLink(t *testing.T) {
 		require.NoError(t, err)
 
 		for name, payload := range map[string]string{
-			"MissingUserId":    fmt.Sprintf(`{"profile_id":%q}`, anonymous.ProfileId),
-			"EmptyUserId":      fmt.Sprintf(`{"profile_id":%q,"user_id":""}`, anonymous.ProfileId),
-			"BlankUserId":      fmt.Sprintf(`{"profile_id":%q,"user_id":"   "}`, anonymous.ProfileId),
+			"MissingUserId":    fmt.Sprintf(`{"profile_id":%q}`, anonymous.ProfileID),
+			"EmptyUserId":      fmt.Sprintf(`{"profile_id":%q,"user_id":""}`, anonymous.ProfileID),
+			"BlankUserId":      fmt.Sprintf(`{"profile_id":%q,"user_id":"   "}`, anonymous.ProfileID),
 			"MissingProfileId": `{"user_id":"user-does-not-matter"}`,
 			"BlankProfileId":   `{"profile_id":"   ","user_id":"user-does-not-matter"}`,
 			"Garbage":          `not-json`,
@@ -127,9 +127,9 @@ func Test_ProfileLink(t *testing.T) {
 				status, body := doLink(t, router, org.Handle, payload)
 				require.Equal(t, http.StatusBadRequest, status, string(body))
 
-				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org.ID)
+				unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileID, org.ID)
 				require.NoError(t, err)
-				require.Empty(t, unchanged.UserId)
+				require.Empty(t, unchanged.UserID)
 			})
 		}
 	})
@@ -147,16 +147,16 @@ func Test_ProfileLink(t *testing.T) {
 		require.NoError(t, err)
 
 		firstUser := "user-" + uuid.New().String()
-		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, firstUser))
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileID, firstUser))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		secondUser := "user-" + uuid.New().String()
-		status, body = doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, secondUser))
+		status, body = doLink(t, router, org.Handle, linkBody(anonymous.ProfileID, secondUser))
 		require.Equal(t, http.StatusConflict, status, string(body))
 
-		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org.ID)
+		unchanged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileID, org.ID)
 		require.NoError(t, err)
-		require.Equal(t, firstUser, unchanged.UserId)
+		require.Equal(t, firstUser, unchanged.UserID)
 	})
 
 	t.Run("Relink_To_Same_User_Is_Accepted", func(t *testing.T) {
@@ -165,8 +165,8 @@ func Test_ProfileLink(t *testing.T) {
 		}, org.ID)
 		require.NoError(t, err)
 
-		userId := "user-" + uuid.New().String()
-		payload := linkBody(anonymous.ProfileId, userId)
+		userID := "user-" + uuid.New().String()
+		payload := linkBody(anonymous.ProfileID, userID)
 
 		status, body := doLink(t, router, org.Handle, payload)
 		require.Equal(t, http.StatusOK, status, string(body))
@@ -177,19 +177,19 @@ func Test_ProfileLink(t *testing.T) {
 
 		var linkResponse profileModel.ProfileLinkResponse
 		require.NoError(t, json.Unmarshal(body, &linkResponse))
-		require.Equal(t, anonymous.ProfileId, linkResponse.ProfileId)
-		require.Equal(t, userId, linkResponse.UserId)
+		require.Equal(t, anonymous.ProfileID, linkResponse.ProfileID)
+		require.Equal(t, userID, linkResponse.UserID)
 
-		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org.ID)
+		linked, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileID, org.ID)
 		require.NoError(t, err)
-		require.Equal(t, userId, linked.UserId)
+		require.Equal(t, userID, linked.UserID)
 	})
 
 	t.Run("Link_UserId_With_Existing_Profile_Unifies", func(t *testing.T) {
-		userId := "user-" + uuid.New().String()
+		userID := "user-" + uuid.New().String()
 
 		existing, err := profileSvc.CreateProfile(context.Background(), profileModel.ProfileRequest{
-			UserId:             userId,
+			UserID:             userID,
 			IdentityAttributes: map[string]interface{}{"email": []interface{}{"known@wso2.com"}},
 		}, org.ID)
 		require.NoError(t, err)
@@ -200,23 +200,23 @@ func Test_ProfileLink(t *testing.T) {
 		}, org.ID)
 		require.NoError(t, err)
 
-		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileId, userId))
+		status, body := doLink(t, router, org.Handle, linkBody(anonymous.ProfileID, userID))
 		require.Equal(t, http.StatusOK, status, string(body))
 
 		time.Sleep(2 * time.Second)
 
 		// The pre-existing permanent profile stays the master and the linked profile
 		// becomes its child, matched on the userId the link supplied.
-		merged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileId, org.ID)
+		merged, err := profileSvc.GetProfile(context.Background(), anonymous.ProfileID, org.ID)
 		require.NoError(t, err)
 		require.NotNil(t, merged.MergedTo)
-		require.Equal(t, existing.ProfileId, merged.MergedTo.ProfileId)
-		require.Equal(t, constants.SystemUserIdMatchReason, merged.MergedTo.Reason)
-		require.Equal(t, userId, merged.UserId)
+		require.Equal(t, existing.ProfileID, merged.MergedTo.ProfileID)
+		require.Equal(t, constants.SystemUserIDMatchReason, merged.MergedTo.Reason)
+		require.Equal(t, userID, merged.UserID)
 
-		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileId, org.ID)
+		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileID, org.ID)
 		require.NoError(t, err)
-		require.Equal(t, userId, master.UserId)
+		require.Equal(t, userID, master.UserID)
 		require.Contains(t, master.IdentityAttributes["email"].([]interface{}), "anon-3@wso2.com")
 	})
 }
@@ -224,7 +224,6 @@ func Test_ProfileLink(t *testing.T) {
 // newLinkRouter mounts the profile service behind the tenant dispatcher so tests
 // exercise the registered route and the full /t/{org}/cds/api/v1/... path.
 func newLinkRouter() *http.ServeMux {
-
 	root := http.NewServeMux()
 	profileMux := http.NewServeMux()
 	profileSvc := services.NewProfileService(profileMux)
@@ -232,16 +231,14 @@ func newLinkRouter() *http.ServeMux {
 	return root
 }
 
-func linkBody(profileId, userId string) string {
-
-	return fmt.Sprintf(`{"profile_id":%q,"user_id":%q}`, profileId, userId)
+func linkBody(profileID, userID string) string {
+	return fmt.Sprintf(`{"profile_id":%q,"user_id":%q}`, profileID, userID)
 }
 
 func doLink(t *testing.T, router *http.ServeMux, org, body string) (int, []byte) {
-
 	t.Helper()
 
-	target := fmt.Sprintf("/t/%s%s/v1/profiles/link", org, constants.ApiBasePath)
+	target := fmt.Sprintf("/t/%s%s/v1/profiles/link", org, constants.APIBasePath)
 	request := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer "+linkTestToken)
 	request.Header.Set("Content-Type", "application/json")
@@ -257,7 +254,6 @@ const linkTestToken = "opaque-link-test-token"
 // linkTestToken with the profile:link scope, so AuthnAndAuthz runs unmodified.
 // It returns a function that restores the previous runtime configuration.
 func setUpLinkAuth(t *testing.T) func() {
-
 	t.Helper()
 
 	introspection := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +265,7 @@ func setUpLinkAuth(t *testing.T) func() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			constants.ActiveClaim:   active,
-			constants.ClientIdClaim: constants.CONSOLE_APP,
+			constants.ClientIDClaim: constants.ConsoleApp,
 			"scope":                 linkTestScope,
 		})
 	}))
@@ -307,11 +303,10 @@ func setUpLinkAuth(t *testing.T) func() {
 // requiredScopesFromDeploymentConfig reads the shipped deployment configuration so
 // the test fails if profile:link is dropped from it.
 func requiredScopesFromDeploymentConfig(t *testing.T) map[string][]string {
-
 	t.Helper()
 
 	path := filepath.Join(utils.GetTestHome(), "config", "repository", "conf", "deployment.yaml")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(filepath.Clean(path))
 	require.NoError(t, err)
 
 	var deployment struct {

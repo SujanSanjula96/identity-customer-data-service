@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package model defines the unification rule types and the unification rules API request and response types.
 package model
 
 import (
@@ -28,11 +29,11 @@ import (
 
 // UnificationRule represents rules for merging user profiles
 type UnificationRule struct {
-	RuleId            string `json:"rule_id" bson:"rule_id" binding:"required"`
-	OrgId             string `json:"org_id" bson:"org_id" binding:"required"`
+	RuleID            string `json:"rule_id" bson:"rule_id" binding:"required"`
+	OrgID             string `json:"org_id" bson:"org_id" binding:"required"`
 	RuleName          string `json:"rule_name" bson:"rule_name" binding:"required"`
 	PropertyName      string `json:"property_name" bson:"property_name" binding:"required"`
-	PropertyId        string `json:"property_id" bson:"property_id" binding:"required"`
+	PropertyID        string `json:"property_id" bson:"property_id" binding:"required"`
 	Priority          int    `json:"priority" bson:"priority" binding:"required"`
 	IsActive          bool   `json:"is_active" bson:"is_active" binding:"required"`
 	AttributeType     string `json:"attribute_type" bson:"attribute_type"`
@@ -57,7 +58,6 @@ type UnificationRule struct {
 // legacy rule silently matches with an empty method and no evidence weights.
 func ApplyDefaults(rule UnificationRule, defaultAttributeType, defaultMethod string,
 	matchDefaults, mismatchDefaults map[string]string) UnificationRule {
-
 	if rule.AttributeType == "" {
 		rule.AttributeType = defaultAttributeType
 	}
@@ -82,7 +82,6 @@ func ApplyDefaults(rule UnificationRule, defaultAttributeType, defaultMethod str
 // search path and the review path disagreeing about which rule was responsible.
 func ActiveSortedByPriority(rules []UnificationRule, defaultAttributeType, defaultMethod string,
 	matchDefaults, mismatchDefaults map[string]string) []UnificationRule {
-
 	active := make([]UnificationRule, 0, len(rules))
 	for _, rule := range rules {
 		// A shared rule runs only in the ACTIVE state. A rule read from the store has no state.
@@ -135,18 +134,17 @@ func AsExactMatching(rules []UnificationRule) []UnificationRule {
 // score breakdown recorded for the pair.
 //
 // It has to mirror how ScoreCandidate chose, because the rule that decided is not always the
-// first rule that agreed. When an organisation keeps deterministic matches decisive, an
+// first rule that agreed. When an organization keeps deterministic matches decisive, an
 // exact match at any priority ends the evaluation, so a fuzzy rule ranked above it agreed
 // but did not decide anything. Attributing the merge to that fuzzy rule would record a
 // similarity match where an exact identifier was the actual cause — overstating how
 // uncertain the merge was, on the one record that answers "why were these combined?".
 //
 // The order below follows ScoreCandidate's: a unique identifier matching exactly wins
-// outright, then a deterministic agreement if the organisation treats those as decisive,
+// outright, then a deterministic agreement if the organization treats those as decisive,
 // then the first agreement of any kind.
 func PrimaryRuleName(breakdown map[string]float64, rules []UnificationRule,
 	agreementThreshold float64, deterministicMatchDecisive bool) (string, bool) {
-
 	agreed := func(rule UnificationRule) bool {
 		score, scored := breakdown[rule.PropertyName]
 		return scored && score >= agreementThreshold

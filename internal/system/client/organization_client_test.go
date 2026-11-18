@@ -37,7 +37,7 @@ func TestGetSelfOrganization(t *testing.T) {
 	org, found, err := c.GetSelfOrganization("acme")
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, "org-1", org.Id)
+	assert.Equal(t, "org-1", org.ID)
 	assert.Equal(t, "acme", org.OrgHandle)
 
 	_, found, err = c.GetSelfOrganization("unknown")
@@ -62,7 +62,7 @@ func TestGetOrganization(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found)
 	require.NotNil(t, org.Parent)
-	assert.Equal(t, "org-1", org.Parent.Id)
+	assert.Equal(t, "org-1", org.Parent.ID)
 
 	_, found, err = c.GetOrganization("acme", "missing")
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestListDescendantOrganizationsFollowsTheNextLink(t *testing.T) {
 	require.NoError(t, err)
 	ids := make([]string, 0, len(orgs))
 	for _, org := range orgs {
-		ids = append(ids, org.Id)
+		ids = append(ids, org.ID)
 	}
 	assert.Equal(t, []string{"o-1", "o-2", "o-3"}, ids)
 }

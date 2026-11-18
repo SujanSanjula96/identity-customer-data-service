@@ -61,7 +61,7 @@ func newSchemaEnv(t *testing.T) *schemaEnv {
 	})
 
 	handle := fmt.Sprintf("acme-%d", orgCounter.Add(1))
-	env := &schemaEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgId(handle),
+	env := &schemaEnv{ctx: context.Background(), db: testDB.DB, orgID: setup.TestOrgID(handle),
 		svc: &ProfileSchemaService{}}
 	require.NoError(t, setup.InsertTestOrganization(testDB.DB, env.orgID, handle))
 	return env
@@ -70,7 +70,7 @@ func newSchemaEnv(t *testing.T) *schemaEnv {
 // trait returns a valid attribute. The handler generates the ID, so the service tests set one.
 func trait(name string) model.ProfileSchemaAttribute {
 	return model.ProfileSchemaAttribute{
-		AttributeId:   "id-" + name,
+		AttributeID:   "id-" + name,
 		AttributeName: name,
 		ValueType:     constants.StringDataType,
 		MergeStrategy: "overwrite",
@@ -107,14 +107,14 @@ func TestAddedAttributesCanBeReadBackByIDAndName(t *testing.T) {
 	env := newSchemaEnv(t)
 	stored := env.add(t, constants.Traits, trait("traits.city"))
 
-	byID, err := env.svc.GetProfileSchemaAttributeById(env.ctx, env.orgID, stored[0].AttributeId)
+	byID, err := env.svc.GetProfileSchemaAttributeByID(env.ctx, env.orgID, stored[0].AttributeID)
 	require.NoError(t, err)
 	assert.Equal(t, "traits.city", byID.AttributeName)
 
 	byName, err := env.svc.GetProfileSchemaAttributeByName(env.ctx, "traits.city", env.orgID)
 	require.NoError(t, err)
 	require.NotNil(t, byName)
-	assert.Equal(t, stored[0].AttributeId, byName.AttributeId)
+	assert.Equal(t, stored[0].AttributeID, byName.AttributeID)
 }
 
 func TestAddAttributeValidation(t *testing.T) {
@@ -139,7 +139,7 @@ func TestAddAttributeValidation(t *testing.T) {
 		{"unknown merge strategy", with(func(a *model.ProfileSchemaAttribute) { a.MergeStrategy = "newest" }),
 			constants.Traits},
 		{"sub attributes on a simple type", with(func(a *model.ProfileSchemaAttribute) {
-			a.SubAttributes = []model.SubAttribute{{AttributeId: "x", AttributeName: "traits.city.name"}}
+			a.SubAttributes = []model.SubAttribute{{AttributeID: "x", AttributeName: "traits.city.name"}}
 		}), constants.Traits},
 		{"complex without sub attributes", with(func(a *model.ProfileSchemaAttribute) {
 			a.ValueType = constants.ComplexDataType
@@ -170,7 +170,7 @@ func TestAddAttributeRefusesADuplicateName(t *testing.T) {
 		constants.Traits, env.orgID)
 
 	clientError := requireClientErr(t, err, http.StatusConflict)
-	assert.Equal(t, errors2.SCHEMA_ATTRIBUTE_ALREADY_EXISTS.Code, clientError.Code)
+	assert.Equal(t, errors2.SchemaAttributeAlreadyExists.Code, clientError.Code)
 }
 
 func TestApplicationDataAttributesAreScopedToTheirApplication(t *testing.T) {
@@ -182,7 +182,7 @@ func TestApplicationDataAttributesAreScopedToTheirApplication(t *testing.T) {
 	t.Cleanup(restore)
 	theme := func(appID string) model.ProfileSchemaAttribute {
 		a := trait("application_data.theme")
-		a.AttributeId = "id-theme-" + appID
+		a.AttributeID = "id-theme-" + appID
 		a.ApplicationIdentifier = appID
 		return a
 	}
@@ -196,7 +196,7 @@ func TestApplicationDataAttributesAreScopedToTheirApplication(t *testing.T) {
 	_, err = env.svc.AddProfileSchemaAttributesForScope(env.ctx, []model.ProfileSchemaAttribute{theme("unknown-app")},
 		constants.ApplicationData, env.orgID)
 	clientError := requireClientErr(t, err, http.StatusBadRequest)
-	assert.Equal(t, errors2.INVALID_APP_IDENTIFIER.Code, clientError.Code)
+	assert.Equal(t, errors2.InvalidAppIdentifier.Code, clientError.Code)
 
 	// The same name under another application is a different attribute.
 	assert.NotPanics(t, func() { env.add(t, constants.ApplicationData, theme("app-2")) })
@@ -215,12 +215,12 @@ func TestComplexAttributeNeedsExistingSubAttributesOneLevelDeeper(t *testing.T) 
 	address := func(subName, subId string) model.ProfileSchemaAttribute {
 		a := trait("traits.address")
 		a.ValueType = constants.ComplexDataType
-		a.SubAttributes = []model.SubAttribute{{AttributeId: subId, AttributeName: subName}}
+		a.SubAttributes = []model.SubAttribute{{AttributeID: subId, AttributeName: subName}}
 		return a
 	}
 
 	_, err := env.svc.AddProfileSchemaAttributesForScope(env.ctx,
-		[]model.ProfileSchemaAttribute{address("traits.other.city", subs[0].AttributeId)}, constants.Traits, env.orgID)
+		[]model.ProfileSchemaAttribute{address("traits.other.city", subs[0].AttributeID)}, constants.Traits, env.orgID)
 	_ = requireClientErr(t, err, http.StatusBadRequest)
 
 	_, err = env.svc.AddProfileSchemaAttributesForScope(env.ctx,
@@ -228,10 +228,10 @@ func TestComplexAttributeNeedsExistingSubAttributesOneLevelDeeper(t *testing.T) 
 	_ = requireClientErr(t, err, http.StatusBadRequest)
 
 	_, err = env.svc.AddProfileSchemaAttributesForScope(env.ctx,
-		[]model.ProfileSchemaAttribute{address("traits.address.zip", subs[0].AttributeId)}, constants.Traits, env.orgID)
+		[]model.ProfileSchemaAttribute{address("traits.address.zip", subs[0].AttributeID)}, constants.Traits, env.orgID)
 	_ = requireClientErr(t, err, http.StatusBadRequest)
 
-	stored := env.add(t, constants.Traits, address("traits.address.city", subs[0].AttributeId))
+	stored := env.add(t, constants.Traits, address("traits.address.city", subs[0].AttributeID))
 	assert.Equal(t, constants.ComplexDataType, stored[0].ValueType)
 }
 
@@ -240,11 +240,11 @@ func TestASubAttributeCannotBeDeletedWhileItsParentListsIt(t *testing.T) {
 	subs := env.add(t, constants.Traits, trait("traits.address.city"))
 	address := trait("traits.address")
 	address.ValueType = constants.ComplexDataType
-	address.SubAttributes = []model.SubAttribute{{AttributeId: subs[0].AttributeId,
+	address.SubAttributes = []model.SubAttribute{{AttributeID: subs[0].AttributeID,
 		AttributeName: "traits.address.city"}}
 	env.add(t, constants.Traits, address)
 
-	err := env.svc.DeleteProfileSchemaAttributeById(env.ctx, env.orgID, subs[0].AttributeId)
+	err := env.svc.DeleteProfileSchemaAttributeByID(env.ctx, env.orgID, subs[0].AttributeID)
 
 	_ = requireClientErr(t, err, http.StatusBadRequest)
 }
@@ -253,8 +253,8 @@ func TestDeleteAttributeIsIdempotent(t *testing.T) {
 	env := newSchemaEnv(t)
 	stored := env.add(t, constants.Traits, trait("traits.city"))
 
-	require.NoError(t, env.svc.DeleteProfileSchemaAttributeById(env.ctx, env.orgID, stored[0].AttributeId))
-	assert.NoError(t, env.svc.DeleteProfileSchemaAttributeById(env.ctx, env.orgID, stored[0].AttributeId))
+	require.NoError(t, env.svc.DeleteProfileSchemaAttributeByID(env.ctx, env.orgID, stored[0].AttributeID))
+	assert.NoError(t, env.svc.DeleteProfileSchemaAttributeByID(env.ctx, env.orgID, stored[0].AttributeID))
 
 	byName, err := env.svc.GetProfileSchemaAttributeByName(env.ctx, "traits.city", env.orgID)
 	require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestSchemaWritesAreRefusedInASubOrganization(t *testing.T) {
 		constants.Traits, "sub-org")
 	_ = requireClientErr(t, err, http.StatusForbidden)
 
-	_ = requireClientErr(t, env.svc.DeleteProfileSchemaAttributeById(env.ctx, "sub-org", "any"), http.StatusForbidden)
+	_ = requireClientErr(t, env.svc.DeleteProfileSchemaAttributeByID(env.ctx, "sub-org", "any"), http.StatusForbidden)
 	_ = requireClientErr(t, env.svc.DeleteProfileSchemaAttributesByScope(env.ctx, "sub-org", constants.Traits),
 		http.StatusForbidden)
 	_ = requireClientErr(t, env.svc.DeleteProfileSchema(env.ctx, "sub-org"), http.StatusForbidden)

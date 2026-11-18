@@ -34,41 +34,39 @@ import (
 	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
-// lookupIdP knows the handles of known as primary organizations, and counts the lookups.
+// lookupIDP knows the handles of known as primary organizations, and counts the lookups.
 //
 // The organization lookups cache by handle for the process, so each test uses its own handles.
-type lookupIdP struct {
+type lookupIDP struct {
 	known   map[string]string
 	lookups atomic.Int32
 }
 
-func (f *lookupIdP) GetPrimaryOrganization(_ context.Context, handle string) (idp.Organization, error) {
-
+func (f *lookupIDP) GetPrimaryOrganization(_ context.Context, handle string) (idp.Organization, error) {
 	f.lookups.Add(1)
 	id, ok := f.known[handle]
 	if !ok {
 		return idp.Organization{}, errors2.NewClientError(errors2.ErrorMessage{
-			Code:    errors2.ORGANIZATION_NOT_FOUND.Code,
-			Message: errors2.ORGANIZATION_NOT_FOUND.Message,
+			Code:    errors2.OrganizationNotFound.Code,
+			Message: errors2.OrganizationNotFound.Message,
 		}, http.StatusNotFound)
 	}
-	return idp.Organization{Id: id, Handle: handle, Name: handle}, nil
+	return idp.Organization{ID: id, Handle: handle, Name: handle}, nil
 }
 
-func (f *lookupIdP) ListDescendants(context.Context, string) ([]idp.Organization, error) {
+func (f *lookupIDP) ListDescendants(context.Context, string) ([]idp.Organization, error) {
 	return nil, nil
 }
 
-func (f *lookupIdP) GetOrganization(context.Context, string, string) (*idp.Organization, error) {
+func (f *lookupIDP) GetOrganization(context.Context, string, string) (*idp.Organization, error) {
 	return nil, nil
 }
 
-func (f *lookupIdP) IdentityAttributeSourceHandle(_, primaryHandle string) string {
+func (f *lookupIDP) IdentityAttributeSourceHandle(_, primaryHandle string) string {
 	return primaryHandle
 }
 
-func setUpLookup(t *testing.T, known map[string]string) (*lookupIdP, *setup.SQLiteTestDB) {
-
+func setUpLookup(t *testing.T, known map[string]string) (*lookupIDP, *setup.SQLiteTestDB) {
 	t.Helper()
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
@@ -78,7 +76,7 @@ func setUpLookup(t *testing.T, known map[string]string) (*lookupIdP, *setup.SQLi
 		t.Fatalf("failed to set up the test database: %v", err)
 	}
 	provider.SetTestDB(testDB.DB, database.TypeSQLite)
-	fake := &lookupIdP{known: known}
+	fake := &lookupIDP{known: known}
 	idp.SetAdapter(fake)
 	t.Cleanup(func() {
 		idp.SetAdapter(nil)
@@ -89,7 +87,6 @@ func setUpLookup(t *testing.T, known map[string]string) (*lookupIdP, *setup.SQLi
 }
 
 func requireNotFound(t *testing.T, err error) {
-
 	t.Helper()
 	var clientError *errors2.ClientError
 	if !errors.As(err, &clientError) || clientError.StatusCode != http.StatusNotFound {
@@ -98,7 +95,6 @@ func requireNotFound(t *testing.T, err error) {
 }
 
 func TestResolveOrganizationStoresThePrimaryOrganization(t *testing.T) {
-
 	fake, _ := setUpLookup(t, map[string]string{"globex": "globex-id"})
 	ctx := context.Background()
 
@@ -124,7 +120,6 @@ func TestResolveOrganizationStoresThePrimaryOrganization(t *testing.T) {
 }
 
 func TestResolveOrganizationUsesTheStoredRow(t *testing.T) {
-
 	fake, testDB := setUpLookup(t, nil)
 	if err := setup.InsertTestOrganization(testDB.DB, "stark-id", "stark"); err != nil {
 		t.Fatal(err)
@@ -140,7 +135,6 @@ func TestResolveOrganizationUsesTheStoredRow(t *testing.T) {
 }
 
 func TestLookupsAreCached(t *testing.T) {
-
 	fake, testDB := setUpLookup(t, nil)
 	ctx := context.Background()
 	if err := setup.InsertTestOrganization(testDB.DB, "wayne-id", "wayne"); err != nil {
@@ -168,7 +162,6 @@ func TestLookupsAreCached(t *testing.T) {
 }
 
 func TestConcurrentResolvesStoreOnce(t *testing.T) {
-
 	fake, _ := setUpLookup(t, map[string]string{"hooli": "hooli-id"})
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
@@ -187,12 +180,11 @@ func TestConcurrentResolvesStoreOnce(t *testing.T) {
 }
 
 func TestLookupOrganizationById(t *testing.T) {
-
 	fake, testDB := setUpLookup(t, map[string]string{"pied-piper": "pied-piper-id"})
 	ctx := context.Background()
 
 	// An unknown ID is not found, and the identity provider is not called.
-	if _, found, err := LookupOrganizationById(ctx, "pied-piper-id"); err != nil || found {
+	if _, found, err := LookupOrganizationByID(ctx, "pied-piper-id"); err != nil || found {
 		t.Fatalf("expected pied-piper-id to be unknown before it is resolved, got %v, %v", found, err)
 	}
 	if fake.lookups.Load() != 0 {
@@ -203,7 +195,7 @@ func TestLookupOrganizationById(t *testing.T) {
 	if _, err := ResolveOrganization(ctx, "pied-piper"); err != nil {
 		t.Fatal(err)
 	}
-	ref, found, err := LookupOrganizationById(ctx, "pied-piper-id")
+	ref, found, err := LookupOrganizationByID(ctx, "pied-piper-id")
 	if err != nil || !found || ref.ID != "pied-piper-id" || ref.Handle != "pied-piper" {
 		t.Fatalf("LookupOrganizationById(pied-piper-id) = %+v, %v, %v", ref, found, err)
 	}
@@ -212,14 +204,13 @@ func TestLookupOrganizationById(t *testing.T) {
 	if _, err := testDB.DB.Exec(`DELETE FROM organizations WHERE org_id = 'pied-piper-id'`); err != nil {
 		t.Fatal(err)
 	}
-	if ref, found, err := LookupOrganizationById(ctx, "pied-piper-id"); err != nil || !found ||
+	if ref, found, err := LookupOrganizationByID(ctx, "pied-piper-id"); err != nil || !found ||
 		ref.Handle != "pied-piper" {
 		t.Fatalf("expected the cached organization, got %+v, %v, %v", ref, found, err)
 	}
 }
 
 func TestGetOrganizationHandle(t *testing.T) {
-
 	_, testDB := setUpLookup(t, nil)
 	ctx := context.Background()
 	if err := setup.InsertTestOrganization(testDB.DB, "hooli-xyz-id", "hooli-xyz"); err != nil {

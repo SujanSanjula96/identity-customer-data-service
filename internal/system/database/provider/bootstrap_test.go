@@ -31,7 +31,6 @@ import (
 
 // openTestSQLite opens an empty inbuilt database in a temporary directory.
 func openTestSQLite(t *testing.T) (*sql.DB, string) {
-
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "cds.db")
@@ -50,7 +49,6 @@ func openTestSQLite(t *testing.T) (*sql.DB, string) {
 
 // tableCount counts the tables the schema created, ignoring SQLite's own.
 func tableCount(t *testing.T, db *sql.DB) int {
-
 	t.Helper()
 
 	var count int
@@ -64,7 +62,6 @@ func tableCount(t *testing.T, db *sql.DB) int {
 }
 
 func Test_initializeSQLiteSchema(t *testing.T) {
-
 	const expectedTables = 20 // 14 core, 3 identity resolution, and 3 organization tables
 
 	db, path := openTestSQLite(t)
@@ -92,7 +89,6 @@ func Test_initializeSQLiteSchema(t *testing.T) {
 // Test_applySchemaStatements covers the fallback for drivers that reject a
 // multi-statement script.
 func Test_applySchemaStatements(t *testing.T) {
-
 	const expectedTables = 20 // 14 core, 3 identity resolution, and 3 organization tables
 
 	db, _ := openTestSQLite(t)
@@ -110,7 +106,6 @@ func Test_applySchemaStatements(t *testing.T) {
 // Test_initializedSchemaAcceptsWrites checks that the schema is usable: an
 // insert must round-trip and the foreign keys must be on.
 func Test_initializedSchemaAcceptsWrites(t *testing.T) {
-
 	db, _ := openTestSQLite(t)
 	if err := initializeSQLiteSchema(db); err != nil {
 		t.Fatal(err)
@@ -132,7 +127,8 @@ func Test_initializedSchemaAcceptsWrites(t *testing.T) {
 	// created_at and updated_at have defaults, so they must be readable as times.
 	var createdAt, updatedAt string
 	if err := db.QueryRow(
-		`SELECT created_at, updated_at FROM profiles WHERE profile_id = 'p1'`).Scan(&createdAt, &updatedAt); err != nil {
+		`SELECT created_at, updated_at FROM profiles WHERE profile_id = 'p1'`,
+	).Scan(&createdAt, &updatedAt); err != nil {
 		t.Fatal(err)
 	}
 	if createdAt == "" || updatedAt == "" {
@@ -148,7 +144,6 @@ func Test_initializedSchemaAcceptsWrites(t *testing.T) {
 }
 
 func Test_stripSQLComments(t *testing.T) {
-
 	stripped := stripSQLComments("-- a comment\nCREATE TABLE t (\n  -- another comment\n  a TEXT\n)")
 
 	if !strings.Contains(stripped, "CREATE TABLE t (") || !strings.Contains(stripped, "a TEXT") {

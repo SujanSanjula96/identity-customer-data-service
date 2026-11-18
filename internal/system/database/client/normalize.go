@@ -47,7 +47,6 @@ var sqliteTimeLayouts = []string{
 // normalizeSQLiteValue coerces a single scanned value based on its declared
 // column type.
 func normalizeSQLiteValue(value interface{}, declaredType string) interface{} {
-
 	if value == nil {
 		return nil
 	}
@@ -98,7 +97,6 @@ const (
 
 // sqliteColumnClass maps a declared column type to its coercion class.
 func sqliteColumnClass(declaredType string) columnClass {
-
 	switch strings.ToUpper(strings.TrimSpace(declaredType)) {
 	case "JSON", "JSONB":
 		return columnClassJSON
@@ -113,7 +111,6 @@ func sqliteColumnClass(declaredType string) columnClass {
 
 // parseSQLiteTime parses a timestamp stored by the inbuilt database.
 func parseSQLiteTime(value string) (time.Time, bool) {
-
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return time.Time{}, false
@@ -130,7 +127,6 @@ func parseSQLiteTime(value string) (time.Time, bool) {
 
 // parseSQLiteBool interprets the boolean spellings SQLite may hold.
 func parseSQLiteBool(value string) bool {
-
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "t", "true", "y", "yes":
 		return true

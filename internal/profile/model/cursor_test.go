@@ -33,19 +33,19 @@ func encodeRaw(raw string) string {
 func TestProfileCursorRoundTrip(t *testing.T) {
 	created := time.Date(2026, 3, 4, 5, 6, 7, 123456789, time.UTC)
 	for _, direction := range []string{"next", "prev"} {
-		encoded := EncodeProfileCursor(ProfileCursor{CreatedAt: created, ProfileId: "p-1", Direction: direction})
+		encoded := EncodeProfileCursor(ProfileCursor{CreatedAt: created, ProfileID: "p-1", Direction: direction})
 
 		decoded, err := DecodeProfileCursor(encoded)
 
 		require.NoError(t, err)
 		assert.True(t, created.Equal(decoded.CreatedAt))
-		assert.Equal(t, "p-1", decoded.ProfileId)
+		assert.Equal(t, "p-1", decoded.ProfileID)
 		assert.Equal(t, direction, decoded.Direction)
 	}
 }
 
 func TestEncodeProfileCursorDefaultsDirectionToNext(t *testing.T) {
-	encoded := EncodeProfileCursor(ProfileCursor{CreatedAt: time.Unix(0, 0), ProfileId: "p-1", Direction: "  "})
+	encoded := EncodeProfileCursor(ProfileCursor{CreatedAt: time.Unix(0, 0), ProfileID: "p-1", Direction: "  "})
 
 	decoded, err := DecodeProfileCursor(encoded)
 
@@ -57,7 +57,7 @@ func TestEncodeProfileCursorConvertsToUTC(t *testing.T) {
 	zone := time.FixedZone("plus5", 5*60*60)
 	created := time.Date(2026, 1, 1, 10, 0, 0, 0, zone)
 
-	decoded, err := DecodeProfileCursor(EncodeProfileCursor(ProfileCursor{CreatedAt: created, ProfileId: "p"}))
+	decoded, err := DecodeProfileCursor(EncodeProfileCursor(ProfileCursor{CreatedAt: created, ProfileID: "p"}))
 
 	require.NoError(t, err)
 	assert.Equal(t, time.UTC, decoded.CreatedAt.Location())
@@ -77,7 +77,7 @@ func TestDecodeProfileCursorAcceptsTwoParts(t *testing.T) {
 	decoded, err := DecodeProfileCursor(encodeRaw("2026-01-01T00:00:00Z|p-9"))
 
 	require.NoError(t, err)
-	assert.Equal(t, "p-9", decoded.ProfileId)
+	assert.Equal(t, "p-9", decoded.ProfileID)
 	assert.Equal(t, "next", decoded.Direction)
 }
 

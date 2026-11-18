@@ -30,7 +30,9 @@ import (
 // ProfileQueueProvider is the constructor signature for a
 // ProfileUnificationQueue provider. It receives the broker config and the
 // system TLS config (used to build the CA pool for SSL connections).
-type ProfileQueueProvider func(cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig) (ProfileUnificationQueue, error)
+type ProfileQueueProvider func(
+	cfg config.ExternalBrokerConfig, tlsCfg config.TLSConfig,
+) (ProfileUnificationQueue, error)
 
 // SchemaSyncQueueProvider is the constructor signature for a SchemaSyncQueue
 // provider. It receives the broker config and the system TLS config (used to
@@ -50,10 +52,12 @@ var (
 // Example:
 //
 //	func init() {
-//	    queue.RegisterProfileQueueProvider("myprovider", func(cfg config.ExternalBrokerConfig) (queue.ProfileUnificationQueue, error) {
-//	        return newMyProviderQueue(cfg)
-//	    })
-//	}
+//	    queue.RegisterProfileQueueProvider("myprovider", func(cfg config.ExternalBrokerConfig)
+//
+//	(queue.ProfileUnificationQueue, error) {
+//		        return newMyProviderQueue(cfg)
+//		    })
+//		}
 func RegisterProfileQueueProvider(name string, p ProfileQueueProvider) {
 	mu.Lock()
 	defer mu.Unlock()

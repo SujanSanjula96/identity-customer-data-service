@@ -28,7 +28,6 @@ import (
 )
 
 func TestValidateFilterFieldsAcceptsSafeFields(t *testing.T) {
-
 	filters := []string{
 		"user_id eq u-1",
 		"profile_id sw p-",
@@ -43,7 +42,6 @@ func TestValidateFilterFieldsAcceptsSafeFields(t *testing.T) {
 }
 
 func TestValidateFilterFieldsRejectsUnsafeFields(t *testing.T) {
-
 	for _, field := range []string{
 		"traits.x'||(SELECT pg_sleep(5))||'",
 		"application_data.app.key'--",
@@ -56,7 +54,6 @@ func TestValidateFilterFieldsRejectsUnsafeFields(t *testing.T) {
 // The store functions check the fields before they resolve the organization or open the
 // database, so no database is necessary here.
 func TestFilterStoresRejectUnsafeFields(t *testing.T) {
-
 	filter := "traits.x'||(SELECT 1)||' co v"
 
 	_, _, err := GetAllProfilesWithFilter(context.Background(), "acme", []string{filter}, 10, nil)
@@ -67,7 +64,6 @@ func TestFilterStoresRejectUnsafeFields(t *testing.T) {
 }
 
 func requireBadRequest(t *testing.T, name string, err error) {
-
 	t.Helper()
 	var clientError *errors2.ClientError
 	if !errors.As(err, &clientError) || clientError.StatusCode != http.StatusBadRequest {

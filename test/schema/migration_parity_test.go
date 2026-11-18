@@ -74,7 +74,7 @@ func TestMigrationAddsEveryMatchingColumn(t *testing.T) {
 //
 // A DEFAULT on either strength column stamps a concrete value onto every pre-existing rule.
 // The engine cannot tell that apart from an operator's deliberate override, so it stops
-// deriving the strength from attribute_type — and an upgraded organisation quietly starts
+// deriving the strength from attribute_type — and an upgraded organization quietly starts
 // merging a different set of profiles. The columns must arrive NULL.
 func TestMigrationLeavesTheStrengthsWithoutADefault(t *testing.T) {
 	migration := read(t, migrationScript)

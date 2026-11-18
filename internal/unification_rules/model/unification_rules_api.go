@@ -18,6 +18,7 @@
 
 package model
 
+// UnificationRuleAPIRequest is the request body for creating a unification rule.
 type UnificationRuleAPIRequest struct {
 	RuleName          string `json:"rule_name" bson:"rule_name" binding:"required"`
 	PropertyName      string `json:"property_name" bson:"property_name" binding:"required"`
@@ -43,7 +44,7 @@ type UnificationRuleAPIRequest struct {
 // original kept following the table, and would leave an editor unable to tell a deliberate
 // choice from an inherited one.
 type UnificationRuleAPIResponse struct {
-	RuleId            string `json:"rule_id" bson:"rule_id" binding:"required"`
+	RuleID            string `json:"rule_id" bson:"rule_id" binding:"required"`
 	RuleName          string `json:"rule_name" bson:"rule_name" binding:"required"`
 	PropertyName      string `json:"property_name" bson:"property_name" binding:"required"`
 	Priority          int    `json:"priority" bson:"priority" binding:"required"`
@@ -59,7 +60,7 @@ type UnificationRuleAPIResponse struct {
 // the caller sets when the server exposes them.
 func ToAPIResponse(rule UnificationRule) UnificationRuleAPIResponse {
 	return UnificationRuleAPIResponse{
-		RuleId:            rule.RuleId,
+		RuleID:            rule.RuleID,
 		RuleName:          rule.RuleName,
 		PropertyName:      rule.PropertyName,
 		Priority:          rule.Priority,
@@ -70,8 +71,10 @@ func ToAPIResponse(rule UnificationRule) UnificationRuleAPIResponse {
 	}
 }
 
+// UnificationRuleUpdateRequest is the request body for updating a unification rule. Only the fields that are
+// set are changed. rule_name and property_name are not here, so a request that sends either is rejected: a
+// merge records the rule name as its reason, and a rename would leave those records naming no rule.
 type UnificationRuleUpdateRequest struct {
-	RuleName          *string `json:"rule_name" bson:"rule_name"`
 	Priority          *int    `json:"priority" bson:"priority"`
 	IsActive          *bool   `json:"is_active" bson:"is_active"`
 	AttributeType     *string `json:"attribute_type" bson:"attribute_type"`

@@ -21,11 +21,7 @@
 // dialect it runs against.
 package model
 
-import (
-	"fmt"
-
-	"github.com/wso2/identity-customer-data-service/internal/system/database"
-)
+import "fmt"
 
 // DBQuery is a statement in every supported dialect.
 type DBQuery struct {
@@ -34,17 +30,17 @@ type DBQuery struct {
 	// Query is the PostgreSQL statement, and the fallback for any dialect
 	// without an override.
 	Query string
-	// SQLiteQuery overrides Query for the inbuilt datasource. Empty means the
-	// PostgreSQL statement works as written.
-	SQLiteQuery string
+	// Overrides maps a datasource type (the database.Type* values) to a
+	// statement that replaces Query for that datasource. A missing or empty
+	// entry means the PostgreSQL statement works as written there.
+	Overrides map[string]string
 }
 
 // GetQuery returns the statement for dbType. A populated DBQuery never resolves
 // to an empty statement.
 func (q DBQuery) GetQuery(dbType string) string {
-
-	if dbType == database.TypeSQLite && q.SQLiteQuery != "" {
-		return q.SQLiteQuery
+	if override := q.Overrides[dbType]; override != "" {
+		return override
 	}
 	return q.Query
 }
@@ -55,37 +51,57 @@ func (q DBQuery) GetQuery(dbType string) string {
 // An absent override stays absent, so the statement keeps falling back to the
 // PostgreSQL text.
 func (q DBQuery) Format(args ...interface{}) DBQuery {
-
-	formatted := DBQuery{
-		ID:    q.ID,
-		Query: fmt.Sprintf(q.Query, args...),
-	}
-	if q.SQLiteQuery != "" {
-		formatted.SQLiteQuery = fmt.Sprintf(q.SQLiteQuery, args...)
-	}
-	return formatted
+	return q.mapVariants(func(text string) string {
+		return fmt.Sprintf(text, args...)
+	})
 }
 
 // Append concatenates a fragment onto every dialect variant, for statements
 // built by concatenation rather than Sprintf. It preserves the fallback the
 // same way Format does.
 func (q DBQuery) Append(suffix string) DBQuery {
+	return q.mapVariants(func(text string) string {
+		return text + suffix
+	})
+}
 
-	appended := DBQuery{
+// mapVariants returns a copy of q with transform applied to the base statement
+// and to every override. The copy never shares its map with q, and an absent
+// override stays absent.
+func (q DBQuery) mapVariants(transform func(string) string) DBQuery {
+	mapped := DBQuery{
 		ID:    q.ID,
-		Query: q.Query + suffix,
+		Query: transform(q.Query),
 	}
-	if q.SQLiteQuery != "" {
-		appended.SQLiteQuery = q.SQLiteQuery + suffix
+	for dbType, override := range q.Overrides {
+		if override == "" {
+			continue
+		}
+		if mapped.Overrides == nil {
+			mapped.Overrides = make(map[string]string, len(q.Overrides))
+		}
+		mapped.Overrides[dbType] = transform(override)
 	}
-	return appended
+	return mapped
+}
+
+// WithOverride returns a copy of q that runs sqlText on dbType, for a statement
+// whose text depends on its arguments, such as the length of a path. The copy
+// does not share its map with q.
+func (q DBQuery) WithOverride(dbType, sqlText string) DBQuery {
+	overrides := make(map[string]string, len(q.Overrides)+1)
+	for key, value := range q.Overrides {
+		overrides[key] = value
+	}
+	overrides[dbType] = sqlText
+	q.Overrides = overrides
+	return q
 }
 
 // WithSQL returns a copy of q whose text is sqlText for every dialect, for the
 // few statements a store assembles from dialect-specific fragments. The dialect
 // is already applied by then, so there is nothing left to select.
 func (q DBQuery) WithSQL(sqlText string) DBQuery {
-
 	return DBQuery{
 		ID:    q.ID,
 		Query: sqlText,

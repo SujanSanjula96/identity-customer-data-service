@@ -31,7 +31,6 @@ import (
 )
 
 func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganization(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}
@@ -56,7 +55,7 @@ func TestGetAdminConfigReturnsTheIdentityResolutionSettingsOfThePrimaryOrganizat
 	}
 	ctx := context.Background()
 	primaryConfig := model.AdminConfig{
-		OrgId:                      "primary",
+		OrgID:                      "primary",
 		CDSEnabled:                 true,
 		SystemApplications:         []string{},
 		AutoMergeEnabled:           false,

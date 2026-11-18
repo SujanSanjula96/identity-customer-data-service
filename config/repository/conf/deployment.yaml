@@ -186,7 +186,7 @@ message_queue:
 
 # Datasource configuration.
 # Use "sqlite" for the inbuilt database, which needs no external server, and
-# "postgres" for production. An unset type means "sqlite".
+# "postgres", "mysql" or "mssql" for production. An unset type means "sqlite".
 datasource:
   type: "postgres"
   hostname: "localhost"
@@ -204,6 +204,22 @@ datasource:
   #   conn_max_lifetime_seconds: 1800 # retire a connection at this age
   #   conn_max_idle_time_seconds: 300 # close a connection unused this long
   #   connect_timeout_seconds: 10     # bound one connection attempt, handshake included
+  # Applies only when type is "mysql". The same settings as postgres, with the
+  # same defaults. For mysql, sslmode is disable, require, verify-ca or verify-full.
+  # mysql:
+  #   max_open_conns: 100
+  #   max_idle_conns: 25
+  #   conn_max_lifetime_seconds: 1800
+  #   conn_max_idle_time_seconds: 300
+  #   connect_timeout_seconds: 10
+  # Applies only when type is "mssql". The same settings as postgres, with the
+  # same defaults. For mssql, sslmode is disable, require, verify-ca or verify-full.
+  # mssql:
+  #   max_open_conns: 100
+  #   max_idle_conns: 25
+  #   conn_max_lifetime_seconds: 1800
+  #   conn_max_idle_time_seconds: 300
+  #   connect_timeout_seconds: 10
   # Applies only when type is "sqlite". Zero means the application default.
   # sqlite:
   #   path: "repository/database/cds.db" # Relative to the CDS home directory

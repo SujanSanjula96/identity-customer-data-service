@@ -51,7 +51,7 @@ func TestLegacyDeterministicRulesStillMerge(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{
 		legacyRule("identity_attributes.email", 1),
@@ -85,7 +85,7 @@ func TestLegacyRuleWithOneRuleConfigured(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{legacyRule("identity_attributes.email", 1)}
 	shared := map[string]interface{}{"identity_attributes.email": "a@acme.com"}
@@ -105,7 +105,7 @@ func TestLegacyRulesDoNotMergeOnMismatch(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "legacy", Thresholds: thresholds}
 
 	rules := []urModel.UnificationRule{legacyRule("identity_attributes.email", 1)}
 
@@ -122,7 +122,7 @@ func TestLegacyRulesDoNotMergeOnMismatch(t *testing.T) {
 // TestTwoLegacyRulesWithConflictingEvidence pins what deterministic_match_decisive decides.
 //
 // Before typed matching, the first rule to match merged the pair outright whatever the other
-// rules held. With the setting on — the default, and what every organisation predating it
+// rules held. With the setting on — the default, and what every organization predating it
 // gets — that is still exactly what happens. With it off, the other applicable rules may
 // object: when most of them disagree, the merge is downgraded to a review task. With exactly
 // two rules a single disagreement is already a majority, so the two columns differ on the
@@ -145,47 +145,77 @@ func TestTwoLegacyRulesWithConflictingEvidence(t *testing.T) {
 		wantOpen     string
 	}{
 		{
-			name:         "both attributes agree",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
-			existing:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
+			name: "both attributes agree",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
 			wantDecisive: constants.DecisionAutoMerge,
 			wantOpen:     constants.DecisionAutoMerge,
 		},
 		{
 			// Same email, different phone. Decisive merges as before; open asks.
-			name:         "top rule agrees, the other contradicts",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
-			existing:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0777654321"},
+			name: "top rule agrees, the other contradicts",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0777654321",
+			},
 			wantDecisive: constants.DecisionAutoMerge,
 			wantOpen:     constants.DecisionManualReview,
 		},
 		{
-			name:         "lower rule agrees, the top one contradicts",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
-			existing:     map[string]interface{}{"identity_attributes.email": "b@acme.com", "traits.phone": "0771234567"},
+			name: "lower rule agrees, the top one contradicts",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "b@acme.com",
+				"traits.phone":              "0771234567",
+			},
 			wantDecisive: constants.DecisionAutoMerge,
 			wantOpen:     constants.DecisionManualReview,
 		},
 		{
 			// A missing value is not a disagreement, so it must not block the merge either way.
-			name:         "top rule agrees, the other has no value to compare",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
+			name: "top rule agrees, the other has no value to compare",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
 			existing:     map[string]interface{}{"identity_attributes.email": "a@acme.com"},
 			wantDecisive: constants.DecisionAutoMerge,
 			wantOpen:     constants.DecisionAutoMerge,
 		},
 		{
-			name:         "lower rule agrees, the top one has no value to compare",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
+			name: "lower rule agrees, the top one has no value to compare",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
 			existing:     map[string]interface{}{"traits.phone": "0771234567"},
 			wantDecisive: constants.DecisionAutoMerge,
 			wantOpen:     constants.DecisionAutoMerge,
 		},
 		{
 			// Decisive only short-circuits an agreement; it never manufactures one.
-			name:         "neither agrees",
-			incoming:     map[string]interface{}{"identity_attributes.email": "a@acme.com", "traits.phone": "0771234567"},
-			existing:     map[string]interface{}{"identity_attributes.email": "b@acme.com", "traits.phone": "0777654321"},
+			name: "neither agrees",
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "a@acme.com",
+				"traits.phone":              "0771234567",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "b@acme.com",
+				"traits.phone":              "0777654321",
+			},
 			wantDecisive: constants.DecisionUnique,
 			wantOpen:     constants.DecisionUnique,
 		},
@@ -198,7 +228,7 @@ func TestTwoLegacyRulesWithConflictingEvidence(t *testing.T) {
 		}
 		thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75,
 			DeterministicMatchDecisive: decisive}
-		ctx := ScoringContext{OrgId: "legacy", Thresholds: thresholds}
+		ctx := ScoringContext{OrgID: "legacy", Thresholds: thresholds}
 
 		for _, tt := range tests {
 			want := tt.wantOpen
@@ -219,7 +249,7 @@ func TestTwoLegacyRulesWithConflictingEvidence(t *testing.T) {
 
 // TestDeterministicMatchDecisiveLeavesFuzzyRulesOpen checks the setting's boundary: it
 // only ever vouches for an exact match. A fuzzy agreement still has to survive the other
-// rules' objections, however the organisation has the setting.
+// rules' objections, however the organization has the setting.
 func TestDeterministicMatchDecisiveLeavesFuzzyRulesOpen(t *testing.T) {
 	if err := log.Init("error"); err != nil {
 		t.Fatalf("init logger: %v", err)
@@ -227,11 +257,16 @@ func TestDeterministicMatchDecisiveLeavesFuzzyRulesOpen(t *testing.T) {
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75,
 		DeterministicMatchDecisive: true}
-	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "acme", Thresholds: thresholds}
 
 	name := testRule("traits.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 1)
 	dob := testRule("traits.dob", constants.AttributeTypeDate, constants.UnificationMethodDeterministic, 2)
-	email := testRule("identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodDeterministic, 3)
+	email := testRule(
+		"identity_attributes.email",
+		constants.AttributeTypeEmail,
+		constants.UnificationMethodDeterministic,
+		3,
+	)
 
 	t.Run("fuzzy agreement with a deterministic disagreement still asks", func(t *testing.T) {
 		incoming := map[string]interface{}{"traits.name": "Jonathan Smith", "traits.dob": "1990-01-02"}

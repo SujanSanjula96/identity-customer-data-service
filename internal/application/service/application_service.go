@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package service validates applications against the identity server and registers them.
 package service
 
 import (
@@ -33,8 +34,8 @@ import (
 
 // ApplicationServiceInterface defines the interface for the application service.
 type ApplicationServiceInterface interface {
-	ResolveAndRegisterApplication(ctx context.Context, appIdentifier string, orgId string) (bool, error)
-	ResolveAppIdentifierByClientID(ctx context.Context, orgId string, clientID string) (string, error)
+	ResolveAndRegisterApplication(ctx context.Context, appIdentifier string, orgID string) (bool, error)
+	ResolveAppIdentifierByClientID(ctx context.Context, orgID string, clientID string) (string, error)
 }
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
@@ -42,19 +43,17 @@ type ApplicationService struct{}
 
 // GetApplicationService creates a new instance of ApplicationService.
 func GetApplicationService() ApplicationServiceInterface {
-
 	return &ApplicationService{}
 }
 
 // ResolveAndRegisterApplication validates the application in the identity server and persists its clientId.
 func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
-	appIdentifier string, orgId string) (bool, error) {
-
+	appIdentifier string, orgID string) (bool, error) {
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
 	identityClient := client.NewIdentityClient(cfg)
 
-	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgId)
+	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgID)
 	if err != nil {
 		return false, err
 	}
@@ -64,16 +63,16 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 	}
 	if !exists {
 		logger.Debug(fmt.Sprintf("Application '%s' does not exist in the identity server for organization '%s'",
-			appIdentifier, orgId))
+			appIdentifier, orgID))
 		return false, nil
 	}
 
 	// clientId is empty for SAML-only apps; the row is still persisted (with a NULL clientId) so the table
 	// holds an entry for every application.
-	if err := store.UpsertApplication(ctx, orgId, model.Application{
+	if err := store.UpsertApplication(ctx, orgID, model.Application{
 		AppID:    appIdentifier,
-		OrgId:    orgId,
-		ClientID: app.ClientId,
+		OrgID:    orgID,
+		ClientID: app.ClientID,
 	}); err != nil {
 		return false, err
 	}
@@ -85,14 +84,13 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 // If a sub organization has no mapping for the client ID, the ancestor organizations are checked,
 // nearest first.
 func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context,
-	orgId string, clientID string) (string, error) {
-
-	orgIds, err := orgChain(ctx, orgId)
+	orgID string, clientID string) (string, error) {
+	orgIDs, err := orgChain(ctx, orgID)
 	if err != nil {
 		return "", err
 	}
-	for _, chainOrgId := range orgIds {
-		appID, err := store.GetAppIdentifierByClientID(ctx, chainOrgId, clientID)
+	for _, chainOrgID := range orgIDs {
+		appID, err := store.GetAppIdentifierByClientID(ctx, chainOrgID, clientID)
 		if err != nil || appID != "" {
 			return appID, err
 		}
@@ -101,22 +99,21 @@ func (as *ApplicationService) ResolveAppIdentifierByClientID(ctx context.Context
 }
 
 // orgChain returns the IDs of the organization and its ancestors, nearest first.
-func orgChain(ctx context.Context, orgId string) ([]string, error) {
-
-	org, err := orgStore.GetOrganizationById(ctx, orgId)
+func orgChain(ctx context.Context, orgID string) ([]string, error) {
+	org, err := orgStore.GetOrganizationByID(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil || org.IsPrimary() {
-		return []string{orgId}, nil
+		return []string{orgID}, nil
 	}
-	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgId)
+	chain, err := orgStore.GetOrganizationChain(ctx, org.OrgID)
 	if err != nil {
 		return nil, err
 	}
-	orgIds := make([]string, 0, len(chain))
+	orgIDs := make([]string, 0, len(chain))
 	for i := len(chain) - 1; i >= 0; i-- {
-		orgIds = append(orgIds, chain[i].OrgId)
+		orgIDs = append(orgIDs, chain[i].OrgID)
 	}
-	return orgIds, nil
+	return orgIDs, nil
 }

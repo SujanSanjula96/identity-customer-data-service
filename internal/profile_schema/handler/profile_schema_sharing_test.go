@@ -45,12 +45,12 @@ func (e *schemaHandlerEnv) withChild(t *testing.T) {
 	require.NoError(t, err)
 	// CDS is enabled in a sub organization once the access policy of its primary organization reaches it.
 	require.NoError(t, sharingStore.CreatePolicy(context.Background(), sharingModel.Policy{
-		PolicyId:        "access-policy",
+		PolicyID:        "access-policy",
 		ResourceType:    sharingModel.ResourceOrganizationAccess,
-		ResourceId:      sharingModel.OrganizationAccessResourceId,
-		OwningOrgId:     e.orgID,
-		InitiatingOrgId: e.orgID,
-		Targets:         []sharingModel.Target{{Scope: sharingModel.ScopeAllChildren, OrgId: e.orgID}},
+		ResourceID:      sharingModel.OrganizationAccessResourceID,
+		OwningOrgID:     e.orgID,
+		InitiatingOrgID: e.orgID,
+		Targets:         []sharingModel.Target{{Scope: sharingModel.ScopeAllChildren, OrgID: e.orgID}},
 	}))
 }
 
@@ -62,7 +62,7 @@ func (e *schemaHandlerEnv) callAsChild(t *testing.T, handler http.HandlerFunc, m
 	request := httptest.NewRequest(method, "/t/"+e.handle+"/o/"+childOrgID+"/cds/api/v1/profile-schema",
 		strings.NewReader(body))
 	ctx := context.WithValue(request.Context(), constants.TenantContextKey, "child")
-	ctx = context.WithValue(ctx, constants.OrgIdContextKey, childOrgID)
+	ctx = context.WithValue(ctx, constants.OrgIDContextKey, childOrgID)
 	request = request.WithContext(ctx)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
@@ -82,7 +82,7 @@ func TestSchemaAttributeSharingPolicyLifecycle(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	env.withChild(t)
 	attrs := env.addTraits(t, "traits.city")
-	scope := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId}
+	scope := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID}
 
 	created := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken, "",
 		`{"child_orgs":{"mode":"all"}}`, scope)
@@ -95,8 +95,8 @@ func TestSchemaAttributeSharingPolicyLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &policy))
 	require.NotEmpty(t, policy.ID)
 	assert.Equal(t, "SCHEMA_ATTRIBUTE", policy.ResourceType)
-	assert.Equal(t, attrs[0].AttributeId, policy.ResourceID)
-	ids := policyIDs(attrs[0].AttributeId, policy.ID)
+	assert.Equal(t, attrs[0].AttributeID, policy.ResourceID)
+	ids := policyIDs(attrs[0].AttributeID, policy.ID)
 
 	again := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken, "",
 		`{"child_orgs":{"mode":"all"}}`, scope)
@@ -125,7 +125,7 @@ func TestSchemaAttributeSharingPolicyRefusals(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	env.withChild(t)
 	attrs := env.addTraits(t, "traits.city")
-	scope := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId}
+	scope := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID}
 
 	tests := []struct {
 		name   string
@@ -142,7 +142,7 @@ func TestSchemaAttributeSharingPolicyRefusals(t *testing.T) {
 		{"an attribute that does not exist", `{"child_orgs":{"mode":"all"}}`,
 			map[string]string{"scope": constants.Traits, "attrID": "missing"}, http.StatusNotFound},
 		{"an attribute of another scope", `{"child_orgs":{"mode":"all"}}`,
-			map[string]string{"scope": constants.IdentityAttributes, "attrID": attrs[0].AttributeId},
+			map[string]string{"scope": constants.IdentityAttributes, "attrID": attrs[0].AttributeID},
 			http.StatusNotFound},
 	}
 	for _, tc := range tests {
@@ -154,7 +154,7 @@ func TestSchemaAttributeSharingPolicyRefusals(t *testing.T) {
 		})
 	}
 
-	unknownPolicy := policyIDs(attrs[0].AttributeId, "missing")
+	unknownPolicy := policyIDs(attrs[0].AttributeID, "missing")
 	assert.Equal(t, http.StatusNotFound,
 		env.call(t, env.h.GetSharingPolicy, http.MethodGet, env.auth.ValidToken, "", "", unknownPolicy).Code)
 	assert.Equal(t, http.StatusNotFound, env.call(t, env.h.UpdateSharingPolicy, http.MethodPut, env.auth.ValidToken, "",
@@ -190,7 +190,7 @@ func TestASharedAttributeIsVisibleToTheChildButCannotBeChangedThere(t *testing.T
 	env.withChild(t)
 	attrs := env.addTraits(t, "traits.city", "traits.age")
 	shared := attrs[0]
-	scope := map[string]string{"scope": constants.Traits, "attrID": shared.AttributeId}
+	scope := map[string]string{"scope": constants.Traits, "attrID": shared.AttributeID}
 	created := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken, "",
 		`{"child_orgs":{"mode":"all"}}`, scope)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
@@ -213,11 +213,11 @@ func TestASharedAttributeIsVisibleToTheChildButCannotBeChangedThere(t *testing.T
 	require.NoError(t, json.Unmarshal(byScope.Body.Bytes(), &inScope))
 	require.Len(t, inScope, 1)
 
-	byID := env.callAsChild(t, env.h.GetProfileSchemaAttributeById, http.MethodGet, "", scope)
+	byID := env.callAsChild(t, env.h.GetProfileSchemaAttributeByID, http.MethodGet, "", scope)
 	assert.Equal(t, http.StatusOK, byID.Code, byID.Body.String())
 
 	// It is read-only there, and the child cannot write the schema at all.
-	remove := env.callAsChild(t, env.h.DeleteProfileSchemaAttributeById, http.MethodDelete, "", scope)
+	remove := env.callAsChild(t, env.h.DeleteProfileSchemaAttributeByID, http.MethodDelete, "", scope)
 	assert.Equal(t, http.StatusForbidden, remove.Code)
 	add := env.callAsChild(t, env.h.AddProfileSchemaAttributesForScope, http.MethodPost, attributeBody("traits.mine"),
 		map[string]string{"scope": constants.Traits})
@@ -238,8 +238,8 @@ func TestAnAttributeThatIsNotSharedIsInvisibleToTheChild(t *testing.T) {
 	require.NoError(t, json.Unmarshal(view.Body.Bytes(), &inScope))
 	assert.Empty(t, inScope)
 
-	byID := env.callAsChild(t, env.h.GetProfileSchemaAttributeById, http.MethodGet, "",
-		map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId})
+	byID := env.callAsChild(t, env.h.GetProfileSchemaAttributeByID, http.MethodGet, "",
+		map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID})
 	assert.Equal(t, http.StatusNotFound, byID.Code)
 }
 
@@ -256,7 +256,7 @@ func TestSchemaSharingRefusesAttributesThatCannotBeShared(t *testing.T) {
 
 	// A sub-attribute, which has two dots in its name, is not shared.
 	recorder := env.call(t, env.h.CreateSharingPolicy, http.MethodPost, env.auth.ValidToken, "",
-		`{"child_orgs":{"mode":"all"}}`, map[string]string{"scope": constants.Traits, "attrID": inScope[0].AttributeId})
+		`{"child_orgs":{"mode":"all"}}`, map[string]string{"scope": constants.Traits, "attrID": inScope[0].AttributeID})
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
 }

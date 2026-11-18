@@ -43,7 +43,6 @@ type namedWorker struct {
 // deadline passed with work still running. The pool closes either way.
 func shutdown(ctx context.Context, logger *log.Logger, httpShutdown func(context.Context) error,
 	workerList []namedWorker, closeDB func() error) error {
-
 	// Stop taking requests first, so no new work reaches the workers.
 	var stopErr error
 	if err := httpShutdown(ctx); err != nil {

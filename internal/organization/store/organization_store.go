@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package store persists organizations and the state of the organization tree sync.
 package store
 
 import (
@@ -41,47 +42,46 @@ const refCacheTTL = 5 * time.Minute
 // that another pod stores is found on the next lookup.
 var refs = cache.NewCache(refCacheTTL)
 
-// refsById caches LookupOrganizationRefById by org ID, as refs does by org handle.
-var refsById = cache.NewCache(refCacheTTL)
+// refsByID caches LookupOrganizationRefByID by org ID, as refs does by org handle.
+var refsByID = cache.NewCache(refCacheTTL)
 
 func serverError(description string, err error) error {
 	return errors2.NewServerError(errors2.ErrorMessage{
-		Code:        errors2.ORGANIZATION_STORE.Code,
-		Message:     errors2.ORGANIZATION_STORE.Message,
+		Code:        errors2.OrganizationStore.Code,
+		Message:     errors2.OrganizationStore.Message,
 		Description: description,
 	}, err)
 }
 
 // UpsertOrganization inserts the organization, or updates it when it exists.
 func UpsertOrganization(ctx context.Context, org model.Organization) error {
-
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return serverError("Failed to get a database client to store an organization.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	var parent interface{}
-	if org.ParentOrgId != "" {
-		parent = org.ParentOrgId
+	if org.ParentOrgID != "" {
+		parent = org.ParentOrgID
 	}
-	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrganization, org.OrgId, org.OrgHandle, org.OrgName,
-		parent, org.PrimaryOrgId, org.Status, time.Now().UTC())
+	_, err = dbClient.ExecuteQueryContext(ctx, scripts.UpsertOrganization, org.OrgID, org.OrgHandle, org.OrgName,
+		parent, org.PrimaryOrgID, org.Status, time.Now().UTC())
 	if err != nil {
-		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgId), err)
+		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgID), err)
 	}
 	refs.Delete(org.OrgHandle)
-	refsById.Delete(org.OrgId)
+	refsByID.Delete(org.OrgID)
 	return nil
 }
 
-// GetOrganizationById returns the organization, or nil when it is not stored or organization
+// GetOrganizationByID returns the organization, or nil when it is not stored or organization
 // management is disabled.
-func GetOrganizationById(ctx context.Context, orgId string) (*model.Organization, error) {
+func GetOrganizationByID(ctx context.Context, orgID string) (*model.Organization, error) {
 	if !config.OrganizationManagementEnabled() {
 		return nil, nil
 	}
-	return getOne(ctx, scripts.GetOrganizationById, orgId)
+	return getOne(ctx, scripts.GetOrganizationByID, orgID)
 }
 
 // GetOrganizationByHandle returns the organization, or nil when it is not stored or organization
@@ -97,7 +97,6 @@ func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Orga
 // false when the handle has no row. Unlike GetOrganizationByHandle it reads the table when organization
 // management is disabled: the org ID of every deployment comes from it. The result is cached.
 func LookupOrganizationRef(ctx context.Context, orgHandle string) (ref model.Ref, found bool, err error) {
-
 	if value, ok := refs.Get(orgHandle); ok {
 		if ref, ok := value.(model.Ref); ok {
 			return ref, true, nil
@@ -111,37 +110,35 @@ func LookupOrganizationRef(ctx context.Context, orgHandle string) (ref model.Ref
 	return org.Ref(), true, nil
 }
 
-// LookupOrganizationRefById returns the org ID and the org handle of the stored organization with the
+// LookupOrganizationRefByID returns the org ID and the org handle of the stored organization with the
 // ID. found is false when the ID has no row. As LookupOrganizationRef does, it reads the table when
 // organization management is disabled. The result is cached.
-func LookupOrganizationRefById(ctx context.Context, orgId string) (ref model.Ref, found bool, err error) {
-
-	if value, ok := refsById.Get(orgId); ok {
+func LookupOrganizationRefByID(ctx context.Context, orgID string) (ref model.Ref, found bool, err error) {
+	if value, ok := refsByID.Get(orgID); ok {
 		if ref, ok := value.(model.Ref); ok {
 			return ref, true, nil
 		}
 	}
-	org, err := getOne(ctx, scripts.GetOrganizationById, orgId)
+	org, err := getOne(ctx, scripts.GetOrganizationByID, orgID)
 	if err != nil || org == nil {
 		return model.Ref{}, false, err
 	}
-	refsById.Set(orgId, org.Ref())
+	refsByID.Set(orgID, org.Ref())
 	return org.Ref(), true, nil
 }
 
 // GetOrganizationsByPrimaryOrg returns all organizations of an organization tree.
-func GetOrganizationsByPrimaryOrg(ctx context.Context, primaryOrgId string) ([]model.Organization, error) {
-
+func GetOrganizationsByPrimaryOrg(ctx context.Context, primaryOrgID string) ([]model.Organization, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read organizations.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationsByPrimaryOrg, primaryOrgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationsByPrimaryOrg, primaryOrgID)
 	if err != nil {
 		return nil, serverError(fmt.Sprintf("Failed to read the organizations of primary organization: %s",
-			primaryOrgId), err)
+			primaryOrgID), err)
 	}
 	orgs := make([]model.Organization, 0, len(results))
 	for _, row := range results {
@@ -153,18 +150,17 @@ func GetOrganizationsByPrimaryOrg(ctx context.Context, primaryOrgId string) ([]m
 // idBatchSize is the maximum number of IDs in one IN list.
 const idBatchSize = 1000
 
-// GetOrganizationsByIds returns the stored organizations with the IDs.
-func GetOrganizationsByIds(ctx context.Context, orgIds []string) ([]model.Organization, error) {
-
+// GetOrganizationsByIDs returns the stored organizations with the IDs.
+func GetOrganizationsByIDs(ctx context.Context, orgIDs []string) ([]model.Organization, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read organizations.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	orgs := make([]model.Organization, 0, len(orgIds))
-	for start := 0; start < len(orgIds); start += idBatchSize {
-		batch := orgIds[start:min(start+idBatchSize, len(orgIds))]
+	orgs := make([]model.Organization, 0, len(orgIDs))
+	for start := 0; start < len(orgIDs); start += idBatchSize {
+		batch := orgIDs[start:min(start+idBatchSize, len(orgIDs))]
 		placeholders := make([]string, len(batch))
 		args := make([]interface{}, len(batch))
 		for i, id := range batch {
@@ -172,7 +168,7 @@ func GetOrganizationsByIds(ctx context.Context, orgIds []string) ([]model.Organi
 			args[i] = id
 		}
 		results, err := dbClient.ExecuteQueryContext(ctx,
-			scripts.GetOrganizationsByIds.Format(strings.Join(placeholders, ", ")), args...)
+			scripts.GetOrganizationsByIDs.Format(strings.Join(placeholders, ", ")), args...)
 		if err != nil {
 			return nil, serverError("Failed to read organizations by ID.", err)
 		}
@@ -185,8 +181,7 @@ func GetOrganizationsByIds(ctx context.Context, orgIds []string) ([]model.Organi
 
 // GetOrganizationChain returns the organization and its ancestors, the primary organization first.
 // The chain is empty when organization management is disabled.
-func GetOrganizationChain(ctx context.Context, orgId string) ([]model.Organization, error) {
-
+func GetOrganizationChain(ctx context.Context, orgID string) ([]model.Organization, error) {
 	if !config.OrganizationManagementEnabled() {
 		return nil, nil
 	}
@@ -195,11 +190,11 @@ func GetOrganizationChain(ctx context.Context, orgId string) ([]model.Organizati
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read organizations.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationChain, orgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationChain, orgID)
 	if err != nil {
-		return nil, serverError(fmt.Sprintf("Failed to read the ancestors of organization: %s", orgId), err)
+		return nil, serverError(fmt.Sprintf("Failed to read the ancestors of organization: %s", orgID), err)
 	}
 	orgs := make([]model.Organization, 0, len(results))
 	for _, row := range results {
@@ -209,17 +204,16 @@ func GetOrganizationChain(ctx context.Context, orgId string) ([]model.Organizati
 }
 
 // GetAncestors returns the ancestors of the organization, the parent first.
-func GetAncestors(ctx context.Context, orgId string) ([]model.Ancestor, error) {
-
+func GetAncestors(ctx context.Context, orgID string) ([]model.Ancestor, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read organizations.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationAncestors, orgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrganizationAncestors, orgID)
 	if err != nil {
-		return nil, serverError(fmt.Sprintf("Failed to read the ancestors of organization: %s", orgId), err)
+		return nil, serverError(fmt.Sprintf("Failed to read the ancestors of organization: %s", orgID), err)
 	}
 	ancestors := make([]model.Ancestor, 0, len(results))
 	for _, row := range results {
@@ -229,33 +223,31 @@ func GetAncestors(ctx context.Context, orgId string) ([]model.Ancestor, error) {
 }
 
 // UpdateOrganizationStatus sets the status of the organization.
-func UpdateOrganizationStatus(ctx context.Context, orgId, status string) error {
-
+func UpdateOrganizationStatus(ctx context.Context, orgID, status string) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return serverError("Failed to get a database client to update an organization.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	if _, err := dbClient.ExecuteQueryContext(ctx, scripts.UpdateOrganizationStatus, status, time.Now().UTC(),
-		orgId); err != nil {
-		return serverError(fmt.Sprintf("Failed to update the status of organization: %s", orgId), err)
+		orgID); err != nil {
+		return serverError(fmt.Sprintf("Failed to update the status of organization: %s", orgID), err)
 	}
 	return nil
 }
 
 // GetTreeSyncStatus returns the tree sync state of the primary organization.
-func GetTreeSyncStatus(ctx context.Context, orgId string) (*model.TreeSyncStatus, error) {
-
+func GetTreeSyncStatus(ctx context.Context, orgID string) (*model.TreeSyncStatus, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read the organization sync state.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
-	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, orgId)
+	results, err := dbClient.ExecuteQueryContext(ctx, scripts.GetOrgConfigurations, orgID)
 	if err != nil {
-		return nil, serverError(fmt.Sprintf("Failed to read the organization sync state of: %s", orgId), err)
+		return nil, serverError(fmt.Sprintf("Failed to read the organization sync state of: %s", orgID), err)
 	}
 	status := &model.TreeSyncStatus{State: model.TreeSyncNotSynced}
 	for _, row := range results {
@@ -280,26 +272,25 @@ func GetTreeSyncStatus(ctx context.Context, orgId string) (*model.TreeSyncStatus
 
 // SetTreeSyncValues writes the tree sync keys of the primary organization in one transaction. An
 // empty value clears the key.
-func SetTreeSyncValues(ctx context.Context, orgId string, values map[string]string) error {
-
+func SetTreeSyncValues(ctx context.Context, orgID string, values map[string]string) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return serverError("Failed to get a database client to store the organization sync state.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	tx, err := dbClient.BeginTxContext(ctx)
 	if err != nil {
-		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
+		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgID), err)
 	}
 	for key, value := range values {
-		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, orgId, key, value); err != nil {
+		if _, err := tx.ExecContext(ctx, scripts.UpdateOrgConfiguration, orgID, key, value); err != nil {
 			_ = tx.Rollback()
-			return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
+			return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgID), err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgId), err)
+		return serverError(fmt.Sprintf("Failed to store the organization sync state of: %s", orgID), err)
 	}
 	return nil
 }
@@ -313,12 +304,11 @@ func parseTime(value string) *time.Time {
 }
 
 func getOne(ctx context.Context, query dbmodel.DBQuery, arg string) (*model.Organization, error) {
-
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		return nil, serverError("Failed to get a database client to read an organization.", err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	results, err := dbClient.ExecuteQueryContext(ctx, query, arg)
 	if err != nil {
@@ -333,11 +323,11 @@ func getOne(ctx context.Context, query dbmodel.DBQuery, arg string) (*model.Orga
 
 func mapRow(row map[string]interface{}) model.Organization {
 	return model.Organization{
-		OrgId:        rows.String(row, "org_id"),
+		OrgID:        rows.String(row, "org_id"),
 		OrgHandle:    rows.String(row, "org_handle"),
 		OrgName:      rows.String(row, "org_name"),
-		ParentOrgId:  rows.String(row, "parent_org_id"),
-		PrimaryOrgId: rows.String(row, "primary_org_id"),
+		ParentOrgID:  rows.String(row, "parent_org_id"),
+		PrimaryOrgID: rows.String(row, "primary_org_id"),
 		Status:       rows.String(row, "status"),
 		CreatedAt:    rows.Time(row, "created_at"),
 		UpdatedAt:    rows.Time(row, "updated_at"),

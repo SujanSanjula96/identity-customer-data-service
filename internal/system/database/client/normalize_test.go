@@ -25,7 +25,6 @@ import (
 )
 
 func Test_normalizeSQLiteValue(t *testing.T) {
-
 	reference := time.Date(2026, 7, 25, 6, 48, 58, 169070000, time.UTC)
 
 	testCases := []struct {
@@ -74,7 +73,6 @@ func Test_normalizeSQLiteValue(t *testing.T) {
 }
 
 func Test_normalizeSQLiteValue_timeIsUTC(t *testing.T) {
-
 	normalized := normalizeSQLiteValue("2026-07-25 12:18:58.16907+05:30", "TIMESTAMP")
 
 	parsed, ok := normalized.(time.Time)

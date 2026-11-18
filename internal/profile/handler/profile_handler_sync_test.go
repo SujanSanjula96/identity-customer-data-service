@@ -52,7 +52,7 @@ func newSyncEnv(t *testing.T) *profileHandlerEnv {
 	config.OverrideCDSRuntime(conf)
 	require.NoError(t, schemaStore.AddProfileSchemaAttributesForScope(context.Background(),
 		[]schemaModel.ProfileSchemaAttribute{{
-			AttributeId:   "attr-email",
+			AttributeID:   "attr-email",
 			AttributeName: "identity_attributes.email",
 			Scope:         constants.IdentityAttributes,
 			ValueType:     constants.StringDataType,
@@ -100,7 +100,7 @@ func emailClaim(email string) map[string]interface{} {
 
 func (e *profileHandlerEnv) findUser(t *testing.T, userID string) *model.ProfileResponse {
 	t.Helper()
-	profile, err := e.svc.FindProfileByUserId(e.ctx, userID, e.orgID)
+	profile, err := e.svc.FindProfileByUserID(e.ctx, userID, e.orgID)
 	if err != nil {
 		return nil
 	}
@@ -155,7 +155,7 @@ func TestAddUserCreatesAProfileFromTheClaims(t *testing.T) {
 func TestAddUserWithTheCookieOfAnAnonymousProfileLinksIt(t *testing.T) {
 	env := newSyncEnv(t)
 	anonymous := env.createProfile(t, "Colombo")
-	cookieID := env.createCookie(t, anonymous.ProfileId, true)
+	cookieID := env.createCookie(t, anonymous.ProfileID, true)
 
 	recorder := env.sync(t, adminAuthorization(),
 		env.event(constants.AddUserEvent, "u-1", map[string]interface{}{
@@ -164,9 +164,9 @@ func TestAddUserWithTheCookieOfAnAnonymousProfileLinksIt(t *testing.T) {
 		}))
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	linked, err := env.svc.GetProfile(env.ctx, anonymous.ProfileId, env.orgID)
+	linked, err := env.svc.GetProfile(env.ctx, anonymous.ProfileID, env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "u-1", linked.UserId)
+	assert.Equal(t, "u-1", linked.UserID)
 	assert.Equal(t, "a@b.c", linked.IdentityAttributes["email"])
 	assert.Equal(t, "Colombo", linked.Traits["city"], "the anonymous data is kept")
 }
@@ -197,7 +197,7 @@ func TestDeleteUserDeletesTheirProfile(t *testing.T) {
 func TestAuthenticationSuccessAttachesTheUserToTheAnonymousProfile(t *testing.T) {
 	env := newSyncEnv(t)
 	anonymous := env.createProfile(t, "Colombo")
-	cookieID := env.createCookie(t, anonymous.ProfileId, true)
+	cookieID := env.createCookie(t, anonymous.ProfileID, true)
 
 	noUser := env.sync(t, adminAuthorization(), env.event(constants.AuthenticationSuccess, "", nil))
 	assert.Equal(t, http.StatusBadRequest, noUser.Code, "the event needs a user")
@@ -207,9 +207,9 @@ func TestAuthenticationSuccessAttachesTheUserToTheAnonymousProfile(t *testing.T)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.JSONEq(t, `{"status": "updated"}`, recorder.Body.String())
-	linked, err := env.svc.GetProfile(env.ctx, anonymous.ProfileId, env.orgID)
+	linked, err := env.svc.GetProfile(env.ctx, anonymous.ProfileID, env.orgID)
 	require.NoError(t, err)
-	assert.Equal(t, "u-1", linked.UserId)
+	assert.Equal(t, "u-1", linked.UserID)
 
 	// A cookie that matches nothing, and no cookie at all, change nothing.
 	stale := env.sync(t, adminAuthorization(), env.event(constants.AuthenticationSuccess, "u-9",
@@ -223,21 +223,21 @@ func TestAuthenticationSuccessAttachesTheUserToTheAnonymousProfile(t *testing.T)
 func TestAuthenticationSuccessKeepsAnAlreadyLinkedProfile(t *testing.T) {
 	env := newSyncEnv(t)
 	linked := env.createUserProfile(t, "u-1", "Colombo")
-	cookieID := env.createCookie(t, linked.ProfileId, true)
+	cookieID := env.createCookie(t, linked.ProfileID, true)
 
 	recorder := env.sync(t, adminAuthorization(), env.event(constants.AuthenticationSuccess, "u-1",
 		map[string]interface{}{"profileCookie": cookieID}))
 
 	assert.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	assert.Equal(t, linked.ProfileId, env.findUser(t, "u-1").ProfileId)
+	assert.Equal(t, linked.ProfileID, env.findUser(t, "u-1").ProfileID)
 }
 
 func TestSessionTerminationDeactivatesTheCookieOfTheUser(t *testing.T) {
 	env := newSyncEnv(t)
 	profile := env.createUserProfile(t, "u-1", "Colombo")
 	other := env.createUserProfile(t, "u-2", "Kandy")
-	own := env.createCookie(t, profile.ProfileId, true)
-	foreign := env.createCookie(t, other.ProfileId, true)
+	own := env.createCookie(t, profile.ProfileID, true)
+	foreign := env.createCookie(t, other.ProfileID, true)
 	terminate := func(userID, cookie string) *httptest.ResponseRecorder {
 		extra := map[string]interface{}{}
 		if cookie != "" {
@@ -246,7 +246,7 @@ func TestSessionTerminationDeactivatesTheCookieOfTheUser(t *testing.T) {
 		return env.sync(t, adminAuthorization(), env.event(constants.SessionTermination, userID, extra))
 	}
 	active := func(cookie string) bool {
-		got, err := env.svc.GetProfileCookieById(env.ctx, cookie, env.orgID)
+		got, err := env.svc.GetProfileCookieByID(env.ctx, cookie, env.orgID)
 		require.NoError(t, err)
 		return got.IsActive
 	}

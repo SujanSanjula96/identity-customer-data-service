@@ -33,7 +33,6 @@ import (
 )
 
 func Test_ApplicationStore(t *testing.T) {
-
 	org := setup.TestOrg(t, fmt.Sprintf("carbon.super-app-%d", time.Now().UnixNano()))
 	otherOrg := setup.TestOrg(t, fmt.Sprintf("other-app-%d", time.Now().UnixNano()))
 	appService := appProvider.NewApplicationProvider().GetApplicationService()
@@ -44,7 +43,7 @@ func Test_ApplicationStore(t *testing.T) {
 	t.Run("Upsert_And_Resolve", func(t *testing.T) {
 		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
 			AppID:    appUUID,
-			OrgId:    org.ID,
+			OrgID:    org.ID,
 			ClientID: clientID,
 		})
 		require.NoError(t, err)
@@ -69,7 +68,7 @@ func Test_ApplicationStore(t *testing.T) {
 		otherUUID := "aaaa1111-e8bf-4d92-9545-bbbbbbbbbbbb"
 		err := appStore.UpsertApplication(context.Background(), otherOrg.ID, appModel.Application{
 			AppID:    otherUUID,
-			OrgId:    otherOrg.ID,
+			OrgID:    otherOrg.ID,
 			ClientID: clientID, // same clientId, different org
 		})
 		require.NoError(t, err)
@@ -87,7 +86,7 @@ func Test_ApplicationStore(t *testing.T) {
 		newClientID := "RotatedClientId"
 		err := appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{
 			AppID:    appUUID, // same app
-			OrgId:    org.ID,
+			OrgID:    org.ID,
 			ClientID: newClientID, // rotated clientId
 		})
 		require.NoError(t, err)
@@ -108,7 +107,13 @@ func Test_ApplicationStore(t *testing.T) {
 		samlB := "saml-2222-e8bf-4d92-9545-dddddddddddd"
 
 		// SAML-only apps have no clientId; two of them in the same org must both persist without colliding.
-		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlA, OrgId: org.ID}))
-		require.NoError(t, appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlB, OrgId: org.ID}))
+		require.NoError(
+			t,
+			appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlA, OrgID: org.ID}),
+		)
+		require.NoError(
+			t,
+			appStore.UpsertApplication(context.Background(), org.ID, appModel.Application{AppID: samlB, OrgID: org.ID}),
+		)
 	})
 }

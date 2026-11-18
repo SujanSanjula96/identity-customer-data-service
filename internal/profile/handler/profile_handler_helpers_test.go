@@ -141,8 +141,8 @@ func TestExtractAppIDFromClaims(t *testing.T) {
 
 func sampleProfile() model.ProfileResponse {
 	return model.ProfileResponse{
-		ProfileId:          "p-1",
-		UserId:             "u-1",
+		ProfileID:          "p-1",
+		UserID:             "u-1",
 		IdentityAttributes: map[string]interface{}{"email": "a@b.c", "phone": "123"},
 		Traits:             map[string]interface{}{"age": 30, "city": "Colombo"},
 		ApplicationData: map[string]map[string]interface{}{
@@ -156,8 +156,8 @@ func TestBuildProfileListResponseWithoutAttributesReturnsOnlyTheHeader(t *testin
 	got := buildProfileListResponse([]model.ProfileResponse{sampleProfile()}, nil)
 
 	require.Len(t, got, 1)
-	assert.Equal(t, "p-1", got[0].ProfileId)
-	assert.Equal(t, "u-1", got[0].UserId)
+	assert.Equal(t, "p-1", got[0].ProfileID)
+	assert.Equal(t, "u-1", got[0].UserID)
 	assert.Nil(t, got[0].IdentityAttributes)
 	assert.Nil(t, got[0].Traits)
 	assert.Nil(t, got[0].ApplicationData)
@@ -206,7 +206,7 @@ func TestBuildFuzzyResponseItemsCarriesTheScore(t *testing.T) {
 	require.NotNil(t, got[0].MatchScore)
 	assert.InDelta(t, 0.91, *got[0].MatchScore, 1e-9)
 	assert.Equal(t, map[string]float64{"rule-1": 0.91}, got[0].ScoreBreakdown)
-	assert.Equal(t, "p-1", got[0].ProfileId)
+	assert.Equal(t, "p-1", got[0].ProfileID)
 }
 
 func TestBuildFuzzyResponseItemsSelectsRequestedFields(t *testing.T) {

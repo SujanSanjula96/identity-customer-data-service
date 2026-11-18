@@ -31,6 +31,8 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
+const subOrgHandle = "region1"
+
 // serve sends a request through the tenant dispatcher and returns the status, the organization
 // handle and the path that the handler got.
 func serve(t *testing.T, path string) (int, string, string) {
@@ -54,25 +56,24 @@ func serveRecorded(t *testing.T, path string) (*httptest.ResponseRecorder, strin
 }
 
 func TestTenantDispatcherOrgPath(t *testing.T) {
-
 	defer func(resolver func(context.Context, string, string) (string, error), isSub func(context.Context,
 		string) (bool, error)) {
 		SubOrgResolver, IsSubOrgHandle = resolver, isSub
 	}(SubOrgResolver, IsSubOrgHandle)
 	SubOrgResolver = func(_ context.Context, primaryHandle, orgId string) (string, error) {
 		if primaryHandle == "carbon.super" && orgId == "4f088c20" {
-			return "region1", nil
+			return subOrgHandle, nil
 		}
-		return "", error2.NewClientError(error2.ORGANIZATION_NOT_FOUND, http.StatusNotFound)
+		return "", error2.NewClientError(error2.OrganizationNotFound, http.StatusNotFound)
 	}
-	IsSubOrgHandle = func(_ context.Context, orgHandle string) (bool, error) { return orgHandle == "region1", nil }
+	IsSubOrgHandle = func(_ context.Context, orgHandle string) (bool, error) { return orgHandle == subOrgHandle, nil }
 
 	if code, org, path := serve(t, "/t/carbon.super/cds/api/v1/config"); code != 200 || org != "carbon.super" ||
 		path != "/cds/api/v1/config" {
 		t.Errorf("primary org path: got %d %q %q", code, org, path)
 	}
 	if code, org, path := serve(t, "/t/carbon.super/o/4f088c20/cds/api/v1/config"); code != 200 ||
-		org != "region1" || path != "/cds/api/v1/config" {
+		org != subOrgHandle || path != "/cds/api/v1/config" {
 		t.Errorf("sub org path: got %d %q %q", code, org, path)
 	}
 	if code, _, _ := serve(t, "/t/wso2.com/o/4f088c20/cds/api/v1/config"); code != http.StatusNotFound {
@@ -91,7 +92,7 @@ func TestTenantDispatcherPrimaryOrgHandle(t *testing.T) {
 	defer func(resolver func(context.Context, string, string) (string, error)) {
 		SubOrgResolver = resolver
 	}(SubOrgResolver)
-	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return "region1", nil }
+	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return subOrgHandle, nil }
 
 	for path, want := range map[string]string{
 		"/t/acme/cds/api/v1/config":            "acme",
@@ -110,9 +111,8 @@ func TestTenantDispatcherPrimaryOrgHandle(t *testing.T) {
 }
 
 func TestTenantDispatcherSubOrgHandleOnPrimaryOrgPath(t *testing.T) {
-
 	defer func(isSub func(context.Context, string) (bool, error)) { IsSubOrgHandle = isSub }(IsSubOrgHandle)
-	IsSubOrgHandle = func(_ context.Context, orgHandle string) (bool, error) { return orgHandle == "region1", nil }
+	IsSubOrgHandle = func(_ context.Context, orgHandle string) (bool, error) { return orgHandle == subOrgHandle, nil }
 
 	rec, org, _ := serveRecorded(t, "/t/region1/cds/api/v1/config")
 	if rec.Code != http.StatusBadRequest {
@@ -127,7 +127,7 @@ func TestTenantDispatcherSubOrgHandleOnPrimaryOrgPath(t *testing.T) {
 		t.Fatalf("the body is not JSON: %q", raw)
 	}
 	want := map[string]string{
-		"code":        error2.ORGANIZATION_PATH_NOT_SUPPORTED.Code,
+		"code":        error2.OrganizationPathNotSupported.Code,
 		"message":     "Organization path not supported.",
 		"description": "The requested organization cannot be accessed using this API path.",
 	}
@@ -142,7 +142,7 @@ func TestTenantDispatcherSubOrgHandleOnPrimaryOrgPath(t *testing.T) {
 	if body["code"] != "CDS-17009" {
 		t.Errorf("the numeric error code changed: %q", body["code"])
 	}
-	for _, leak := range []string{"region1", "sub organization", "/o/", "/t/"} {
+	for _, leak := range []string{subOrgHandle, "sub organization", "/o/", "/t/"} {
 		if strings.Contains(raw, leak) {
 			t.Errorf("the body reveals %q: %q", leak, raw)
 		}
@@ -155,7 +155,6 @@ func TestTenantDispatcherSubOrgHandleOnPrimaryOrgPath(t *testing.T) {
 }
 
 func TestTenantDispatcherLookupFailure(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to initialize the logger: %v", err)
 	}
@@ -165,8 +164,8 @@ func TestTenantDispatcherLookupFailure(t *testing.T) {
 		SubOrgResolver, IsSubOrgHandle = resolver, isSub
 	}(SubOrgResolver, IsSubOrgHandle)
 	failure := error2.NewServerError(error2.ErrorMessage{
-		Code:        error2.ORGANIZATION_STORE.Code,
-		Message:     error2.ORGANIZATION_STORE.Message,
+		Code:        error2.OrganizationStore.Code,
+		Message:     error2.OrganizationStore.Message,
 		Description: "Failed to read the organization.",
 	}, errors.New("connection refused"))
 	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return "", failure }
@@ -187,12 +186,11 @@ func TestTenantDispatcherLookupFailure(t *testing.T) {
 }
 
 func TestTenantDispatcherOrgBasePath(t *testing.T) {
-
 	defer func(resolver func(context.Context, string, string) (string, error), isSub func(context.Context,
 		string) (bool, error)) {
 		SubOrgResolver, IsSubOrgHandle = resolver, isSub
 	}(SubOrgResolver, IsSubOrgHandle)
-	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return "region1", nil }
+	SubOrgResolver = func(_ context.Context, _, _ string) (string, error) { return subOrgHandle, nil }
 	IsSubOrgHandle = func(_ context.Context, _ string) (bool, error) { return false, nil }
 
 	basePathOf := func(path string) string {
@@ -213,14 +211,12 @@ func TestTenantDispatcherOrgBasePath(t *testing.T) {
 }
 
 func TestTenantDispatcherDoesNotServeOrgRootPath(t *testing.T) {
-
 	if code, org, _ := serve(t, "/o/4f088c20/cds/api/v1/config"); code != http.StatusNotFound || org != "" {
 		t.Errorf("expected 404 without the handler, got %d %q", code, org)
 	}
 }
 
 func TestTenantDispatcherRejectsMalformedOrgHandle(t *testing.T) {
-
 	for _, path := range []string{"/t/a%3Fb/cds/api/v1/config", "/t/a%23b/cds/api/v1/config",
 		"/t/a%40b/cds/api/v1/config"} {
 		if code, org, _ := serve(t, path); code != http.StatusBadRequest || org != "" {
@@ -230,7 +226,6 @@ func TestTenantDispatcherRejectsMalformedOrgHandle(t *testing.T) {
 }
 
 func TestIsValidOrgHandle(t *testing.T) {
-
 	for _, handle := range []string{"carbon.super", "wso2.com", "region_1-a", "10084a8d-113f-4211-a0d5-efe36b082211"} {
 		if !IsValidOrgHandle(handle) {
 			t.Errorf("expected %q to be valid", handle)

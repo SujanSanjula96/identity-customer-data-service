@@ -26,27 +26,26 @@ import (
 )
 
 func attribute(id, name, valueType string) schemaModel.ProfileSchemaAttribute {
-	return schemaModel.ProfileSchemaAttribute{AttributeId: id, AttributeName: name, ValueType: valueType}
+	return schemaModel.ProfileSchemaAttribute{AttributeID: id, AttributeName: name, ValueType: valueType}
 }
 
-func rule(id, owner, propertyName, propertyId string) model.UnificationRule {
-	return model.UnificationRule{RuleId: id, OrgId: owner, PropertyName: propertyName, PropertyId: propertyId}
+func rule(id, owner, propertyName, propertyID string) model.UnificationRule {
+	return model.UnificationRule{RuleID: id, OrgID: owner, PropertyName: propertyName, PropertyID: propertyID}
 }
 
 func shared(id, owner string, depth int) shareModel.SharedResource {
-	return shareModel.SharedResource{ResourceId: id, OwnerOrgId: owner, OwnerDepth: depth}
+	return shareModel.SharedResource{ResourceID: id, OwnerOrgID: owner, OwnerDepth: depth}
 }
 
 func statesOf(rules []sharedRule) map[string]string {
 	states := map[string]string{}
 	for _, r := range rules {
-		states[r.Rule.RuleId] = r.State
+		states[r.Rule.RuleID] = r.State
 	}
 	return states
 }
 
 func TestResolveSharedRuleStates(t *testing.T) {
-
 	properties := []schemaModel.ProfileSchemaAttribute{
 		attribute("primary-email", "identity_attributes.email", "string"),
 		attribute("primary-loyalty", "traits.loyalty_id", "string"),
@@ -86,7 +85,6 @@ func TestResolveSharedRuleStates(t *testing.T) {
 
 // Two shared rules on one property: the rule of the farthest owner wins, as in the run order.
 func TestResolveSharedRuleStatesFarthestOwnerWins(t *testing.T) {
-
 	properties := []schemaModel.ProfileSchemaAttribute{attribute("primary-email", "identity_attributes.email",
 		"string")}
 	rules := []model.UnificationRule{

@@ -37,7 +37,7 @@ func (e *profileEnv) addCategoryWith(t *testing.T, name string, attributes ...co
 	require.NoError(t, consentStore.AddConsentCategory(e.ctx, e.orgID, consentModel.ConsentCategory{
 		CategoryName:       name,
 		CategoryIdentifier: id,
-		OrgId:              e.orgID,
+		OrgID:              e.orgID,
 		Purpose:            "profiling",
 		Attributes:         attributes,
 	}))
@@ -48,7 +48,7 @@ func traitAttribute(name string) consentModel.ConsentAttribute {
 	return consentModel.ConsentAttribute{
 		Scope:         constants.Traits,
 		AttributeName: constants.Traits + "." + name,
-		AttributeId:   "attr-" + constants.Traits + "." + name,
+		AttributeID:   "attr-" + constants.Traits + "." + name,
 	}
 }
 
@@ -63,8 +63,8 @@ func (e *profileEnv) consentTo(t *testing.T, profileID string, categories ...str
 
 func fullProfile(profileID string) profileModel.ProfileResponse {
 	return profileModel.ProfileResponse{
-		ProfileId:          profileID,
-		UserId:             "u-1",
+		ProfileID:          profileID,
+		UserID:             "u-1",
 		IdentityAttributes: map[string]interface{}{"email": "a@b.c"},
 		Traits:             map[string]interface{}{"city": "Colombo", "age": 30, "tier": "gold"},
 		ApplicationData: map[string]map[string]interface{}{
@@ -78,9 +78,9 @@ func TestConsentFilterKeepsOnlyWhatTheProfileConsentedTo(t *testing.T) {
 	profile := env.createWithCity(t, "Colombo")
 	analytics := env.addCategoryWith(t, "Analytics", traitAttribute("city"))
 	offers := env.addCategoryWith(t, "Offers", traitAttribute("tier"))
-	env.consentTo(t, profile.ProfileId, analytics)
+	env.consentTo(t, profile.ProfileID, analytics)
 
-	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID,
+	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID,
 		[]string{analytics, offers})
 
 	require.NoError(t, err)
@@ -88,8 +88,8 @@ func TestConsentFilterKeepsOnlyWhatTheProfileConsentedTo(t *testing.T) {
 		"the category it did not consent to adds nothing")
 	assert.Nil(t, got.IdentityAttributes)
 	assert.Nil(t, got.ApplicationData)
-	assert.Equal(t, profile.ProfileId, got.ProfileId, "the identifiers are always kept")
-	assert.Equal(t, "u-1", got.UserId)
+	assert.Equal(t, profile.ProfileID, got.ProfileID, "the identifiers are always kept")
+	assert.Equal(t, "u-1", got.UserID)
 }
 
 func TestConsentFilterUnitesTheConsentedCategories(t *testing.T) {
@@ -97,9 +97,9 @@ func TestConsentFilterUnitesTheConsentedCategories(t *testing.T) {
 	profile := env.createWithCity(t, "Colombo")
 	analytics := env.addCategoryWith(t, "Analytics", traitAttribute("city"))
 	offers := env.addCategoryWith(t, "Offers", traitAttribute("tier"), traitAttribute("age"))
-	env.consentTo(t, profile.ProfileId, analytics, offers)
+	env.consentTo(t, profile.ProfileID, analytics, offers)
 
-	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID,
+	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID,
 		[]string{analytics, offers, analytics})
 
 	require.NoError(t, err)
@@ -111,18 +111,18 @@ func TestConsentFilterReturnsNothingWithoutConsentOrCategories(t *testing.T) {
 	profile := env.createWithCity(t, "Colombo")
 	analytics := env.addCategoryWith(t, "Analytics", traitAttribute("city"))
 
-	notConsented, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID,
+	notConsented, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID,
 		[]string{analytics})
 	require.NoError(t, err)
 	assert.Nil(t, notConsented.Traits)
 	assert.Nil(t, notConsented.IdentityAttributes)
 
-	none, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID, nil)
+	none, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID, nil)
 	require.NoError(t, err)
 	assert.Nil(t, none.Traits)
 
-	env.consentTo(t, profile.ProfileId, analytics)
-	unknown, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID,
+	env.consentTo(t, profile.ProfileID, analytics)
+	unknown, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID,
 		[]string{"not-a-category"})
 	require.NoError(t, err)
 	assert.Nil(t, unknown.Traits, "a category the organization does not have is ignored")
@@ -133,7 +133,7 @@ func TestConsentFilterAlwaysKeepsTheMandatoryIdentityData(t *testing.T) {
 	profile := env.createWithCity(t, "Colombo")
 	require.NoError(t, consentStore.SeedDefaultIdentityDataCategory(env.ctx, env.orgID))
 
-	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID, nil)
+	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{"email": "a@b.c"}, got.IdentityAttributes,
@@ -148,12 +148,12 @@ func TestConsentFilterKeepsTheApplicationDataOfAConsentedGroup(t *testing.T) {
 	category := env.addCategoryWith(t, "Apps", consentModel.ConsentAttribute{
 		Scope:                 constants.ApplicationData,
 		AttributeName:         "application_data.theme",
-		AttributeId:           "attr-app-1-theme",
+		AttributeID:           "attr-app-1-theme",
 		ApplicationIdentifier: "app-1",
 	})
-	env.consentTo(t, profile.ProfileId, category)
+	env.consentTo(t, profile.ProfileID, category)
 
-	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileId), profile.ProfileId, env.orgID,
+	got, err := FilterProfileByConsent(env.ctx, fullProfile(profile.ProfileID), profile.ProfileID, env.orgID,
 		[]string{category})
 
 	require.NoError(t, err)

@@ -24,9 +24,10 @@ import (
 	"os"
 	"path/filepath"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/wso2/identity-customer-data-service/dbscripts"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
-	_ "modernc.org/sqlite"
 )
 
 // SQLiteTestDB holds a temporary inbuilt database used by the test suites.
@@ -53,7 +54,6 @@ func (s *SQLiteTestDB) Terminate() {
 // SetupTestSQLite creates a temporary inbuilt database with the schema
 // applied. The database is file-backed so that every pooled connection sees it.
 func SetupTestSQLite() (*SQLiteTestDB, error) {
-
 	dir, err := os.MkdirTemp("", "cds-sqlite-test")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir for the test database: %w", err)

@@ -66,7 +66,7 @@ func newSchemaHandlerEnv(t *testing.T) *schemaHandlerEnv {
 		"profile_schema:delete", "profile_schema:share_view", "profile_schema:share_update")
 
 	handle := fmt.Sprintf("acme-%d", schemaOrgCounter.Add(1))
-	env := &schemaHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgId(handle), auth: auth,
+	env := &schemaHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle), auth: auth,
 		h: NewProfileSchemaHandler()}
 	setup.TestOrg(t, handle)
 	_, err = env.db.Exec(`INSERT INTO cds_config (org_id, config, value) VALUES (?, 'cds_enabled', 'true')`, env.orgID)
@@ -120,9 +120,9 @@ func TestAddProfileSchemaAttributesCreatesThemAndGeneratesTheIDs(t *testing.T) {
 
 	require.Len(t, attrs, 2)
 	for _, attr := range attrs {
-		assert.NotEmpty(t, attr.AttributeId, "the handler generates the ID")
+		assert.NotEmpty(t, attr.AttributeID, "the handler generates the ID")
 		assert.Equal(t, constants.MutabilityReadWrite, attr.Mutability, "the mutability defaults to readWrite")
-		assert.Empty(t, attr.OrgId, "the organization is not part of the response")
+		assert.Empty(t, attr.OrgID, "the organization is not part of the response")
 		assert.NotEmpty(t, attr.DisplayName)
 	}
 }
@@ -164,7 +164,7 @@ func TestAddProfileSchemaAttributesRefusals(t *testing.T) {
 func TestProfileSchemaHandlersRequireAuthentication(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	attrs := env.addTraits(t, "traits.city")
-	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId}
+	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID}
 
 	calls := []struct {
 		name    string
@@ -174,11 +174,11 @@ func TestProfileSchemaHandlersRequireAuthentication(t *testing.T) {
 	}{
 		{"add", env.h.AddProfileSchemaAttributesForScope, http.MethodPost, attributeBody("traits.x")},
 		{"get the schema", env.h.GetProfileSchema, http.MethodGet, ""},
-		{"get an attribute", env.h.GetProfileSchemaAttributeById, http.MethodGet, ""},
+		{"get an attribute", env.h.GetProfileSchemaAttributeByID, http.MethodGet, ""},
 		{"get a scope", env.h.GetProfileSchemaAttributeForScope, http.MethodGet, ""},
-		{"patch", env.h.PatchProfileSchemaAttributeById, http.MethodPatch, `{}`},
+		{"patch", env.h.PatchProfileSchemaAttributeByID, http.MethodPatch, `{}`},
 		{"delete the schema", env.h.DeleteProfileSchema, http.MethodDelete, ""},
-		{"delete an attribute", env.h.DeleteProfileSchemaAttributeById, http.MethodDelete, ""},
+		{"delete an attribute", env.h.DeleteProfileSchemaAttributeByID, http.MethodDelete, ""},
 		{"delete a scope", env.h.DeleteProfileSchemaAttributeForScope, http.MethodDelete, ""},
 	}
 	for _, tc := range calls {
@@ -204,11 +204,11 @@ func TestProfileSchemaHandlersRefuseAnOrganizationWithoutCDS(t *testing.T) {
 	for name, handler := range map[string]http.HandlerFunc{
 		"add":              env.h.AddProfileSchemaAttributesForScope,
 		"get the schema":   env.h.GetProfileSchema,
-		"get an attribute": env.h.GetProfileSchemaAttributeById,
+		"get an attribute": env.h.GetProfileSchemaAttributeByID,
 		"get a scope":      env.h.GetProfileSchemaAttributeForScope,
-		"patch":            env.h.PatchProfileSchemaAttributeById,
+		"patch":            env.h.PatchProfileSchemaAttributeByID,
 		"delete schema":    env.h.DeleteProfileSchema,
-		"delete attribute": env.h.DeleteProfileSchemaAttributeById,
+		"delete attribute": env.h.DeleteProfileSchemaAttributeByID,
 		"delete scope":     env.h.DeleteProfileSchemaAttributeForScope,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -241,19 +241,19 @@ func TestGetProfileSchemaAttributeById(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	attrs := env.addTraits(t, "traits.city")
 
-	found := env.call(t, env.h.GetProfileSchemaAttributeById, http.MethodGet, env.auth.ValidToken, "", "",
-		map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId})
+	found := env.call(t, env.h.GetProfileSchemaAttributeByID, http.MethodGet, env.auth.ValidToken, "", "",
+		map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID})
 	require.Equal(t, http.StatusOK, found.Code, found.Body.String())
 	var attr model.ProfileSchemaAttribute
 	require.NoError(t, json.Unmarshal(found.Body.Bytes(), &attr))
 	assert.Equal(t, "traits.city", attr.AttributeName)
 
-	missing := env.call(t, env.h.GetProfileSchemaAttributeById, http.MethodGet, env.auth.ValidToken, "", "",
+	missing := env.call(t, env.h.GetProfileSchemaAttributeByID, http.MethodGet, env.auth.ValidToken, "", "",
 		map[string]string{"scope": constants.Traits, "attrID": "missing"})
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 
-	badScope := env.call(t, env.h.GetProfileSchemaAttributeById, http.MethodGet, env.auth.ValidToken, "", "",
-		map[string]string{"scope": "secrets", "attrID": attrs[0].AttributeId})
+	badScope := env.call(t, env.h.GetProfileSchemaAttributeByID, http.MethodGet, env.auth.ValidToken, "", "",
+		map[string]string{"scope": "secrets", "attrID": attrs[0].AttributeID})
 	assert.Equal(t, http.StatusBadRequest, badScope.Code)
 }
 
@@ -292,11 +292,11 @@ func TestGetProfileSchemaAttributeForScope(t *testing.T) {
 func TestPatchProfileSchemaAttributeById(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	attrs := env.addTraits(t, "traits.city")
-	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId}
+	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID}
 	body := `{"attribute_name":"traits.city","value_type":"string","merge_strategy":"overwrite",` +
 		`"mutability":"writeOnce"}`
 
-	recorder := env.call(t, env.h.PatchProfileSchemaAttributeById, http.MethodPatch, env.auth.ValidToken, "", body, ids)
+	recorder := env.call(t, env.h.PatchProfileSchemaAttributeByID, http.MethodPatch, env.auth.ValidToken, "", body, ids)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	var attr model.ProfileSchemaAttribute
@@ -316,11 +316,11 @@ func TestPatchProfileSchemaAttributeById(t *testing.T) {
 	}
 	for name, tc := range refusals {
 		t.Run(name, func(t *testing.T) {
-			attrID := attrs[0].AttributeId
+			attrID := attrs[0].AttributeID
 			if tc.status == http.StatusNotFound {
 				attrID = "missing"
 			}
-			recorder := env.call(t, env.h.PatchProfileSchemaAttributeById, http.MethodPatch, env.auth.ValidToken, "",
+			recorder := env.call(t, env.h.PatchProfileSchemaAttributeByID, http.MethodPatch, env.auth.ValidToken, "",
 				tc.body, map[string]string{"scope": tc.scope, "attrID": attrID})
 
 			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
@@ -331,16 +331,16 @@ func TestPatchProfileSchemaAttributeById(t *testing.T) {
 func TestDeleteProfileSchemaAttributeById(t *testing.T) {
 	env := newSchemaHandlerEnv(t)
 	attrs := env.addTraits(t, "traits.city")
-	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeId}
+	ids := map[string]string{"scope": constants.Traits, "attrID": attrs[0].AttributeID}
 
-	first := env.call(t, env.h.DeleteProfileSchemaAttributeById, http.MethodDelete, env.auth.ValidToken, "", "", ids)
+	first := env.call(t, env.h.DeleteProfileSchemaAttributeByID, http.MethodDelete, env.auth.ValidToken, "", "", ids)
 	assert.Equal(t, http.StatusNoContent, first.Code)
 
 	// An attribute that is gone is not an error.
-	again := env.call(t, env.h.DeleteProfileSchemaAttributeById, http.MethodDelete, env.auth.ValidToken, "", "", ids)
+	again := env.call(t, env.h.DeleteProfileSchemaAttributeByID, http.MethodDelete, env.auth.ValidToken, "", "", ids)
 	assert.Equal(t, http.StatusNoContent, again.Code)
 
-	badScope := env.call(t, env.h.DeleteProfileSchemaAttributeById, http.MethodDelete, env.auth.ValidToken, "", "",
+	badScope := env.call(t, env.h.DeleteProfileSchemaAttributeByID, http.MethodDelete, env.auth.ValidToken, "", "",
 		map[string]string{"scope": "secrets", "attrID": "x"})
 	assert.Equal(t, http.StatusBadRequest, badScope.Code)
 }

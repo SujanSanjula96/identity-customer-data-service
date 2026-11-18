@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package store persists the registered applications of an organization.
 package store
 
 import (
@@ -30,20 +31,19 @@ import (
 )
 
 // UpsertApplication persists the application information, refreshing the clientId on re-validation.
-func UpsertApplication(ctx context.Context, orgId string, app model.Application) error {
-
+func UpsertApplication(ctx context.Context, orgID string, app model.Application) error {
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to get database client for persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPSERT_APPLICATION_FAILED.Code,
-			Message:     errors2.UPSERT_APPLICATION_FAILED.Message,
+			Code:        errors2.UpsertApplicationFailed.Code,
+			Message:     errors2.UpsertApplicationFailed.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	// SAML-only apps have no clientId; store NULL so they don't collide on the (org, client_id) unique key.
 	var clientID interface{}
@@ -52,13 +52,13 @@ func UpsertApplication(ctx context.Context, orgId string, app model.Application)
 	}
 
 	query := scripts.UpsertApplication
-	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgId, clientID)
+	_, err = dbClient.ExecuteQueryContext(ctx, query, app.AppID, orgID, clientID)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Error occurred while persisting application: %s", app.AppID)
 		logger.Debug(errorMsg, log.Error(err))
 		return errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UPSERT_APPLICATION_FAILED.Code,
-			Message:     errors2.UPSERT_APPLICATION_FAILED.Message,
+			Code:        errors2.UpsertApplicationFailed.Code,
+			Message:     errors2.UpsertApplicationFailed.Message,
 			Description: errorMsg,
 		}, err)
 	}
@@ -68,29 +68,28 @@ func UpsertApplication(ctx context.Context, orgId string, app model.Application)
 }
 
 // GetAppIdentifierByClientID resolves an OAuth clientId to the app ID.
-func GetAppIdentifierByClientID(ctx context.Context, orgId, clientID string) (string, error) {
-
+func GetAppIdentifierByClientID(ctx context.Context, orgID, clientID string) (string, error) {
 	logger := log.GetLogger()
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgId)
+		errorMsg := fmt.Sprintf("Failed to get database client for resolving clientId for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.GET_APPLICATION_FAILED.Code,
-			Message:     errors2.GET_APPLICATION_FAILED.Message,
+			Code:        errors2.GetApplicationFailed.Code,
+			Message:     errors2.GetApplicationFailed.Message,
 			Description: errorMsg,
 		}, err)
 	}
-	defer dbClient.Close()
+	defer func() { _ = dbClient.Close() }()
 
 	query := scripts.GetAppIdentifierByClientID
-	results, err := dbClient.ExecuteQueryContext(ctx, query, orgId, clientID)
+	results, err := dbClient.ExecuteQueryContext(ctx, query, orgID, clientID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgId)
+		errorMsg := fmt.Sprintf("Error occurred while resolving clientId for organization: %s", orgID)
 		logger.Debug(errorMsg, log.Error(err))
 		return "", errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.GET_APPLICATION_FAILED.Code,
-			Message:     errors2.GET_APPLICATION_FAILED.Message,
+			Code:        errors2.GetApplicationFailed.Code,
+			Message:     errors2.GetApplicationFailed.Message,
 			Description: errorMsg,
 		}, err)
 	}

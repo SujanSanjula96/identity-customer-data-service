@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider supplies the admin configuration service.
 package provider
 
 import "github.com/wso2/identity-customer-data-service/internal/admin_config/service"

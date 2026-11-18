@@ -59,7 +59,7 @@ func TestEveryQueryIsRegistered(t *testing.T) {
 	}
 }
 
-// declaredQueryNames returns every package-level variable initialised with newQuery.
+// declaredQueryNames returns every package-level variable initialized with newQuery.
 func declaredQueryNames(t *testing.T) []string {
 	t.Helper()
 

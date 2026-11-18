@@ -99,7 +99,7 @@ func InstallAuthStub(t testing.TB, operations ...string) AuthStub {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			constants.ActiveClaim:   token == stub.ValidToken || token == stub.OtherToken || issued,
-			constants.ClientIdClaim: constants.CONSOLE_APP,
+			constants.ClientIDClaim: constants.ConsoleApp,
 			"scope":                 scope,
 		})
 	}))

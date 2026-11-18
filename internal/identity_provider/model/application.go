@@ -16,8 +16,10 @@
  * under the License.
  */
 
+// Package model defines the responses of the identity provider APIs that CDS calls.
 package model
 
+// ApplicationsListResponse is a page of the application list of the identity server.
 type ApplicationsListResponse struct {
 	TotalResults int               `json:"totalResults"`
 	StartIndex   int               `json:"startIndex"`
@@ -25,9 +27,10 @@ type ApplicationsListResponse struct {
 	Applications []ApplicationItem `json:"applications"`
 }
 
+// ApplicationItem is an application in the identity server.
 type ApplicationItem struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
-	ClientId string `json:"clientId"`
+	ClientID string `json:"clientId"`
 	Issuer   string `json:"issuer"`
 }

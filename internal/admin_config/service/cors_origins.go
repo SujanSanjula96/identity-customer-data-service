@@ -35,7 +35,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/errors"
 )
 
-// corsOriginsCacheTTL bounds how long the origins of an organisation are served from memory.
+// corsOriginsCacheTTL bounds how long the origins of an organization are served from memory.
 // An update drops the entry of this process at once, so this is the window in which another
 // replica may still answer with the previous list.
 const corsOriginsCacheTTL = 30 * time.Second
@@ -49,8 +49,8 @@ const unknownCORSHandleTTL = time.Minute
 // JSON array. A longer list is refused rather than left for the database to reject.
 const maxStoredCORSOriginsLength = 500
 
-// corsOrigins caches the configured origins of each organisation that receives requests. The
-// CORS middleware consults it on every request, preflight included, so an organisation is read
+// corsOrigins caches the configured origins of each organization that receives requests. The
+// CORS middleware consults it on every request, preflight included, so an organization is read
 // once per TTL, and one that has configured none is cached as such.
 var corsOrigins = &corsOriginsCache{
 	load:    store.GetCORSAllowedOrigins,
@@ -65,14 +65,14 @@ type corsOriginsCache struct {
 	generation atomic.Uint64
 }
 
-// corsOrgIds resolves the handle in the path of a request to an org ID for the CORS
+// corsOrgIDs resolves the handle in the path of a request to an org ID for the CORS
 // middleware, remembering for a while the handles that CDS has no organization for.
-var corsOrgIds = &corsOrgIdResolver{
+var corsOrgIDs = &corsOrgIDResolver{
 	lookup:  orgService.LookupOrganization,
 	unknown: cache.NewCache(unknownCORSHandleTTL),
 }
 
-type corsOrgIdResolver struct {
+type corsOrgIDResolver struct {
 	lookup  func(ctx context.Context, orgHandle string) (orgModel.Ref, bool, error)
 	unknown *cache.Cache
 }
@@ -80,8 +80,7 @@ type corsOrgIdResolver struct {
 // resolve returns the org ID of the handle. found is false when CDS has no organization for it.
 // It neither stores the organization nor asks the identity provider, as the request is not
 // authenticated yet.
-func (r *corsOrgIdResolver) resolve(ctx context.Context, orgHandle string) (string, bool, error) {
-
+func (r *corsOrgIDResolver) resolve(ctx context.Context, orgHandle string) (string, bool, error) {
 	if _, unknown := r.unknown.Get(orgHandle); unknown {
 		return "", false, nil
 	}
@@ -98,42 +97,39 @@ func (r *corsOrgIdResolver) resolve(ctx context.Context, orgHandle string) (stri
 
 // forget drops the handle from the unknown ones, so that an organization that has just been
 // stored is resolved at once.
-func (r *corsOrgIdResolver) forget(orgHandle string) {
+func (r *corsOrgIDResolver) forget(orgHandle string) {
 	r.unknown.Delete(orgHandle)
 }
 
-// get returns the origins the organisation has configured, or nil if it has none.
-func (c *corsOriginsCache) get(ctx context.Context, orgId string) ([]string, error) {
-
-	if cached, ok := c.entries.Get(orgId); ok {
+// get returns the origins the organization has configured, or nil if it has none.
+func (c *corsOriginsCache) get(ctx context.Context, orgID string) ([]string, error) {
+	if cached, ok := c.entries.Get(orgID); ok {
 		if origins, ok := cached.([]string); ok {
 			return origins, nil
 		}
 	}
 	generation := c.generation.Load()
-	origins, err := c.load(ctx, orgId)
+	origins, err := c.load(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
 	if c.generation.Load() == generation {
-		c.entries.Set(orgId, origins)
+		c.entries.Set(orgID, origins)
 	}
 	return origins, nil
 }
 
-// invalidate drops the cached origins of the organisation, so that this process serves an
+// invalidate drops the cached origins of the organization, so that this process serves an
 // update at once.
-func (c *corsOriginsCache) invalidate(orgId string) {
-
+func (c *corsOriginsCache) invalidate(orgID string) {
 	c.generation.Add(1)
-	c.entries.Delete(orgId)
+	c.entries.Delete(orgID)
 }
 
 // normalizeOrigin lower-cases the scheme and host of an origin so that comparison against
 // a browser-supplied Origin header, which is already normalized that way, is reliable.
 // The port is left as given.
 func normalizeOrigin(origin string) string {
-
 	trimmed := strings.TrimSpace(origin)
 	scheme, rest, found := strings.Cut(trimmed, "://")
 	if !found {
@@ -153,7 +149,6 @@ func normalizeOrigin(origin string) string {
 // Access-Control-Allow-Credentials, which a browser rejects alongside "*", so accepting
 // one here would only produce an origin that never matches.
 func validateCORSOrigins(origins []string) ([]string, error) {
-
 	normalized := make([]string, 0, len(origins))
 	seen := make(map[string]bool, len(origins))
 
@@ -210,10 +205,9 @@ func validateCORSOrigins(origins []string) ([]string, error) {
 }
 
 func newCORSOriginError(description string) error {
-
 	return errors.NewClientError(errors.ErrorMessage{
-		Code:        errors.UPDATE_CONFIG_BAD_REQUEST.Code,
-		Message:     errors.UPDATE_CONFIG_BAD_REQUEST.Message,
+		Code:        errors.UpdateConfigBadRequest.Code,
+		Message:     errors.UpdateConfigBadRequest.Message,
 		Description: description,
 	}, http.StatusBadRequest)
 }

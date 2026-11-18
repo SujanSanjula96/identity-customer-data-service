@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package handler serves the identity resolution REST APIs for listing and resolving merge review tasks.
 package handler
 
 import (
@@ -36,12 +37,16 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
+// IdentityResolutionHandler handles the identity resolution review task requests.
 type IdentityResolutionHandler struct{}
 
+// NewIdentityResolutionHandler returns a new IdentityResolutionHandler.
 func NewIdentityResolutionHandler() *IdentityResolutionHandler {
 	return &IdentityResolutionHandler{}
 }
 
+// GetReviewTasks lists the organization's pending review tasks, only those involving the profile_id query
+// parameter when it is given. The caller needs the identity_resolution:view scope.
 func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *http.Request) {
 	logger := log.GetLogger()
 
@@ -60,8 +65,8 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 	pageSize, parseErr := pagination.ParsePageSize(r)
 	if parseErr != nil {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: parseErr.Error(),
 		}, http.StatusBadRequest))
 		return
@@ -87,6 +92,8 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 	_ = json.NewEncoder(w).Encode(response)
 }
 
+// ResolveReviewTask approves or rejects the review task named in the path, as the request body's decision says.
+// The caller needs the identity_resolution:update scope.
 func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *http.Request) {
 	logger := log.GetLogger()
 
@@ -103,8 +110,8 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 	taskID := r.PathValue("taskId")
 	if taskID == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: "Task ID is required.",
 		}, http.StatusBadRequest))
 		return
@@ -113,8 +120,8 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 	var resolveReq irModel.ReviewResolveRequest
 	if err := json.NewDecoder(r.Body).Decode(&resolveReq); err != nil {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.BAD_REQUEST.Code,
-			Message:     errors2.BAD_REQUEST.Message,
+			Code:        errors2.BadRequest.Code,
+			Message:     errors2.BadRequest.Message,
 			Description: fmt.Sprintf("Failed to parse resolve request: %v", err),
 		}, http.StatusBadRequest))
 		return
@@ -122,8 +129,8 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 
 	if resolveReq.Decision != constants.ReviewStatusApproved && resolveReq.Decision != constants.ReviewStatusRejected {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
-			Code:    errors2.BAD_REQUEST.Code,
-			Message: errors2.BAD_REQUEST.Message,
+			Code:    errors2.BadRequest.Code,
+			Message: errors2.BadRequest.Message,
 			Description: fmt.Sprintf("Invalid decision '%s'. Must be '%s' or '%s'.",
 				resolveReq.Decision, constants.ReviewStatusApproved, constants.ReviewStatusRejected),
 		}, http.StatusBadRequest))
@@ -177,7 +184,7 @@ func extractResolverIdentity(r *http.Request) string {
 	if azp, ok := claims[constants.AZPClaim].(string); ok && azp != "" {
 		return azp
 	}
-	if clientID, ok := claims[constants.ClientIdClaim].(string); ok && clientID != "" {
+	if clientID, ok := claims[constants.ClientIDClaim].(string); ok && clientID != "" {
 		return clientID
 	}
 	return ""

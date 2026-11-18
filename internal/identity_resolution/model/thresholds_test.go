@@ -31,7 +31,6 @@ import (
 )
 
 func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T) {
-
 	if err := log.Init("ERROR"); err != nil {
 		t.Fatalf("failed to set up the logger: %v", err)
 	}
@@ -56,7 +55,7 @@ func TestLoadThresholdsUsesThePrimaryOrganizationInASubOrganization(t *testing.T
 	}
 	ctx := context.Background()
 	primaryConfig := adminModel.AdminConfig{
-		OrgId:                      "primary",
+		OrgID:                      "primary",
 		CDSEnabled:                 true,
 		SystemApplications:         []string{},
 		AutoMergeEnabled:           false,

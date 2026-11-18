@@ -19,14 +19,16 @@
 package config
 
 import (
-	"gopkg.in/yaml.v2"
 	"os"
 	"path"
+	"path/filepath"
+
+	"gopkg.in/yaml.v2"
 )
 
 // LoadConfig loads and sets AppConfig (global variable)
 func LoadConfig(cdsHome, filePath string) (*Config, error) {
-	file, err := os.ReadFile(path.Join(cdsHome, filePath))
+	file, err := os.ReadFile(filepath.Clean(path.Join(cdsHome, filePath)))
 	if err != nil {
 		return nil, err
 	}

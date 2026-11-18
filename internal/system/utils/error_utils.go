@@ -26,9 +26,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	cdsErrors "github.com/wso2/identity-customer-data-service/internal/system/errors"
 )
 
+// HandleDecodeError turns a JSON decode error of a request body into a message for the client. It
+// returns an empty string for a nil error.
 func HandleDecodeError(err error, resourceName string) string {
 	if err == nil {
 		return ""

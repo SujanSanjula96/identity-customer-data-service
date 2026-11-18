@@ -54,7 +54,7 @@ func TestMapRowToProfileAttribute(t *testing.T) {
 
 	got := mapRowToProfileAttribute(row)
 
-	assert.Equal(t, "a-1", got.AttributeId)
+	assert.Equal(t, "a-1", got.AttributeID)
 	assert.Equal(t, "traits.city", got.AttributeName)
 	assert.Equal(t, "traits", got.Scope)
 	assert.Equal(t, "City", got.DisplayName)
@@ -63,7 +63,7 @@ func TestMapRowToProfileAttribute(t *testing.T) {
 	assert.Equal(t, "readWrite", got.Mutability)
 	assert.True(t, got.MultiValued)
 	if assert.Len(t, got.SubAttributes, 1) {
-		assert.Equal(t, "s-1", got.SubAttributes[0].AttributeId)
+		assert.Equal(t, "s-1", got.SubAttributes[0].AttributeID)
 	}
 	if assert.Len(t, got.CanonicalValues, 1) {
 		assert.Equal(t, "Colombo", got.CanonicalValues[0].Label)
@@ -89,5 +89,5 @@ func TestMapRowToProfileAttributeStringifiesANumericID(t *testing.T) {
 	row := attributeRow()
 	row["attribute_id"] = 42
 
-	assert.Equal(t, "42", mapRowToProfileAttribute(row).AttributeId)
+	assert.Equal(t, "42", mapRowToProfileAttribute(row).AttributeID)
 }

@@ -51,12 +51,22 @@ func TestScoreCandidateDecisions(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	plain := ScoringContext{OrgId: "acme", Thresholds: thresholds}
-	valueSharedWidely := ScoringContext{OrgId: "acme", Thresholds: thresholds,
+	plain := ScoringContext{OrgID: "acme", Thresholds: thresholds}
+	valueSharedWidely := ScoringContext{OrgID: "acme", Thresholds: thresholds,
 		ValueFrequency: func(_, _, _ string) (int, error) { return constants.RarityCommonMinProfiles * 6, nil }}
 
-	nic := testRule("identity_attributes.nic", constants.AttributeTypeUniqueID, constants.UnificationMethodDeterministic, 1)
-	email := testRule("identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodDeterministic, 1)
+	nic := testRule(
+		"identity_attributes.nic",
+		constants.AttributeTypeUniqueID,
+		constants.UnificationMethodDeterministic,
+		1,
+	)
+	email := testRule(
+		"identity_attributes.email",
+		constants.AttributeTypeEmail,
+		constants.UnificationMethodDeterministic,
+		1,
+	)
 	name := testRule("traits.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 2)
 	city := testRule("traits.city", constants.AttributeTypeLocation, constants.UnificationMethodFuzzy, 3)
 	dob := testRule("traits.dob", constants.AttributeTypeDate, constants.UnificationMethodDeterministic, 2)
@@ -119,24 +129,42 @@ func TestScoreCandidateDecisions(t *testing.T) {
 		{
 			name:  "discriminating disagreement vetoes auto-merge",
 			rules: []urModel.UnificationRule{email, dob}, ctx: plain,
-			incoming: map[string]interface{}{"identity_attributes.email": "j.smith@acme.com", "traits.dob": "1990-04-02"},
-			existing: map[string]interface{}{"identity_attributes.email": "j.smith@acme.com", "traits.dob": "1974-11-30"},
-			want:     constants.DecisionManualReview,
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "j.smith@acme.com",
+				"traits.dob":                "1990-04-02",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "j.smith@acme.com",
+				"traits.dob":                "1974-11-30",
+			},
+			want: constants.DecisionManualReview,
 		},
 		{
 			// A role mailbox on both sides is agreement on nothing.
 			name:  "placeholder value counts as absent, not as a match",
 			rules: []urModel.UnificationRule{email, name}, ctx: plain,
-			incoming: map[string]interface{}{"identity_attributes.email": "noreply@example.com", "traits.name": "Ann Lee"},
-			existing: map[string]interface{}{"identity_attributes.email": "noreply@example.com", "traits.name": "Bob Ray"},
-			want:     constants.DecisionUnique,
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "noreply@example.com",
+				"traits.name":               "Ann Lee",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "noreply@example.com",
+				"traits.name":               "Bob Ray",
+			},
+			want: constants.DecisionUnique,
 		},
 		{
 			name:  "two independent agreements auto-merge",
 			rules: []urModel.UnificationRule{email, name, city}, ctx: plain,
-			incoming: map[string]interface{}{"identity_attributes.email": "j.smith@acme.com", "traits.name": "Jonathan Smith"},
-			existing: map[string]interface{}{"identity_attributes.email": "j.smith@acme.com", "traits.name": "Jonathan Smith"},
-			want:     constants.DecisionAutoMerge,
+			incoming: map[string]interface{}{
+				"identity_attributes.email": "j.smith@acme.com",
+				"traits.name":               "Jonathan Smith",
+			},
+			existing: map[string]interface{}{
+				"identity_attributes.email": "j.smith@acme.com",
+				"traits.name":               "Jonathan Smith",
+			},
+			want: constants.DecisionAutoMerge,
 		},
 	}
 
@@ -163,7 +191,7 @@ func TestScoreCandidateIsIndependentOfRuleCount(t *testing.T) {
 	}
 
 	thresholds := model.Thresholds{AutoMergeEnabled: true, AutoMerge: 0.95, ManualReview: 0.75}
-	ctx := ScoringContext{OrgId: "acme", Thresholds: thresholds}
+	ctx := ScoringContext{OrgID: "acme", Thresholds: thresholds}
 
 	incoming := map[string]interface{}{
 		"identity_attributes.email": "j.smith@acme.com",
@@ -172,7 +200,12 @@ func TestScoreCandidateIsIndependentOfRuleCount(t *testing.T) {
 	candidate := &model.ProfileData{ProfileID: "candidate", Attributes: incoming}
 
 	base := []urModel.UnificationRule{
-		testRule("identity_attributes.email", constants.AttributeTypeEmail, constants.UnificationMethodDeterministic, 1),
+		testRule(
+			"identity_attributes.email",
+			constants.AttributeTypeEmail,
+			constants.UnificationMethodDeterministic,
+			1,
+		),
 		testRule("traits.name", constants.AttributeTypeName, constants.UnificationMethodFuzzy, 2),
 	}
 	baseScore, _ := ScoreCandidate(incoming, candidate, base, ctx)

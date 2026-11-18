@@ -118,15 +118,15 @@ func TestFilteredListWithAnApplicationDataFilter(t *testing.T) {
 		require.NoError(t, err)
 		out := make([]string, 0, len(page))
 		for _, profile := range page {
-			out = append(out, profile.ProfileId)
+			out = append(out, profile.ProfileID)
 		}
 		return out
 	}
 
-	assert.ElementsMatch(t, []string{dark.ProfileId}, ids("application_data.app-1.theme eq dark"))
-	assert.ElementsMatch(t, []string{dark.ProfileId, otherApp.ProfileId}, ids("application_data.theme eq dark"),
+	assert.ElementsMatch(t, []string{dark.ProfileID}, ids("application_data.app-1.theme eq dark"))
+	assert.ElementsMatch(t, []string{dark.ProfileID, otherApp.ProfileID}, ids("application_data.theme eq dark"),
 		"without an application the attribute is matched in every application")
-	assert.ElementsMatch(t, []string{dark.ProfileId}, ids("application_data.app-1.theme sw da"))
+	assert.ElementsMatch(t, []string{dark.ProfileID}, ids("application_data.app-1.theme sw da"))
 }
 
 func profileRequestWithApp(appID, theme string) profileModel.ProfileRequest {

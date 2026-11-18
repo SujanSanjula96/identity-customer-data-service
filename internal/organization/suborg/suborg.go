@@ -29,9 +29,8 @@ import (
 )
 
 // RejectWrite returns WriteNotAllowed when the org ID belongs to a sub organization.
-func RejectWrite(ctx context.Context, orgId string) error {
-
-	org, err := orgStore.GetOrganizationById(ctx, orgId)
+func RejectWrite(ctx context.Context, orgID string) error {
+	org, err := orgStore.GetOrganizationByID(ctx, orgID)
 	if err != nil {
 		return err
 	}
@@ -43,10 +42,9 @@ func RejectWrite(ctx context.Context, orgId string) error {
 
 // WriteNotAllowed returns the error for a write in a sub organization.
 func WriteNotAllowed() error {
-
 	return errors.NewClientError(errors.ErrorMessage{
-		Code:        errors.SUB_ORG_WRITE_NOT_ALLOWED.Code,
-		Message:     errors.SUB_ORG_WRITE_NOT_ALLOWED.Message,
-		Description: errors.SUB_ORG_WRITE_NOT_ALLOWED.Description,
+		Code:        errors.SubOrgWriteNotAllowed.Code,
+		Message:     errors.SubOrgWriteNotAllowed.Message,
+		Description: errors.SubOrgWriteNotAllowed.Description,
 	}, http.StatusForbidden)
 }

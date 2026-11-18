@@ -40,7 +40,6 @@ import (
 // Only the org's thresholds can separate agreement from contradiction, so a comparable
 // pair comes back as Inconclusive here and is classified by the scorer.
 func MatchAttribute(val1, val2 string, attrType string, mode string) (float64, model.Verdict) {
-
 	if val1 == "" || val2 == "" {
 		return 0.0, model.VerdictUnknown
 	}

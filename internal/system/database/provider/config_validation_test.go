@@ -30,7 +30,6 @@ import (
 // mistake fails the start, and that the message names the key the operator has
 // to edit.
 func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
-
 	// withPostgres returns a complete PostgreSQL configuration with the pool
 	// block replaced.
 	withPostgres := func(pool config.PostgresConfig) config.DataSourceConfig {
@@ -112,7 +111,6 @@ func Test_ValidateDataSource_rejectsInvalidNumbers(t *testing.T) {
 // Test_ValidateDataSource_reportsEveryProblem checks that an operator can fix
 // a configuration in one pass rather than one mistake per restart.
 func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
-
 	ds := postgresDataSource("postgres").DataSource
 	ds.Postgres = config.PostgresConfig{MaxOpenConns: -1, ConnectTimeoutSeconds: -1}
 
@@ -135,7 +133,6 @@ func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 // means "use the application default", and the PostgreSQL block is ignored on
 // the inbuilt database, which is what the Helm chart depends on.
 func Test_ValidateDataSource_acceptsValidNumbers(t *testing.T) {
-
 	accepted := map[string]config.DataSourceConfig{
 		"every pool setting left empty, which means zero": postgresDataSource("postgres").DataSource,
 		"a complete pool configuration": func() config.DataSourceConfig {

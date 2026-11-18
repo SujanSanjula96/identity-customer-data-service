@@ -15,6 +15,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package service
 
 import (
@@ -27,23 +28,22 @@ import (
 // policyReachesOrg reports whether a target of the policy reaches the organization. The ancestors
 // of the organization are in order, the parent first.
 func policyReachesOrg(p model.Policy, org orgModel.Organization, ancestors []orgModel.Ancestor) bool {
-
 	for _, target := range p.Targets {
 		switch target.Scope {
 		case model.ScopeAllChildren:
-			if isAncestor(p.InitiatingOrgId, ancestors) {
+			if isAncestor(p.InitiatingOrgID, ancestors) {
 				return true
 			}
 		case model.ScopeOrg:
-			if target.OrgId == org.OrgId && org.ParentOrgId == p.InitiatingOrgId {
+			if target.OrgID == org.OrgID && org.ParentOrgID == p.InitiatingOrgID {
 				return true
 			}
 		case model.ScopeOrgSubtree:
-			if target.OrgId == org.OrgId && org.ParentOrgId == p.InitiatingOrgId {
+			if target.OrgID == org.OrgID && org.ParentOrgID == p.InitiatingOrgID {
 				return true
 			}
 			for _, a := range ancestors {
-				if target.OrgId == a.OrgId && a.ParentOrgId == p.InitiatingOrgId {
+				if target.OrgID == a.OrgID && a.ParentOrgID == p.InitiatingOrgID {
 					return true
 				}
 			}
@@ -52,10 +52,9 @@ func policyReachesOrg(p model.Policy, org orgModel.Organization, ancestors []org
 	return false
 }
 
-func isAncestor(orgId string, ancestors []orgModel.Ancestor) bool {
-
+func isAncestor(orgID string, ancestors []orgModel.Ancestor) bool {
 	for _, a := range ancestors {
-		if a.OrgId == orgId {
+		if a.OrgID == orgID {
 			return true
 		}
 	}
@@ -67,10 +66,9 @@ func isAncestor(orgId string, ancestors []orgModel.Ancestor) bool {
 // result is empty when the targets are valid.
 func targetProblems(initiator orgModel.Organization, targetOrgs []orgModel.Organization,
 	targets []model.Target) []string {
-
-	byId := make(map[string]orgModel.Organization, len(targetOrgs))
+	byID := make(map[string]orgModel.Organization, len(targetOrgs))
 	for _, o := range targetOrgs {
-		byId[o.OrgId] = o
+		byID[o.OrgID] = o
 	}
 	var problems []string
 	if len(targets) == 0 {
@@ -79,21 +77,21 @@ func targetProblems(initiator orgModel.Organization, targetOrgs []orgModel.Organ
 	for _, target := range targets {
 		switch target.Scope {
 		case model.ScopeAllChildren:
-			if target.OrgId != initiator.OrgId {
+			if target.OrgID != initiator.OrgID {
 				problems = append(problems, "the ALL_CHILDREN scope must name the initiating organization")
 			}
 		case model.ScopeOrg, model.ScopeOrgSubtree:
-			org, known := byId[target.OrgId]
+			org, known := byID[target.OrgID]
 			switch {
-			case target.OrgId == "":
+			case target.OrgID == "":
 				problems = append(problems, fmt.Sprintf("the %s scope requires an org_id", target.Scope))
 			case !known:
-				problems = append(problems, fmt.Sprintf("the organization '%s' is not known", target.OrgId))
-			case org.ParentOrgId != initiator.OrgId:
+				problems = append(problems, fmt.Sprintf("the organization '%s' is not known", target.OrgID))
+			case org.ParentOrgID != initiator.OrgID:
 				problems = append(problems, fmt.Sprintf(
-					"the organization '%s' is not a direct child of the initiating organization", target.OrgId))
+					"the organization '%s' is not a direct child of the initiating organization", target.OrgID))
 			case !org.IsActive():
-				problems = append(problems, fmt.Sprintf("the organization '%s' is not active", target.OrgId))
+				problems = append(problems, fmt.Sprintf("the organization '%s' is not active", target.OrgID))
 			}
 		default:
 			problems = append(problems, fmt.Sprintf("the scope '%s' is not supported", target.Scope))

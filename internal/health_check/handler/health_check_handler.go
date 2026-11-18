@@ -16,12 +16,14 @@
  * under the License.
  */
 
+// Package handler serves the health and readiness endpoints.
 package handler
 
 import (
 	"encoding/json"
-	"github.com/wso2/identity-customer-data-service/internal/health_check/provider"
 	"net/http"
+
+	"github.com/wso2/identity-customer-data-service/internal/health_check/provider"
 )
 
 // HealthHandler implements health and readiness endpoints.

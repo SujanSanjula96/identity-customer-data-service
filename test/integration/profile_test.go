@@ -22,13 +22,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
-	"github.com/wso2/identity-customer-data-service/test/setup"
 	"testing"
 	"time"
 
+	orgModel "github.com/wso2/identity-customer-data-service/internal/organization/model"
+	"github.com/wso2/identity-customer-data-service/test/setup"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileService "github.com/wso2/identity-customer-data-service/internal/profile/service"
 	profileSchema "github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
@@ -38,7 +40,6 @@ import (
 )
 
 func Test_Profile(t *testing.T) {
-
 	SuperTenantOrg := setup.TestOrg(t, fmt.Sprintf("carbon.super-%d", time.Now().UnixNano()))
 	profileSvc := profileService.GetProfilesService()
 	profileSchemaSvc := schemaService.GetProfileSchemaService()
@@ -49,11 +50,10 @@ func Test_Profile(t *testing.T) {
 	defer restore()
 
 	t.Run("PreRequisite_AddProfileSchemaAttributes", func(t *testing.T) {
-
 		identityAttributes := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         SuperTenantOrg.ID,
-				AttributeId:   uuid.New().String(),
+				OrgID:         SuperTenantOrg.ID,
+				AttributeID:   uuid.New().String(),
 				AttributeName: "identity_attributes.email",
 				ValueType:     constants.StringDataType,
 				MergeStrategy: "combine",
@@ -64,8 +64,8 @@ func Test_Profile(t *testing.T) {
 
 		traits := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:         SuperTenantOrg.ID,
-				AttributeId:   uuid.New().String(),
+				OrgID:         SuperTenantOrg.ID,
+				AttributeID:   uuid.New().String(),
 				AttributeName: "traits.interests",
 				ValueType:     constants.StringDataType,
 				MergeStrategy: "combine",
@@ -76,8 +76,8 @@ func Test_Profile(t *testing.T) {
 
 		appData := []profileSchema.ProfileSchemaAttribute{
 			{
-				OrgId:                 SuperTenantOrg.ID,
-				AttributeId:           uuid.New().String(),
+				OrgID:                 SuperTenantOrg.ID,
+				AttributeID:           uuid.New().String(),
 				AttributeName:         "application_data.device_id",
 				ValueType:             constants.StringDataType,
 				MergeStrategy:         "combine",
@@ -87,13 +87,28 @@ func Test_Profile(t *testing.T) {
 			},
 		}
 
-		_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), identityAttributes, constants.IdentityAttributes, SuperTenantOrg.ID)
+		_, err := profileSchemaSvc.AddProfileSchemaAttributesForScope(
+			context.Background(),
+			identityAttributes,
+			constants.IdentityAttributes,
+			SuperTenantOrg.ID,
+		)
 		require.NoError(t, err, "Failed to add identity schema attributes")
 
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), traits, constants.Traits, SuperTenantOrg.ID)
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(
+			context.Background(),
+			traits,
+			constants.Traits,
+			SuperTenantOrg.ID,
+		)
 		require.NoError(t, err, "Failed to add traits schema attributes")
 
-		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(context.Background(), appData, constants.ApplicationData, SuperTenantOrg.ID)
+		_, err = profileSchemaSvc.AddProfileSchemaAttributesForScope(
+			context.Background(),
+			appData,
+			constants.ApplicationData,
+			SuperTenantOrg.ID,
+		)
 		require.NoError(t, err, "Failed to add app data schema attributes")
 	})
 
@@ -119,7 +134,7 @@ func Test_Profile(t *testing.T) {
 		profiles, _, err := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg.ID, 10, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, profiles)
-		profile, err := profileSvc.GetProfile(context.Background(), profiles[0].ProfileId, SuperTenantOrg.ID)
+		profile, err := profileSvc.GetProfile(context.Background(), profiles[0].ProfileID, SuperTenantOrg.ID)
 		require.NoError(t, err)
 		require.NotNil(t, profile)
 		require.Contains(t, profile.IdentityAttributes["email"], email)
@@ -150,7 +165,7 @@ func Test_Profile(t *testing.T) {
 		require.NoError(t, err)
 		p := profiles[0]
 
-		updated, err := profileSvc.UpdateProfile(context.Background(), p.ProfileId, SuperTenantOrg.ID, updatedRequest)
+		updated, err := profileSvc.UpdateProfile(context.Background(), p.ProfileID, SuperTenantOrg.ID, updatedRequest)
 		require.NoError(t, err)
 		require.Contains(t, updated.Traits["interests"], "travel")
 		require.Equal(t, "updated@wso2.com", updated.IdentityAttributes["email"].([]interface{})[0])
@@ -161,29 +176,33 @@ func Test_Profile(t *testing.T) {
 		require.NoError(t, err)
 		p := profiles[0]
 
-		err = profileSvc.DeleteProfile(context.Background(), p.ProfileId, SuperTenantOrg.ID)
+		err = profileSvc.DeleteProfile(context.Background(), p.ProfileID, SuperTenantOrg.ID)
 		require.NoError(t, err)
 
-		_, err = profileSvc.GetProfile(context.Background(), p.ProfileId, SuperTenantOrg.ID)
+		_, err = profileSvc.GetProfile(context.Background(), p.ProfileID, SuperTenantOrg.ID)
 		require.Error(t, err)
 	})
 
 	t.Cleanup(func() {
 		rules, _ := unificationSvc.GetUnificationRules(context.Background(), SuperTenantOrg.ID)
 		for _, r := range rules {
-			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleId, SuperTenantOrg.ID)
+			_ = unificationSvc.DeleteUnificationRule(context.Background(), r.RuleID, SuperTenantOrg.ID)
 		}
 		profiles, _, _ := profileSvc.GetAllProfilesCursor(context.Background(), SuperTenantOrg.ID, 10, nil)
 		for _, p := range profiles {
-			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileId, SuperTenantOrg.ID)
+			_ = profileSvc.DeleteProfile(context.Background(), p.ProfileID, SuperTenantOrg.ID)
 		}
 		_ = profileSchemaSvc.DeleteProfileSchema(context.Background(), SuperTenantOrg.ID)
-		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(context.Background(), SuperTenantOrg.ID, constants.IdentityAttributes)
+		_ = profileSchemaSvc.DeleteProfileSchemaAttributesByScope(
+			context.Background(),
+			SuperTenantOrg.ID,
+			constants.IdentityAttributes,
+		)
 	})
 }
 
 // waitForSingleMaster polls until the unification worker has merged the duplicate profiles an
-// organisation holds down to one master, so a test that lists profiles afterwards sees a
+// organization holds down to one master, so a test that lists profiles afterwards sees a
 // settled queue rather than whichever profile the merge had not reached yet.
 func waitForSingleMaster(t *testing.T, profileSvc profileService.ProfilesServiceInterface, org orgModel.Ref) {
 	t.Helper()

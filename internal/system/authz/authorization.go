@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package authz checks the scopes granted to a request against the scopes an operation requires.
 package authz
 
 import (
@@ -30,7 +31,6 @@ import (
 
 // ValidatePermission checks if the provided scopes match the expected scopes for a use case
 func ValidatePermission(scopeStr string, operation string) bool {
-
 	logger := log.GetLogger()
 	if scopeStr == "" {
 		logger.Debug(fmt.Sprintf("No scopes provided for operation: %s", operation))
@@ -66,9 +66,8 @@ const OrgOperationPrefix = "org:"
 
 // OperationFor returns the operation to authorize. In a sub organization, it is the `org:` form of
 // the operation.
-func OperationFor(operation, pathOrgId string) string {
-
-	if pathOrgId == "" {
+func OperationFor(operation, pathOrgID string) string {
+	if pathOrgID == "" {
 		return operation
 	}
 	return OrgOperationPrefix + operation

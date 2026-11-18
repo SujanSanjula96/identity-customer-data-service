@@ -16,6 +16,7 @@
  * under the License.
  */
 
+// Package provider gives access to the unification rule service.
 package provider
 
 import (
@@ -32,12 +33,10 @@ type UnificationRuleProvider struct{}
 
 // NewUnificationRuleProvider creates a new instance of UnificationRuleProvider.
 func NewUnificationRuleProvider() UnificationRuleProviderInterface {
-
 	return &UnificationRuleProvider{}
 }
 
 // GetUnificationRuleService returns the application service instance.
 func (ap *UnificationRuleProvider) GetUnificationRuleService() service.UnificationRuleServiceInterface {
-
 	return service.GetUnificationRuleService()
 }
