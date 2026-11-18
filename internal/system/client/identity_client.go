@@ -102,11 +102,8 @@ var (
 	errSharedHTTPClient  error
 )
 
-// sharedOutboundHTTPClient returns the outbound HTTP client of the process, and builds it on first use. The
-// TLS configuration comes from the runtime configuration, which is the same for the whole process, so later
-// calls ignore tlsCfg. IdentityClient values are created per request, so they must share one client: a client
-// per IdentityClient gives every request its own connection pool, which costs a TLS handshake per call and
-// leaves an idle connection to the identity server open until IdleConnTimeout.
+// sharedOutboundHTTPClient returns the one outbound HTTP client of the process. The first call builds it, and
+// later calls ignore tlsCfg. IdentityClient values are created per request, so they share this connection pool.
 func sharedOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
 	sharedHTTPClientOnce.Do(func() {
 		sharedHTTPClient, errSharedHTTPClient = newOutboundHTTPClient(tlsCfg)
