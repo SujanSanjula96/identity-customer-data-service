@@ -97,27 +97,21 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 }
 
 var (
-	outboundHTTPClientsMu sync.Mutex
-	outboundHTTPClients   = map[config.TLSConfig]*http.Client{}
+	sharedHTTPClientOnce sync.Once
+	sharedHTTPClient     *http.Client
+	errSharedHTTPClient  error
 )
 
-// sharedOutboundHTTPClient returns the outbound HTTP client for the given TLS configuration, and builds it on
-// first use. IdentityClient values are created per request, so they must share one client: a client per
-// IdentityClient gives every request its own connection pool, which costs a TLS handshake per call and leaves
-// an idle connection to the identity server open until IdleConnTimeout.
+// sharedOutboundHTTPClient returns the outbound HTTP client of the process, and builds it on first use. The
+// TLS configuration comes from the runtime configuration, which is the same for the whole process, so later
+// calls ignore tlsCfg. IdentityClient values are created per request, so they must share one client: a client
+// per IdentityClient gives every request its own connection pool, which costs a TLS handshake per call and
+// leaves an idle connection to the identity server open until IdleConnTimeout.
 func sharedOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
-	outboundHTTPClientsMu.Lock()
-	defer outboundHTTPClientsMu.Unlock()
-
-	if httpClient, ok := outboundHTTPClients[tlsCfg]; ok {
-		return httpClient, nil
-	}
-	httpClient, err := newOutboundHTTPClient(tlsCfg)
-	if err != nil {
-		return nil, err
-	}
-	outboundHTTPClients[tlsCfg] = httpClient
-	return httpClient, nil
+	sharedHTTPClientOnce.Do(func() {
+		sharedHTTPClient, errSharedHTTPClient = newOutboundHTTPClient(tlsCfg)
+	})
+	return sharedHTTPClient, errSharedHTTPClient
 }
 
 // Builds an HTTP client with TLS/mTLS configuration for outbound requests.

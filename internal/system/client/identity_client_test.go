@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -483,24 +484,22 @@ func TestNewOutboundHTTPClient(t *testing.T) {
 }
 
 func TestSharedOutboundHTTPClient(t *testing.T) {
-	dir := t.TempDir()
-	tlsCfg := config.TLSConfig{CertDir: dir}
+	resetSharedHTTPClient := func() {
+		sharedHTTPClientOnce = sync.Once{}
+		sharedHTTPClient, errSharedHTTPClient = nil, nil
+	}
+	resetSharedHTTPClient()
+	t.Cleanup(resetSharedHTTPClient)
 
-	first, err := sharedOutboundHTTPClient(tlsCfg)
+	first, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()})
 	require.NoError(t, err)
-	second, err := sharedOutboundHTTPClient(tlsCfg)
+	second, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()})
 	require.NoError(t, err)
-	assert.Same(t, first, second, "the same TLS configuration shares one client and one connection pool")
+	assert.Same(t, first, second, "all calls share one client and one connection pool")
 
-	other, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()})
-	require.NoError(t, err)
-	assert.NotSame(t, first, other, "a different TLS configuration gets its own client")
-
-	badCfg := config.TLSConfig{CertDir: dir, TrustStore: "missing.pem"}
-	_, err = sharedOutboundHTTPClient(badCfg)
-	assert.Error(t, err)
-	_, err = sharedOutboundHTTPClient(badCfg)
-	assert.Error(t, err, "a failed build is not cached")
+	resetSharedHTTPClient()
+	_, err = sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir(), TrustStore: "missing.pem"})
+	assert.Error(t, err, "the build error is returned")
 }
 
 func TestConvertSCIMClaimWithLocal(t *testing.T) {
