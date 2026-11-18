@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	idpModel "github.com/wso2/identity-customer-data-service/internal/identity_provider/model"
@@ -75,24 +76,52 @@ type IdentityClient struct {
 	HTTPClient *http.Client
 }
 
-// NewIdentityClient creates an IdentityClient with a TLS/mTLS-ready HTTP client.
-func NewIdentityClient(cfg config.Config) *IdentityClient {
+// outboundClients holds one HTTP client for each TLS configuration. Every client of the identity server
+// shares it, so the trust store is read and the TLS configuration is built once, and connections are reused.
+var (
+	outboundClientsMu sync.Mutex
+	outboundClients   = map[config.TLSConfig]*http.Client{}
+)
+
+// NewIdentityClient creates an IdentityClient with a TLS/mTLS-ready HTTP client. It returns a server error
+// when the HTTP client cannot be built, for example when the trust store cannot be read.
+func NewIdentityClient(cfg config.Config) (*IdentityClient, error) {
 	baseHostPort := cfg.AuthServer.Host
 	if cfg.AuthServer.Port != "" {
 		baseHostPort = cfg.AuthServer.Host + ":" + cfg.AuthServer.Port
 	}
-	log.GetLogger().Info("Creating IdentityClient with base URL: " + baseHostPort)
 
-	httpClient, err := newOutboundHTTPClient(cfg.TLS)
+	httpClient, err := sharedOutboundHTTPClient(cfg.TLS)
 	if err != nil {
 		log.GetLogger().Error("Failed to create outbound HTTPS client for IS", log.Error(err))
-		os.Exit(1)
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.IdentityClientFailed.Code,
+			Message:     errors2.IdentityClientFailed.Message,
+			Description: "The HTTP client for the identity server cannot be created.",
+		}, err)
 	}
 
 	return &IdentityClient{
 		BaseURL:    baseHostPort,
 		HTTPClient: httpClient,
+	}, nil
+}
+
+// sharedOutboundHTTPClient returns the HTTP client for the TLS configuration, and builds it on first use.
+// A configuration that fails is not kept, so the next call tries again.
+func sharedOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
+	outboundClientsMu.Lock()
+	defer outboundClientsMu.Unlock()
+	if httpClient, ok := outboundClients[tlsCfg]; ok {
+		return httpClient, nil
 	}
+	httpClient, err := newOutboundHTTPClient(tlsCfg)
+	if err != nil {
+		return nil, err
+	}
+	log.GetLogger().Info("Created the outbound HTTPS client for the identity server.")
+	outboundClients[tlsCfg] = httpClient
+	return httpClient, nil
 }
 
 // Builds an HTTP client with TLS/mTLS configuration for outbound requests.
@@ -351,10 +380,11 @@ func (c *IdentityClient) requestToken(endpoint, clientID, clientSecret string,
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		// The response body is not logged: a token endpoint response can carry credentials.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 		errorMsg := fmt.Sprintf(
-			"Token endpoint returned status %d for org:%s. Endpoint: %s. Response: %s",
-			resp.StatusCode, orgID, endpoint, strings.TrimSpace(string(bodyBytes)),
+			"Token endpoint returned status %d for org:%s. Endpoint: %s.",
+			resp.StatusCode, orgID, endpoint,
 		)
 		logger.Debug(errorMsg)
 		return "", errors2.NewServerError(errors2.ErrorMessage{

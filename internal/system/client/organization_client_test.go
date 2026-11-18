@@ -20,6 +20,9 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,6 +102,77 @@ func TestListDescendantOrganizationsFollowsTheNextLink(t *testing.T) {
 		ids = append(ids, org.ID)
 	}
 	assert.Equal(t, []string{"o-1", "o-2", "o-3"}, ids)
+}
+
+func TestListDescendantOrganizationsFollowsAnAbsoluteLinkToTheSameHost(t *testing.T) {
+	is, c := newIdentityServer(t, false)
+	is.handle("/t/acme/api/server/v1/organizations", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("after") == "" {
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"organizations": []map[string]string{{"id": "o-1"}},
+				"links": []map[string]string{{"rel": "next",
+					"href": "https://" + c.BaseURL + "/t/acme/api/server/v1/organizations?after=o-1"}},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"organizations": []map[string]string{{"id": "o-2"}}})
+	})
+
+	orgs, err := c.ListDescendantOrganizations("acme")
+
+	require.NoError(t, err)
+	assert.Len(t, orgs, 2)
+}
+
+func TestListDescendantOrganizationsRefusesALinkToAnotherHost(t *testing.T) {
+	var otherHostCalls atomic.Int32
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherHostCalls.Add(1)
+	}))
+	t.Cleanup(other.Close)
+
+	is, c := newIdentityServer(t, false)
+	is.handle("/t/acme/api/server/v1/organizations", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"organizations": []map[string]string{{"id": "o-1"}},
+			"links":         []map[string]string{{"rel": "next", "href": other.URL + "/collect"}},
+		})
+	})
+
+	_, err := c.ListDescendantOrganizations("acme")
+
+	requireServerError(t, err)
+	assert.Zero(t, otherHostCalls.Load(), "the token must not go to another host")
+}
+
+func TestResolvePageLink(t *testing.T) {
+	const host = "is.example.com:9443"
+	for _, href := range []string{
+		"/t/acme/api/server/v1/organizations?after=o-1",
+		"https://is.example.com:9443/t/acme/api/server/v1/organizations?after=o-1",
+		"https://IS.example.com:9443/t/acme/api/server/v1/organizations?after=o-1",
+	} {
+		resolved, err := resolvePageLink(host, href)
+		require.NoError(t, err, href)
+		assert.True(t, strings.HasPrefix(strings.ToLower(resolved), "https://is.example.com:9443/t/acme/"), resolved)
+	}
+
+	resolved, err := resolvePageLink("is.example.com", "https://is.example.com:443/t/acme/x")
+	require.NoError(t, err, "the default https port is the same host")
+	assert.Equal(t, "https://is.example.com:443/t/acme/x", resolved)
+
+	for _, href := range []string{
+		"https://attacker.example.com/t/acme/x",
+		"//attacker.example.com/t/acme/x",
+		"http://is.example.com:9443/t/acme/x",
+		"https://is.example.com:8443/t/acme/x",
+		"https://user@is.example.com:9443/t/acme/x",
+		"https://is.example.com:9443.attacker.example.com/x",
+		"%zz",
+	} {
+		_, err := resolvePageLink(host, href)
+		requireServerError(t, err)
+	}
 }
 
 func TestListDescendantOrganizationsFailure(t *testing.T) {

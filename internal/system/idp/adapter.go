@@ -97,7 +97,11 @@ const (
 func NewAdapter(idpType string) (Adapter, error) {
 	switch strings.ToLower(strings.TrimSpace(idpType)) {
 	case "", TypeWSO2IS:
-		return NewWSO2ISAdapter(), nil
+		a := NewWSO2ISAdapter()
+		if err := a.Err(); err != nil {
+			return nil, err
+		}
+		return a, nil
 	default:
 		return nil, fmt.Errorf("the identity provider type '%s' is not supported. Use %s", idpType, TypeWSO2IS)
 	}

@@ -2014,7 +2014,7 @@ func GetProfileCookie(ctx context.Context, cookie, orgID string) (*model.Profile
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to get db client while fetching profile cookie: %s", cookie)
+		errorMsg := "Failed to get db client while fetching profile cookie"
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GetProfileCookie.Code,
@@ -2030,11 +2030,11 @@ func GetProfileCookie(ctx context.Context, cookie, orgID string) (*model.Profile
 	results, err := dbClient.ExecuteQueryContext(ctx, query, cookie, orgID)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))
+		logger.Debug("No profile cookie found with the given cookie")
 		return nil, nil
 	}
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed fetching profile cookie: %s", cookie)
+		errorMsg := "Failed fetching profile cookie"
 		logger.Debug(errorMsg, log.Error(err))
 		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GetProfileCookie.Code,
@@ -2043,7 +2043,7 @@ func GetProfileCookie(ctx context.Context, cookie, orgID string) (*model.Profile
 		}, err)
 	}
 	if len(results) == 0 {
-		logger.Debug(fmt.Sprintf("No profile cookie found with the given cookie: %s", cookie))
+		logger.Debug("No profile cookie found with the given cookie")
 		return nil, nil
 	}
 
@@ -2093,7 +2093,7 @@ func UpdateProfileCookieByCookieID(ctx context.Context, cookieID string, isActiv
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to get db client while updating profile cookie: %s", cookieID)
+		errorMsg := "Failed to get db client while updating profile cookie"
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.UpdateProfileCookie.Code,
@@ -2108,7 +2108,7 @@ func UpdateProfileCookieByCookieID(ctx context.Context, cookieID string, isActiv
 
 	_, err = dbClient.ExecuteQueryContext(ctx, query, isActive, cookieID)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed updating the profile cookie: %s", cookieID)
+		errorMsg := "Failed updating the profile cookie"
 		logger.Debug(errorMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.UpdateProfileCookie.Code,

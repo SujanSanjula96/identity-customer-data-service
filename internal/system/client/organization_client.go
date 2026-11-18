@@ -110,14 +110,48 @@ func (c *IdentityClient) ListDescendantOrganizations(primaryHandle string) ([]IS
 		next = ""
 		for _, link := range page.Links {
 			if link.Rel == "next" && link.Href != "" {
-				next = link.Href
-				if strings.HasPrefix(next, "/") {
-					next = "https://" + c.BaseURL + next
+				resolved, err := resolvePageLink(c.BaseURL, link.Href)
+				if err != nil {
+					return nil, err
 				}
+				next = resolved
 			}
 		}
 	}
 	return all, nil
+}
+
+// resolvePageLink returns the URL of a pagination link that the identity server sent. A relative link
+// resolves against host. An absolute link must use https and point to host, because the request carries a
+// token: a link to any other place is an error.
+func resolvePageLink(host, href string) (string, error) {
+	failed := func(cause error) error {
+		return errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.OrganizationSync.Code,
+			Message:     errors2.OrganizationSync.Message,
+			Description: "The identity server sent a pagination link that does not point to it.",
+		}, cause)
+	}
+	base, err := url.Parse("https://" + host + "/")
+	if err != nil {
+		return "", failed(err)
+	}
+	ref, err := url.Parse(href)
+	if err != nil {
+		return "", failed(err)
+	}
+	resolved := base.ResolveReference(ref)
+	if resolved.Scheme != "https" || resolved.User != nil ||
+		!strings.EqualFold(hostWithoutDefaultPort(resolved.Host), hostWithoutDefaultPort(base.Host)) {
+		return "", failed(fmt.Errorf("unexpected pagination link: %q", href))
+	}
+	return resolved.String(), nil
+}
+
+// hostWithoutDefaultPort removes the default https port from host, so that "is.example.com:443" and
+// "is.example.com" compare as equal.
+func hostWithoutDefaultPort(host string) string {
+	return strings.TrimSuffix(host, ":443")
 }
 
 // getJSON sends a GET request with a token for the organization, and decodes a 200 response into

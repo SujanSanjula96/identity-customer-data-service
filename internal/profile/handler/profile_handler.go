@@ -837,6 +837,7 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 			Description: utils.HandleDecodeError(err, "profile"),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
+		return
 	}
 
 	profilesProvider := provider.NewProfilesProvider()
@@ -856,6 +857,7 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 			Description: errMsg,
 		}, err)
 		utils.HandleError(w, serverError)
+		return
 	}
 	utils.RespondJSON(w, http.StatusOK, profileResponse, constants.ProfileResource)
 }
@@ -1158,10 +1160,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 	if profileSync.Event == constants.AddUserEvent {
 		if profileSync.ProfileCookie != "" && profileSync.UserID != "" {
-			logger.Debug(
-				"Syncing profile for user id: " + profileSync.UserID +
-					" with profile cookie: " + profileSync.ProfileCookie,
-			)
+			logger.Debug("Syncing profile for user id: " + profileSync.UserID + " with profile cookie")
 			cookieObj, err := profilesService.GetProfileCookieByID(ctx, profileSync.ProfileCookie, org.ID)
 			if err == nil && cookieObj != nil && cookieObj.IsActive {
 				profileID = cookieObj.ProfileID
@@ -1323,8 +1322,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 		// cookie + userId (anonymous → authenticated)
 		if profileSync.ProfileCookie != "" {
-			logger.Debug("Syncing profile for user id: " + profileSync.UserID +
-				" with profile cookie: " + profileSync.ProfileCookie)
+			logger.Debug("Syncing profile for user id: " + profileSync.UserID + " with profile cookie")
 
 			// Step 1: Resolve anonymous profile from cookie
 			var anonymousProfile *model.ProfileResponse

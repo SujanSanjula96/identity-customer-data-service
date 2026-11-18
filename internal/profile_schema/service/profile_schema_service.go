@@ -388,7 +388,10 @@ func defaultValidateApplicationIdentifier(ctx context.Context, appIdentifier str
 	if err != nil {
 		return err, false
 	}
-	identityClient := client.NewIdentityClient(config.GetCDSRuntime().Config)
+	identityClient, err := client.NewIdentityClient(config.GetCDSRuntime().Config)
+	if err != nil {
+		return err, false
+	}
 	res, err := identityClient.FetchApplicationIdentifier(appIdentifier, orgHandle)
 	if err != nil {
 		return err, false
@@ -907,7 +910,10 @@ func (s *ProfileSchemaService) SyncProfileSchema(ctx context.Context, orgID stri
 		}, http.StatusBadRequest)
 	}
 	cfg := config.GetCDSRuntime().Config
-	identityClient := client.NewIdentityClient(cfg)
+	identityClient, err := client.NewIdentityClient(cfg)
+	if err != nil {
+		return err
+	}
 
 	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgID)
 	if err != nil {

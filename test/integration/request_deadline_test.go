@@ -80,6 +80,8 @@ func Test_RequestDeadlineReachesTheDatabase(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	require.GreaterOrEqual(t, elapsed, 250*time.Millisecond,
 		"the handler answered before the deadline, so it never reached the pool")
+	require.JSONEq(t, `{"status":"not ready","error":"a dependency of the service is not available"}`,
+		recorder.Body.String(), "the readiness response must not carry the cause of the failure")
 	require.Less(t, elapsed, 10*time.Second,
 		"the deadline did not end the wait for a connection")
 }

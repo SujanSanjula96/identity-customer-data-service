@@ -482,6 +482,37 @@ func TestNewOutboundHTTPClient(t *testing.T) {
 	assert.Error(t, err, "a client certificate that cannot be loaded")
 }
 
+func TestNewIdentityClientSharesTheHTTPClient(t *testing.T) {
+	require.NoError(t, log.Init("ERROR"))
+	cfg := config.Config{
+		AuthServer: config.AuthServerConfig{Host: "is.example.com", Port: "9443"},
+		TLS:        config.TLSConfig{CertDir: t.TempDir()},
+	}
+
+	first, err := NewIdentityClient(cfg)
+	require.NoError(t, err)
+	second, err := NewIdentityClient(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, "is.example.com:9443", first.BaseURL)
+	assert.Same(t, first.HTTPClient, second.HTTPClient, "the same TLS configuration reuses one HTTP client")
+}
+
+func TestNewIdentityClientReturnsAnErrorForABadTrustStore(t *testing.T) {
+	require.NoError(t, log.Init("ERROR"))
+	cfg := config.Config{
+		AuthServer: config.AuthServerConfig{Host: "is.example.com"},
+		TLS:        config.TLSConfig{CertDir: t.TempDir(), TrustStore: "missing.pem"},
+	}
+
+	identityClient, err := NewIdentityClient(cfg)
+
+	assert.Nil(t, identityClient)
+	var serverErr *errors2.ServerError
+	require.ErrorAs(t, err, &serverErr)
+	assert.Equal(t, errors2.IdentityClientFailed.Code, serverErr.Code)
+}
+
 func TestConvertSCIMClaimWithLocal(t *testing.T) {
 	require.NoError(t, log.Init("ERROR"))
 

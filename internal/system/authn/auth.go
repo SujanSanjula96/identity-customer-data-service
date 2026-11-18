@@ -50,7 +50,10 @@ func ValidateAuthenticationAndReturnClaims(token, orgHandle string) (map[string]
 func ValidateTokenForOrg(token, orgHandle, primaryHandle, pathOrgID string) (map[string]interface{}, error) {
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
-	identityClient := client.NewIdentityClient(cfg)
+	identityClient, err := client.NewIdentityClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	if IsJWT(token) {
 		logger.Debug(fmt.Sprintf("Token is identified as JWT. Validating JWT for organization: '%s'", orgHandle))
@@ -225,7 +228,11 @@ func unauthorizedError() error {
 // organization orgHandle, whose primary organization is primaryHandle, the same way
 // as the authentication of the request does.
 func IntrospectToken(token, orgHandle, primaryHandle string) (map[string]interface{}, error) {
-	return introspect(client.NewIdentityClient(config.GetCDSRuntime().Config), token, orgHandle, primaryHandle)
+	identityClient, err := client.NewIdentityClient(config.GetCDSRuntime().Config)
+	if err != nil {
+		return nil, err
+	}
+	return introspect(identityClient, token, orgHandle, primaryHandle)
 }
 
 // introspect asks the identity provider whether the token is active. The adapter

@@ -119,6 +119,11 @@ var (
 		Message: "Error while persisting the service credentials of the organization.",
 	}
 
+	IdentityClientFailed = ErrorMessage{
+		Code:    errorPrefix + "15116",
+		Message: "Error while creating the client for the identity server.",
+	}
+
 	AddUnificationRule = ErrorMessage{
 		Code:    errorPrefix + "15201",
 		Message: "Error while adding unification rules.",

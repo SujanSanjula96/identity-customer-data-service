@@ -219,7 +219,11 @@ func TestStoresVerifiedCredentialsAndUsesThemForTokens(t *testing.T) {
 
 	// The token endpoint refuses the configured pair, so a token means the stored
 	// credentials were used.
-	token, err := client.NewIdentityClient(config.GetCDSRuntime().Config).FetchToken("acme")
+	identityClient, err := client.NewIdentityClient(config.GetCDSRuntime().Config)
+	if err != nil {
+		t.Fatalf("NewIdentityClient: %v", err)
+	}
+	token, err := identityClient.FetchToken("acme")
 	if err != nil || token != issuedToken {
 		t.Fatalf("FetchToken: got %q, %v, want %q", token, err, issuedToken)
 	}

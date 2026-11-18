@@ -32,6 +32,8 @@ import (
 // WSO2ISAdapter reads the organization tree from the WSO2 IS organization management API.
 type WSO2ISAdapter struct {
 	client *client.IdentityClient
+	// clientErr is why the client could not be created. Each call returns it.
+	clientErr error
 }
 
 // WSO2 IS sends CDS the service credentials of each organization, and CDS
@@ -41,15 +43,25 @@ var (
 	_ TokenIntrospector          = (*WSO2ISAdapter)(nil)
 )
 
-// NewWSO2ISAdapter returns an adapter for the configured IS.
+// NewWSO2ISAdapter returns an adapter for the configured IS. If the client of the identity server cannot be
+// created, Err returns the cause and every call of the adapter fails with it.
 func NewWSO2ISAdapter() *WSO2ISAdapter {
-	return &WSO2ISAdapter{client: client.NewIdentityClient(config.GetCDSRuntime().Config)}
+	identityClient, err := client.NewIdentityClient(config.GetCDSRuntime().Config)
+	return &WSO2ISAdapter{client: identityClient, clientErr: err}
+}
+
+// Err returns why the client of the identity server could not be created, or nil.
+func (a *WSO2ISAdapter) Err() error {
+	return a.clientErr
 }
 
 // VerifyServiceCredentials asks the token endpoint of the organization for a token with the
 // client, and reads the organization with that token.
 func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, clientID,
 	clientSecret string) (Organization, error) {
+	if a.clientErr != nil {
+		return Organization{}, a.clientErr
+	}
 	token, err := a.client.VerifyClientCredentials(orgHandle, clientID, clientSecret)
 	if err != nil {
 		return Organization{}, err
@@ -78,6 +90,9 @@ func (a *WSO2ISAdapter) VerifyServiceCredentials(_ context.Context, orgHandle, c
 // primary organization.
 func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle,
 	primaryHandle string) (map[string]interface{}, error) {
+	if a.clientErr != nil {
+		return nil, a.clientErr
+	}
 	if servicecreds.Enabled() {
 		creds, found, err := servicecreds.Get(ctx, orgHandle)
 		if err != nil {
@@ -93,6 +108,9 @@ func (a *WSO2ISAdapter) IntrospectToken(ctx context.Context, token, orgHandle,
 // GetPrimaryOrganization returns the primary organization with the handle, with no parent set. A handle
 // the identity server does not know is a not-found client error.
 func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle string) (Organization, error) {
+	if a.clientErr != nil {
+		return Organization{}, a.clientErr
+	}
 	// Only a primary organization answers the self call on its own tenant path. A primary
 	// organization can still have a parent, such as the super organization.
 	org, found, err := a.client.GetSelfOrganization(primaryHandle)
@@ -116,6 +134,9 @@ func (a *WSO2ISAdapter) GetPrimaryOrganization(_ context.Context, primaryHandle 
 // ListDescendants returns all organizations below the primary organization. It reads each organization
 // to get its parent, and skips any that no longer exist.
 func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string) ([]Organization, error) {
+	if a.clientErr != nil {
+		return nil, a.clientErr
+	}
 	listed, err := a.client.ListDescendantOrganizations(primaryHandle)
 	if err != nil {
 		return nil, err
@@ -138,6 +159,9 @@ func (a *WSO2ISAdapter) ListDescendants(_ context.Context, primaryHandle string)
 // GetOrganization returns one organization below the primary organization, or nil when it does not
 // exist.
 func (a *WSO2ISAdapter) GetOrganization(_ context.Context, primaryHandle, orgID string) (*Organization, error) {
+	if a.clientErr != nil {
+		return nil, a.clientErr
+	}
 	org, found, err := a.client.GetOrganization(primaryHandle, orgID)
 	if err != nil || !found {
 		return nil, err

@@ -1725,7 +1725,7 @@ func (ps *ProfilesService) GetProfileCookieByID(ctx context.Context,
 	cookieObj, err := profileStore.GetProfileCookie(ctx, cookie, orgID)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error fetching profile cookie : %s", cookie)
+		errMsg := "Error fetching profile cookie"
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GetProfileCookie.Code,
@@ -1790,7 +1790,7 @@ func (ps *ProfilesService) UpdateCookieStatusByCookieID(ctx context.Context, coo
 	err := profileStore.UpdateProfileCookieByCookieID(ctx, cookieID, isActive)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error updating profile cookie: %s", cookieID)
+		errMsg := "Error updating profile cookie"
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.UpdateCookie.Code,

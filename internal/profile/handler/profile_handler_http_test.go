@@ -312,6 +312,13 @@ func TestPatchProfile(t *testing.T) {
 	malformed := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "", `{"traits":`,
 		profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, malformed.Code)
+	// The handler stops at the decode error: the body holds the error and nothing after it.
+	decoder := json.NewDecoder(malformed.Body)
+	var errorBody map[string]interface{}
+	require.NoError(t, decoder.Decode(&errorBody))
+	assert.NotEmpty(t, errorBody["code"])
+	assert.NotContains(t, errorBody, "profile_id")
+	assert.False(t, decoder.More(), "the body has data after the error: %s", malformed.Body.String())
 
 	noID := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "", `{}`, nil)
 	assert.Equal(t, http.StatusNotFound, noID.Code)

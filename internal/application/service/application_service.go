@@ -51,7 +51,10 @@ func (as *ApplicationService) ResolveAndRegisterApplication(ctx context.Context,
 	appIdentifier string, orgID string) (bool, error) {
 	logger := log.GetLogger()
 	cfg := config.GetCDSRuntime().Config
-	identityClient := client.NewIdentityClient(cfg)
+	identityClient, err := client.NewIdentityClient(cfg)
+	if err != nil {
+		return false, err
+	}
 
 	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgID)
 	if err != nil {
