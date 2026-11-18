@@ -4,10 +4,12 @@
 local development.
 
 A stock IS pack has no CDS configuration, so the script does the wiring: it
-builds CDS and the IS extension bundles, generates and exchanges the TLS
-certificates, writes both configurations, registers the OAuth applications CDS
-needs, enables CDS for the organization, starts both servers and runs smoke
-tests in both directions.
+builds CDS, generates and exchanges the TLS certificates, writes both
+configurations, registers the OAuth applications CDS needs, starts both servers,
+enables CDS for the organization and runs smoke tests in both directions. IS 7.4
+and later ship the CDS extension bundles, and the script uses them. For an older
+pack, it builds and deploys the bundles (see
+[The CDS extension bundles](#the-cds-extension-bundles)).
 
 ```bash
 # Inbuilt SQLite database, no external dependencies
@@ -43,8 +45,8 @@ reuses them:
 ./scripts/local-setup/script.sh restart        # stop, then start
 ```
 
-`start` builds nothing, clones nothing, runs no Maven and calls no management
-API. It starts the PostgreSQL container if the datasource needs one, starts both
+`start` builds nothing, clones nothing, runs no Maven and provisions nothing. It
+starts the PostgreSQL container if the datasource needs one, starts both
 servers, checks that CDS is still enabled for the organization and prints the
 same summary.
 
@@ -60,7 +62,9 @@ restarts CDS and leaves the Identity Server alone.
 
 ## Requirements
 
-`java` 21, `maven`, `go` and `jq`. `docker` is needed for `--db postgres`.
+`java` 21, `go` and `jq`. `maven` builds the IS pack when you do not give
+`--is-zip`, and the extension bundles when the pack does not ship them or when
+you give `--extensions-build`. `docker` is needed for `--db postgres`.
 `curl`, `git`, `unzip`, `openssl` and `lsof` are also used and ship with macOS
 and most Linux distributions; `keytool` comes with the JDK. Building the IS pack
 from source needs a few GB of free disk.
@@ -80,7 +84,7 @@ modified.
 ```text
 <work-dir>/
   src/product-is/                 checkout the IS pack is built from
-  src/identity-customer-data-service-extensions/
+  src/identity-customer-data-service-extensions/   only when the script builds the bundles
   is/wso2is-<version>/            the extracted pack, used as IS_HOME
   bin/cds                         the CDS binary
   cds-home/
@@ -128,6 +132,39 @@ left its pack in `<work-dir>/src/product-is/modules/distribution/target/`.
 
 ---
 
+## The CDS extension bundles
+
+IS 7.4 and later ship the CDS extension bundles
+(`org.wso2.identity.customer.data.service.*`, including `config.mgt`) in
+`repository/components/plugins`. When the pack has them, `up` uses them and
+deploys nothing. It also removes the extension jars that an earlier run of the
+script put in `repository/components/dropins`, because a second version of a
+bundle beside the shipped one breaks the event handlers.
+
+The script builds the bundles from
+[`identity-customer-data-service-extensions`](https://github.com/wso2-extensions/identity-customer-data-service-extensions)
+only in these conditions:
+
+- The pack does not ship them. The script copies every bundle that the build
+  makes to `repository/components/dropins`.
+- You give `--extensions-build`, `--extensions-src PATH` or
+  `--extensions-jars PATH`. Use this to test a change to the extensions.
+
+If the pack ships the bundles and you deploy a local build, the version of the
+build decides what happens:
+
+| Build version | Result |
+|---|---|
+| Same as the shipped bundles (for example, a build of the `v0.1.16` tag for a pack with `_0.1.16.jar` files) | The script puts the jars in `repository/components/patches/patch9999/` with the names of the shipped jars. This is how WSO2 replaces a shipped bundle: Carbon copies the patch over `plugins/` at startup. |
+| Different (for example, a `-SNAPSHOT` build of `main`) | The script puts the jars in `repository/components/dropins/` and shows a warning. The shipped bundles stay in `plugins/`, so IS loads two versions of each bundle, and the version that handles an event is not defined. WSO2 does not remove bundles from `plugins/` to replace them, so the script does not do that. |
+
+To test a change on a pack that ships the bundles, build the extensions from the
+tag of the shipped version with your change on top, and give the clone with
+`--extensions-src`. A run of `up` without the build options removes the jars
+that the script deployed and goes back to the shipped bundles.
+
+---
+
 ## Ports
 
 | | Default | Option |
@@ -145,10 +182,19 @@ and `--pg-container`.
 
 ## What the setup configures
 
-- **The extension bundles.** The four `org.wso2.identity.customer.data.service.*`
-  jars in `repository/components/dropins`, with the `[[event_handler]]`
-  subscriptions they need: `AbstractEventHandler.canHandle()` returns false
-  without a module config, so a deployed bundle receives no events.
+- **`[customer_data_service]`**: `enable = true`, the CDS URL and the Basic
+  credentials for the sync endpoints.
+- **The `[[event_handler]]` subscriptions, only for a pack that needs them.**
+  `AbstractEventHandler.canHandle()` returns false without a module config, so a
+  bundle with no subscription receives no events. IS 7.4 and later add the
+  subscriptions themselves when `[customer_data_service] enable = true`
+  (`repository/resources/conf/infer.json`). For such a pack the script does not
+  write them: a second `[[event_handler]]` block with the same name makes IS
+  call none of the CDS handlers, and IS logs no error.
+- **`"Customer Data Service"` in `[system_applications] read_only_apps`**, next
+  to the default `"Console"`. IS creates an application with that name when CDS
+  is enabled through IS, and refuses to do so for a name that is not reserved
+  (`CNF-65046`). See [Service credentials](service-credentials.md).
 - **The CDS API resources and their scopes**, seeded through `deployment.toml`.
   IS reserves the `internal_` prefix and rejects it over REST, so the
   `internal_cds_*` scopes cannot be created through the management API.
@@ -168,9 +214,15 @@ and `--pg-container`.
 - **Two OAuth applications**: a system app for the calls CDS makes into IS, and
   a client app with `aud=iam-cds`, the audience CDS requires, for calling the
   CDS APIs. The Console is handled separately because it issues opaque tokens.
-- **`cds_enabled` for the organization.** Every profile, schema and rule
+- **CDS enabled for the organization.** Every profile, schema and rule
   endpoint returns `400` until it is set. Setting it also runs the initial
-  profile-schema sync and seeds the default consent category.
+  profile-schema sync and seeds the default consent category. If the pack has
+  the CDS configuration API, the script enables CDS through IS
+  (`PATCH /api/server/v1/configs/cds`), as the Console does. Then IS and CDS both
+  record the setting, and IS sends CDS the credentials of its
+  `Customer Data Service` application. For an older pack, the script sets
+  `cds_enabled` on the CDS side only. In both cases it sets the CDS
+  `system_applications` to the Console and the client app.
 
 ---
 
@@ -182,6 +234,7 @@ it generates is kept in `templates/` next to it, one file per artifact:
 | Template | Written to |
 |---|---|
 | `is-deployment.toml` | appended to the pack's `repository/conf/deployment.toml`, between `# BEGIN/END cds-local-dev` markers so that a re-run replaces it |
+| `is-event-handlers.toml` | put into `is-deployment.toml` at `${CDS_EVENT_HANDLERS}`, only for a pack that does not subscribe the CDS handlers itself |
 | `cds-deployment.yaml` | copied to `<work-dir>/cds-home/repository/conf/deployment.yaml`, followed by the `required_scopes` block read out of `config/repository/conf/deployment.yaml` and one of the `datasource-*.yaml` fragments |
 | `datasource-sqlite.yaml`, `datasource-postgres.yaml` | the `datasource` section, selected by `--db` |
 | `openssl.cnf` | the request the CDS certificate is generated from |
@@ -210,12 +263,14 @@ them.
 2. a client-credentials token carries `aud=iam-cds`
 3. the same token carries the expected `org_handle`
 4. CDS reports the organization as enabled
-5. `GET /profiles` returns 200 — introspection and scope mapping work
-6. `GET /profile-schema` returns 200 — CDS reached the IS claim APIs
-7. a user created in IS appears as a profile in CDS — dropins, event handlers
-   and the IS to CDS sync path work
+5. IS reports CDS as enabled (`GET /api/server/v1/configs/cds`) — only for a
+   pack that has this API
+6. `GET /profiles` returns 200 — introspection and scope mapping work
+7. `GET /profile-schema` returns 200 — CDS reached the IS claim APIs
+8. a user created in IS appears as a profile in CDS — the bundles, event
+   handlers and the IS to CDS sync path work
 
-Test 7 creates a user and deletes it again; `--keep-test-user` keeps it.
+Test 8 creates a user and deletes it again; `--keep-test-user` keeps it.
 
 ---
 
@@ -234,9 +289,22 @@ fixes it.
 **`GET /profile-schema` returns 400.** CDS could not reach the IS claim APIs,
 usually the trust store or the system application. `logs/cds.log` has the error.
 
-**A user in IS never appears in CDS.** Check that the four bundles are in
-`repository/components/dropins` and that `logs/is.log` shows the CDS handlers
-registering; an unresolved dropin is otherwise silent.
+**A user in IS never appears in CDS.** Do these checks:
+
+1. Make sure that `repository/conf/deployment.toml` has no `[[event_handler]]`
+   block for a `cds.*` handler if the pack adds them itself
+   (`repository/resources/conf/infer.json`). A duplicate block stops all CDS
+   events, and IS logs no error. `up` writes the section correctly for the pack.
+2. Make sure that each `org.wso2.identity.customer.data.service.*` bundle is
+   there one time only: in `plugins/` for a pack that ships them, in `dropins/`
+   for an older pack. Two versions of a bundle give the same symptom.
+3. Make sure that `logs/is.log` shows no error for the CDS bundles. An
+   unresolved bundle in `dropins/` is otherwise silent.
+
+**IS does not enable CDS (`CNF-65046`).** `[system_applications] read_only_apps`
+does not have `"Customer Data Service"`. A work directory from an earlier
+version of the script has this problem. Run `down` and then `up`: `up` writes
+the `deployment.toml` section again, and IS reads it when it starts.
 
 **The build fails.** `logs/is-build.log` has the Maven output.
 

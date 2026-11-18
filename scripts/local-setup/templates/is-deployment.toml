@@ -1,7 +1,8 @@
 ${TOML_BEGIN}
 
 # --- The CDS service IS talks to ------------------------------------------- #
-# Read by the org.wso2.identity.customer.data.service.* bundles in dropins.
+# Read by the org.wso2.identity.customer.data.service.* bundles (shipped in
+# repository/components/plugins, or deployed by the script).
 # admin_username/admin_password are the Basic-auth credentials IS presents to
 # the CDS sync endpoints; they must match auth_server.admin_* in the CDS
 # deployment.yaml.
@@ -11,24 +12,14 @@ server_url = "${CDS_BASE}"
 admin_username = "${CDS_SYNC_USER}"
 admin_password = "${CDS_SYNC_PASS}"
 
-# --- Event handlers -------------------------------------------------------- #
-# Without these subscriptions AbstractEventHandler.canHandle() returns false and
-# the deployed bundles never receive an event.
-[[event_handler]]
-name = "cds.identity.event.handler"
-subscriptions = ["POST_ADD_USER", "POST_SET_USER_CLAIM_VALUE_WITH_ID", "POST_SET_USER_CLAIM_VALUES_WITH_ID", "POST_DELETE_USER_WITH_ID"]
+${CDS_EVENT_HANDLERS}
 
-[[event_handler]]
-name = "cds.claim.event.handler"
-subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE_LOCAL_CLAIM", "POST_ADD_EXTERNAL_CLAIM", "POST_UPDATE_EXTERNAL_CLAIM", "POST_DELETE_EXTERNAL_CLAIM"]
-
-[[event_handler]]
-name = "cds.authentication.listener"
-subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
-
-[[event_handler]]
-name = "cds.organization.event.handler"
-subscriptions = ["POST_ADD_ORGANIZATION", "POST_UPDATE_ORGANIZATION", "POST_PATCH_ORGANIZATION", "POST_DELETE_ORGANIZATION"]
+# --- System applications --------------------------------------------------- #
+# Enabling CDS through IS (PATCH /api/server/v1/configs/cds) creates the
+# "Customer Data Service" application, and IS accepts that only for a reserved
+# name. "Console" is the default entry and must stay.
+[system_applications]
+read_only_apps = ["Console", "Customer Data Service"]
 
 # --- Console feature scopes ------------------------------------------------ #
 [[api_resources]]

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Sets up CDS with a WSO2 Identity Server for local development: builds CDS and
-# the IS extension bundles, generates and exchanges TLS certificates, writes
-# both configurations, registers the OAuth applications CDS needs, starts both
-# servers and runs smoke tests.
+# Sets up CDS with a WSO2 Identity Server for local development: builds CDS,
+# uses the CDS extension bundles that the IS pack ships (or builds and deploys
+# them for a pack without them), generates and exchanges TLS certificates,
+# writes both configurations, registers the OAuth applications CDS needs,
+# starts both servers, enables CDS and runs smoke tests.
 #
 #   scripts/local-setup/script.sh up [options]     provision and start
 #   scripts/local-setup/script.sh start            start without provisioning
@@ -36,6 +37,7 @@ IS_REF="master"
 IS_REBUILD="0"
 EXT_SRC=""
 EXT_JARS=""
+EXT_BUILD="0"
 
 IS_HOST="localhost"
 IS_PORT=""
@@ -114,8 +116,12 @@ Options:
   --is-src PATH                existing product-is checkout to build
   --is-ref REF                 product-is branch or tag to build (default: master)
   --is-rebuild                 rebuild the pack even if one was built before
-  --extensions-src PATH        existing clone of the IS extensions repo
-  --extensions-jars PATH       directory containing the four extension jars
+  --extensions-build           deploy a local build of the IS extension bundles,
+                               even if the pack ships them (see the guide)
+  --extensions-src PATH        existing clone of the IS extensions repo to build
+                               (implies --extensions-build)
+  --extensions-jars PATH       directory containing built extension jars
+                               (implies --extensions-build)
   --is-host HOST               IS hostname (default: localhost)
   --is-port PORT               IS HTTPS port (default: 9443 + offset)
   --is-offset N                IS port offset, to run beside another IS (default: 0)
@@ -232,8 +238,9 @@ while [ $# -gt 0 ]; do
     --is-src) need_val "$@"; IS_SRC="$2"; shift 2 ;;
     --is-ref) need_val "$@"; IS_REF="$2"; shift 2 ;;
     --is-rebuild) IS_REBUILD="1"; shift ;;
-    --extensions-src) need_val "$@"; EXT_SRC="$2"; shift 2 ;;
-    --extensions-jars) need_val "$@"; EXT_JARS="$2"; shift 2 ;;
+    --extensions-build) EXT_BUILD="1"; shift ;;
+    --extensions-src) need_val "$@"; EXT_SRC="$2"; EXT_BUILD="1"; shift 2 ;;
+    --extensions-jars) need_val "$@"; EXT_JARS="$2"; EXT_BUILD="1"; shift 2 ;;
     --is-host) need_val "$@"; IS_HOST="$2"; shift 2 ;;
     --is-port) need_val "$@"; IS_PORT="$2"; shift 2 ;;
     --is-offset) need_val "$@"; IS_OFFSET="$2"; shift 2 ;;
@@ -485,10 +492,10 @@ preflight() {
   if [ "$SKIP_IS" != "1" ]; then
     require_bins java keytool
     resolve_java
-    # Maven builds the extension bundles, and the IS pack unless one is supplied.
-    if [ -z "$EXT_JARS" ] || [ -z "$IS_ZIP" ]; then
-      require_bins mvn
-    fi
+    # Maven builds the IS pack unless one is supplied. The extension bundles
+    # need it only for a pack that does not ship them - see deploy_extensions.
+    [ -n "$IS_ZIP" ] || require_bins mvn
+    if [ "$EXT_BUILD" = "1" ] && [ -z "$EXT_JARS" ]; then require_bins mvn; fi
   fi
   if [ "$DB" = "postgres" ]; then
     if [ "$PG_EXTERNAL" = "1" ]; then require_bins psql; else require_bins docker; fi
@@ -497,7 +504,8 @@ preflight() {
 
   # The templates and helpers next to this script are required.
   local asset missing=""
-  for asset in templates/is-deployment.toml templates/cds-deployment.yaml \
+  for asset in templates/is-deployment.toml templates/is-event-handlers.toml \
+               templates/cds-deployment.yaml \
                templates/datasource-sqlite.yaml templates/datasource-postgres.yaml \
                templates/openssl.cnf; do
     [ -f "$SELF_DIR/$asset" ] || missing="$missing $asset"
@@ -757,50 +765,173 @@ fetch_is_pack() {
 # --------------------------------------------------------------------------- #
 # 5. IS extension bundles
 # --------------------------------------------------------------------------- #
-EXT_BUNDLES="org.wso2.identity.customer.data.service.client
-org.wso2.identity.customer.data.service.event.handler
-org.wso2.identity.customer.data.service.auth.listener
-org.wso2.identity.customer.data.service.auth.handler"
+EXT_PREFIX="org.wso2.identity.customer.data.service"
+EXT_BUNDLES="$EXT_PREFIX.client
+$EXT_PREFIX.event.handler
+$EXT_PREFIX.auth.listener
+$EXT_PREFIX.auth.handler
+$EXT_PREFIX.config.mgt"
+# Where WSO2 puts a replacement for a bundle in plugins/. Carbon copies it over
+# plugins/ at startup, so it works only for a jar of the same Bundle-Version.
+EXT_PATCH_DIR_NAME="patch9999"
+
+# shipped_ext_version -> the version of the CDS bundles in the pack's plugins/,
+# or empty for a pack that does not ship them.
+shipped_ext_version() {
+  local jar
+  jar="$(find "$IS_HOME/repository/components/plugins" -maxdepth 1 -type f \
+    -name "$EXT_PREFIX.client_*.jar" 2>/dev/null | head -1)"
+  [ -n "$jar" ] || return 0
+  jar="$(basename "$jar" .jar)"
+  echo "${jar##*_}"
+}
+
+# Removes the extension jars that an earlier run deployed into dropins/ or the
+# patch directory. The jars in plugins/ belong to the pack and stay.
+remove_deployed_ext_builds() {
+  local comps="$IS_HOME/repository/components" f removed=0
+  for f in "$comps/dropins/$EXT_PREFIX".*.jar "$comps/patches/$EXT_PATCH_DIR_NAME/$EXT_PREFIX".*.jar; do
+    [ -f "$f" ] || continue
+    rm -f "$f"
+    removed=$((removed + 1))
+  done
+  [ "$removed" = "0" ] || info "removed $removed extension jar(s) that an earlier run deployed"
+}
+
+# build_extensions - builds the extensions repo; sets EXT_BUILT_DIR to the
+# directory that holds the built jars.
+EXT_BUILT_DIR=""
+build_extensions() {
+  local src="$EXT_SRC"
+  if [ -z "$src" ]; then
+    src="$SRC_DIR/identity-customer-data-service-extensions"
+    if [ -d "$src/.git" ]; then
+      info "updating existing clone"
+      ( cd "$src" && git fetch -q origin && git reset -q --hard origin/HEAD ) \
+        || warn "could not update the extensions clone - building what is on disk"
+    else
+      info "cloning $EXT_REPO"
+      git clone -q "$EXT_REPO" "$src" || die "failed to clone the extensions repo"
+    fi
+  else
+    [ -d "$src" ] || die "--extensions-src: no such directory: $src"
+  fi
+  require_bins mvn
+  resolve_java
+  info "building (mvn clean install, checkstyle/spotbugs skipped)"
+  ( cd "$src" && mvn -B -q clean install -Dmaven.checkstyle.skip=true -Dspotbugs.skip=true ) \
+    || die "extension build failed - see the maven output above"
+  EXT_BUILT_DIR="$src/components"
+}
+
+# jar_bundle_name JAR -> the bundle name without the version: Maven names a jar
+# <name>-<version>.jar, the pack's plugins/ <name>_<version>.jar.
+jar_bundle_name() {
+  local name
+  name="$(basename "$1" .jar)"
+  name="${name%%-[0-9]*}"
+  echo "${name%%_[0-9]*}"
+}
+
+# bundle_version JAR -> Bundle-Version from the jar's manifest.
+bundle_version() {
+  unzip -p "$1" META-INF/MANIFEST.MF 2>/dev/null | tr -d '\r' | sed -n 's/^Bundle-Version: *//p' | head -1
+}
 
 deploy_extensions() {
   step "CDS extension bundles"
-  local jars_dir="$EXT_JARS" src="$EXT_SRC"
+  local comps="$IS_HOME/repository/components" shipped
+  shipped="$(shipped_ext_version)"
 
+  # A pack that ships the bundles needs nothing from the script. A copy in
+  # dropins/ would be a second version of each bundle beside the shipped one.
+  if [ -n "$shipped" ] && [ "$EXT_BUILD" != "1" ]; then
+    remove_deployed_ext_builds
+    ok "using the bundles that the pack ships ($shipped, repository/components/plugins)"
+    info "pass --extensions-build to deploy a local build instead"
+    return 0
+  fi
+
+  local jars_dir="$EXT_JARS"
   if [ -z "$jars_dir" ]; then
-    if [ -z "$src" ]; then
-      src="$SRC_DIR/identity-customer-data-service-extensions"
-      if [ -d "$src/.git" ]; then
-        info "updating existing clone"
-        ( cd "$src" && git fetch -q origin && git reset -q --hard origin/HEAD ) \
-          || warn "could not update the extensions clone - building what is on disk"
-      else
-        info "cloning $EXT_REPO"
-        git clone -q "$EXT_REPO" "$src" || die "failed to clone the extensions repo"
-      fi
-    else
-      [ -d "$src" ] || die "--extensions-src: no such directory: $src"
-    fi
-    resolve_java
-    info "building (mvn clean install, checkstyle/spotbugs skipped)"
-    ( cd "$src" && mvn -B -q clean install -Dmaven.checkstyle.skip=true -Dspotbugs.skip=true ) \
-      || die "extension build failed - see the maven output above"
-    jars_dir="$src/components"
+    build_extensions
+    jars_dir="$EXT_BUILT_DIR"
   else
     [ -d "$jars_dir" ] || die "--extensions-jars: no such directory: $jars_dir"
   fi
 
-  local dropins="$IS_HOME/repository/components/dropins" b jar count=0
-  mkdir -p "$dropins"
-  for b in $EXT_BUNDLES; do
-    jar="$(find "$jars_dir" -name "$b-*.jar" ! -name '*-sources.jar' ! -name '*-javadoc.jar' -type f 2>/dev/null | head -1)"
-    [ -n "$jar" ] || die "extension jar not found for $b under $jars_dir"
-    rm -f "$dropins/$b"-*.jar
-    cp "$jar" "$dropins/" || die "failed to copy $jar"
-    count=$((count + 1))
+  # Every bundle the build produced, one jar per bundle.
+  local jars="" seen=" " jar bundle
+  while IFS= read -r jar; do
+    [ -n "$jar" ] || continue
+    bundle="$(jar_bundle_name "$jar")"
+    case "$seen" in *" $bundle "*) continue ;; esac
+    seen="$seen$bundle "
+    jars="$jars$jar
+"
+  done <<EOF_JARS
+$(find "$jars_dir" -type f -name "$EXT_PREFIX.*.jar" ! -name '*-sources.jar' ! -name '*-javadoc.jar' \
+    ! -name '*-tests.jar' ! -path '*/classes/*' 2>/dev/null | sort)
+EOF_JARS
+  case "$seen" in *" $EXT_PREFIX.client "*) ;; *) die "no $EXT_PREFIX.client jar found under $jars_dir" ;; esac
+
+  remove_deployed_ext_builds
+
+  if [ -z "$shipped" ]; then
+    mkdir -p "$comps/dropins"
+    while IFS= read -r jar; do
+      [ -n "$jar" ] || continue
+      cp "$jar" "$comps/dropins/" || die "failed to copy $jar"
+      info "$(basename "$jar")"
+    done <<EOF_JARS
+$jars
+EOF_JARS
+    ok "deployed $(printf '%s' "$jars" | grep -c .) bundle(s) into repository/components/dropins"
+    return 0
+  fi
+
+  # The pack ships the bundles. WSO2 replaces a shipped bundle through the patch
+  # system, which needs the same Bundle-Version; it never deletes it from
+  # plugins/. A build of another version can only go to dropins/, beside the
+  # shipped one.
+  local mismatch="" v
+  while IFS= read -r jar; do
+    [ -n "$jar" ] || continue
+    v="$(bundle_version "$jar")"
+    [ "$v" = "$shipped" ] || mismatch="$mismatch $(basename "$jar") ($v)"
+  done <<EOF_JARS
+$jars
+EOF_JARS
+
+  if [ -z "$mismatch" ]; then
+    local patch_dir="$comps/patches/$EXT_PATCH_DIR_NAME"
+    mkdir -p "$patch_dir"
+    while IFS= read -r jar; do
+      [ -n "$jar" ] || continue
+      bundle="$(jar_bundle_name "$jar")"
+      [ -f "$comps/plugins/${bundle}_$shipped.jar" ] \
+        || warn "the pack has no ${bundle}_$shipped.jar in plugins/ - Carbon will not apply this patch"
+      cp "$jar" "$patch_dir/${bundle}_$shipped.jar" || die "failed to copy $jar"
+      info "${bundle}_$shipped.jar"
+    done <<EOF_JARS
+$jars
+EOF_JARS
+    ok "deployed the build as a patch over the shipped $shipped bundles (repository/components/patches/$EXT_PATCH_DIR_NAME)"
+    return 0
+  fi
+
+  mkdir -p "$comps/dropins"
+  while IFS= read -r jar; do
+    [ -n "$jar" ] || continue
+    cp "$jar" "$comps/dropins/" || die "failed to copy $jar"
     info "$(basename "$jar")"
-  done
-  [ "$count" = "4" ] || die "expected 4 extension jars, deployed $count"
-  ok "deployed 4 bundles into repository/components/dropins"
+  done <<EOF_JARS
+$jars
+EOF_JARS
+  warn "the pack ships the CDS bundles at version $shipped, and this build is another version:$mismatch"
+  warn "the build is in dropins/ and the shipped bundles stay in plugins/, so IS loads both versions"
+  warn "and which one handles an event is not defined. Build the version that the pack ships to"
+  warn "replace it through the patch system, or drop --extensions-build. See docs/guides/local-development.md."
 }
 
 # --------------------------------------------------------------------------- #
@@ -841,6 +972,27 @@ exchange_certificates() {
 # --------------------------------------------------------------------------- #
 # 7. deployment.toml
 # --------------------------------------------------------------------------- #
+# Whether the pack subscribes the CDS event handlers itself when
+# [customer_data_service] enable = true (IS 7.4 and later: infer.json).
+pack_subscribes_cds_handlers() {
+  local infer="$IS_HOME/repository/resources/conf/infer.json"
+  [ -f "$infer" ] || return 1
+  jq -e '."customer_data_service.enable"."true" // {} | keys
+         | any(test("cds\\.identity\\.event\\.handler"))' "$infer" >/dev/null 2>&1
+}
+
+# The [[event_handler]] blocks for the generated section. A pack that adds the
+# handlers itself must not get them a second time: IS then calls none of the
+# CDS handlers, and logs no error.
+cds_event_handlers_toml() {
+  if pack_subscribes_cds_handlers; then
+    echo "# --- Event handlers: none here. The pack subscribes the CDS handlers itself"
+    echo "# (repository/resources/conf/infer.json, customer_data_service.enable)."
+  else
+    cat "$TPL_DIR/is-event-handlers.toml"
+  fi
+}
+
 # The generated CDS section, in one block between markers so that a re-run
 # replaces it instead of appending a second copy.
 cds_toml_block() {
@@ -848,7 +1000,8 @@ cds_toml_block() {
     "TOML_BEGIN=$TOML_BEGIN" "TOML_END=$TOML_END" \
     "CDS_BASE=$(toml_str "$CDS_BASE")" "IS_BASE=$(toml_str "$IS_BASE")" \
     "CDS_SYNC_USER=$(toml_str "$CDS_SYNC_USER")" \
-    "CDS_SYNC_PASS=$(toml_str "$CDS_SYNC_PASS")"
+    "CDS_SYNC_PASS=$(toml_str "$CDS_SYNC_PASS")" \
+    "CDS_EVENT_HANDLERS=$(cds_event_handlers_toml)"
 }
 
 patch_is_config() {
@@ -867,6 +1020,11 @@ patch_is_config() {
   printf '\n' >> "$toml"
   cds_toml_block >> "$toml"
   ok "wrote the CDS section into repository/conf/deployment.toml"
+  if pack_subscribes_cds_handlers; then
+    ok "left out the [[event_handler]] blocks: the pack adds the CDS handlers itself"
+  else
+    ok "added the [[event_handler]] blocks for the CDS handlers"
+  fi
 
   # [server] already exists in the shipped file, so the offset goes inside it
   # rather than into a second [server] table. Another table may carry an offset
@@ -1331,18 +1489,56 @@ stop_cds() {
 # Every profile, schema and rule endpoint returns 400 while cds_enabled is false
 # for the organization. Setting it also runs the initial profile-schema sync
 # from IS and seeds the default consent category.
-enable_cds_for_org() {
-  step "Enabling CDS for '$TENANT'"
-  local token state body code
-  token="$(cds_token)"
-  [ -n "$token" ] || die "could not get a token to call the CDS config API"
+#
+# A pack with the CDS configuration API (the config.mgt bundle) is enabled
+# through IS, as the Console does it: IS creates the "Customer Data Service"
+# application, sends its credentials and the setting to CDS, and records the
+# setting itself. A pack without that API is enabled on the CDS side only.
 
-  state="$(curl -sk --max-time 30 -H "Authorization: Bearer $token" \
-    "$CDS_URL_LOCAL/t/$TENANT/cds/api/v1/config" | jq -r '.cds_enabled // false' 2>/dev/null)"
-  if [ "$state" = "true" ]; then
-    ok "already enabled for '$TENANT'"
+# is_cds_config -> the IS CDS configuration, or empty when the pack has no such API.
+is_cds_config() {
+  local out code
+  out="$(isapi -w '\n%{http_code}' "$MGMT_API/configs/cds" 2>/dev/null || :)"
+  code="${out##*$'\n'}"
+  [ "$code" = "200" ] && printf '%s' "${out%$'\n'*}"
+  return 0
+}
+
+# enable_cds_through_is -> 0 when IS records CDS as enabled; 1 when the pack has
+# no CDS configuration API or IS did not accept the update.
+enable_cds_through_is() {
+  local conf code
+  conf="$(is_cds_config)"
+  if [ -z "$conf" ]; then
+    info "this pack has no CDS configuration API (GET $MGMT_API/configs/cds) - enabling on the CDS side only"
+    return 1
+  fi
+  if [ "$(printf '%s' "$conf" | jq -r '.enabled // false' 2>/dev/null)" = "true" ]; then
+    ok "IS already records CDS as enabled for '$TENANT'"
     return 0
   fi
+  code="$(isapi --max-time 180 -o "$LOG_DIR/enable-cds-is.json" -w '%{http_code}' -X PATCH \
+    -H 'Content-Type: application/json' -d '{"enabled": true}' "$MGMT_API/configs/cds")"
+  case "$code" in
+    200|204)
+      ok "enabled CDS through IS (PATCH /api/server/v1/configs/cds): IS and CDS both record it"
+      return 0
+      ;;
+  esac
+  warn "IS did not enable CDS (HTTP $code): $(cat "$LOG_DIR/enable-cds-is.json" 2>/dev/null)"
+  warn "IS needs \"Customer Data Service\" in [system_applications] read_only_apps - run 'down' and then 'up' to rewrite deployment.toml"
+  warn "enabling on the CDS side only"
+  return 1
+}
+
+enable_cds_for_org() {
+  step "Enabling CDS for '$TENANT'"
+  local token state body code via_is="0"
+  [ -n "${IS_HOME:-}" ] || IS_HOME="$(state_get IS_HOME)"
+  enable_cds_through_is && via_is="1"
+
+  token="$(cds_token)"
+  [ -n "$token" ] || die "could not get a token to call the CDS config API"
 
   # Admin surfaces see unfiltered profiles; regular applications get consent-filtered data.
   # In app_id mode CDS looks each entry up as an IS application ID; in
@@ -1358,18 +1554,38 @@ enable_cds_for_org() {
     console_ref="CONSOLE"
     cli_ref="${CLIENT_ID:-}"
   fi
-  body="$(jq -n --arg console "$console_ref" --arg cli "$cli_ref" \
-    '{cds_enabled: true, system_applications: ([$console, $cli] | map(select(. != "")))}')"
+  local apps
+  apps="$(jq -n --arg console "$console_ref" --arg cli "$cli_ref" '[$console, $cli] | map(select(. != ""))')"
+
+  state="$(curl -sk --max-time 30 -H "Authorization: Bearer $token" \
+    "$CDS_URL_LOCAL/t/$TENANT/cds/api/v1/config" 2>/dev/null || :)"
+  if [ "$(printf '%s' "$state" | jq -r '.cds_enabled // false' 2>/dev/null)" = "true" ] \
+     && printf '%s' "$state" | jq -e --argjson apps "$apps" \
+          '(.system_applications // []) as $have | all($apps[]; . as $a | any($have[]; . == $a))' >/dev/null 2>&1; then
+    ok "CDS records cds_enabled = true and the system applications for '$TENANT'"
+    return 0
+  fi
+
+  # Through IS, CDS is already enabled; only the system applications are left.
+  if [ "$via_is" = "1" ]; then
+    body="$(jq -n --argjson apps "$apps" '{system_applications: $apps}')"
+  else
+    body="$(jq -n --argjson apps "$apps" '{cds_enabled: true, system_applications: $apps}')"
+  fi
   code="$(curl -sk --max-time 120 -o "$LOG_DIR/enable-cds.json" -w '%{http_code}' \
     -X PATCH -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
     -d "$body" "$CDS_URL_LOCAL/t/$TENANT/cds/api/v1/config")"
   case "$code" in
     200|204)
-      ok "cds_enabled = true, initial profile-schema sync done, default consent category seeded"
+      if [ "$via_is" = "1" ]; then
+        ok "set the system applications in CDS (Console and '$CLIENT_APP_NAME')"
+      else
+        ok "cds_enabled = true, initial profile-schema sync done, default consent category seeded"
+      fi
       ;;
     *)
-      die "could not enable CDS for '$TENANT' (HTTP $code): $(cat "$LOG_DIR/enable-cds.json" 2>/dev/null)
-This runs the initial schema sync, so it fails when CDS cannot reach the IS claim APIs.
+      die "could not update the CDS configuration for '$TENANT' (HTTP $code): $(cat "$LOG_DIR/enable-cds.json" 2>/dev/null)
+Enabling CDS runs the initial schema sync, so it fails when CDS cannot reach the IS claim APIs.
 Check $LOG_DIR/cds.log."
       ;;
   esac
@@ -1432,13 +1648,22 @@ run_smoke_tests() {
     t_fail "issued token org_handle is '$org', expected '$TENANT' (CDS rejects JWTs without it)"
   fi
 
-  # 3. CDS is switched on for the organization.
-  local code
+  # 3. CDS is switched on for the organization, on both sides when IS has the
+  #    CDS configuration API.
+  local code is_conf
   if [ "$(curl -sk --max-time 30 -H "Authorization: Bearer $token" \
         "$CDS_URL_LOCAL/t/$TENANT/cds/api/v1/config" | jq -r '.cds_enabled // false')" = "true" ]; then
     t_pass "CDS is enabled for '$TENANT'"
   else
     t_fail "CDS is not enabled for '$TENANT'"
+  fi
+  is_conf="$(is_cds_config)"
+  if [ -n "$is_conf" ]; then
+    if [ "$(printf '%s' "$is_conf" | jq -r '.enabled // false')" = "true" ]; then
+      t_pass "IS records CDS as enabled for '$TENANT' (GET /api/server/v1/configs/cds)"
+    else
+      t_fail "IS reports CDS as disabled for '$TENANT' (GET /api/server/v1/configs/cds)"
+    fi
   fi
 
   # 4. An authorized CDS call: covers introspection and scope mapping.
@@ -1462,7 +1687,7 @@ run_smoke_tests() {
   test_is_to_cds_sync "$token"
 }
 
-# Covers the IS -> CDS direction end to end: the dropin bundles, the event
+# Covers the IS -> CDS direction end to end: the CDS bundles, the event
 # handler subscriptions and the shared Basic credentials.
 test_is_to_cds_sync() {
   local token="$1"
