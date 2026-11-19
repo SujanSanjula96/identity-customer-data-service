@@ -31,6 +31,7 @@ import (
 
 	profileModel "github.com/wso2/identity-customer-data-service/internal/profile/model"
 	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
+	schemaStore "github.com/wso2/identity-customer-data-service/internal/profile_schema/store"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
@@ -91,6 +92,8 @@ func workerRule(t *testing.T, db *sql.DB, id, property string, priority int, act
 		VALUES (?, 'org-id-tenant', ?, ?, 'string', 'combine', '', 'readWrite', 'identity_attributes')`,
 		id, property, property)
 	require.NoError(t, err)
+	// The row is written directly, so drop the cached schema that the store would not invalidate.
+	schemaStore.InvalidateProfileSchemaCache()
 	_, err = db.Exec(`INSERT INTO unification_rules
 		(rule_id, org_id, rule_name, property_name, property_id, priority, is_active)
 		VALUES (?, 'org-id-tenant', ?, ?, ?, ?, ?)`, id, id, property, id, priority, active)

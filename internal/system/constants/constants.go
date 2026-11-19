@@ -615,6 +615,12 @@ const (
 	// change rarely and every profile write reads them, so the trade is heavily one-sided.
 	UnificationRulesCacheTTL = 30 * time.Second
 
+	// ProfileSchemaCacheTTL bounds how long the schema attributes that an organization owns are
+	// reused. A write on this instance invalidates the entry of the organization immediately; the
+	// TTL only bounds how long another instance may serve the old attributes. It matches
+	// UnificationRulesCacheTTL, because a rule refers to a schema attribute.
+	ProfileSchemaCacheTTL = 30 * time.Second
+
 	// RarityLookupCacheTTL bounds how long a value's frequency is reused. Frequencies
 	// move slowly, and the count is only used to pick a band.
 	RarityLookupCacheTTL = 10 * time.Minute
