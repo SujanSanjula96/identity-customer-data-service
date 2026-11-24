@@ -1,0 +1,715 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  WSO2 Customer Data Service (CDS) performance test deployment. One to three CDS
+  nodes behind nginx, an ActiveMQ broker, a WSO2 Identity Server (IS) node, one
+  PostgreSQL RDS instance for CDS, one for IS, and a bastion node that runs
+  Apache JMeter. Follows the deployment patterns of wso2/performance-is.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Size
+        Parameters:
+          - DeploymentSize
+      - Label:
+          default: Access
+        Parameters:
+          - KeyPairName
+          - AllowedSshCidr
+          - UserTag
+      - Label:
+          default: CDS
+        Parameters:
+          - CDSNodeCount
+          - CDSInstanceType
+          - NginxInstanceType
+          - ActiveMQInstanceType
+      - Label:
+          default: Identity Server and load client
+        Parameters:
+          - ISNodeCount
+          - ISInstanceType
+          - BastionInstanceType
+      - Label:
+          default: Databases
+        Parameters:
+          - PostgresEngineVersion
+          - DBUsername
+          - CDSDBPassword
+          - CDSDBInstanceType
+          - CDSDBStorageGB
+          - CDSDBSnapshotId
+          - ISDBPassword
+          - ISDBInstanceType
+
+Parameters:
+  DeploymentSize:
+    Description: >-
+      performance: the instance types and classes below. smoke: small burstable
+      types for an end-to-end check of the wiring. A smoke stack ignores the instance type, instance class, and
+      storage parameters below. Do not use smoke results as performance data.
+    Type: String
+    Default: performance
+    AllowedValues: [performance, smoke]
+  KeyPairName:
+    Description: The EC2 key pair for SSH access to all nodes.
+    Type: AWS::EC2::KeyPair::KeyName
+  AllowedSshCidr:
+    Description: >-
+      The CIDR that can open SSH to the bastion node, for example the public IP
+      of the operator machine with /32. Do not use 0.0.0.0/0.
+    Type: String
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+    ConstraintDescription: Must be an IPv4 CIDR, for example 203.0.113.10/32.
+  UserTag:
+    Description: The value of the User tag on all resources.
+    Type: String
+    MinLength: 1
+  UbuntuAmiId:
+    Description: The Ubuntu 24.04 AMI. The default reads the current image from SSM.
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+  CDSNodeCount:
+    Description: The number of CDS nodes (deployment pattern).
+    Type: Number
+    AllowedValues: [1, 2, 3]
+    Default: 1
+  ISNodeCount:
+    Description: >-
+      The number of Identity Server nodes. With 2 nodes, IS runs as a cluster,
+      and nginx balances the requests to IS.
+    Type: Number
+    AllowedValues: [1, 2]
+    Default: 1
+  CDSInstanceType:
+    Description: The instance type of each CDS node.
+    Type: String
+    Default: c6i.large
+    AllowedValues: [c6i.large, c6i.xlarge, c6i.2xlarge]
+  NginxInstanceType:
+    Description: The instance type of the nginx load balancer node.
+    Type: String
+    Default: c6i.xlarge
+    AllowedValues: [c6i.large, c6i.xlarge, c6i.2xlarge]
+  ActiveMQInstanceType:
+    Description: The instance type of the ActiveMQ node.
+    Type: String
+    Default: c6i.large
+    AllowedValues: [c6i.large, c6i.xlarge]
+  ISInstanceType:
+    Description: The instance type of the Identity Server node.
+    Type: String
+    Default: c6i.xlarge
+    AllowedValues: [c6i.xlarge, c6i.2xlarge, c6i.4xlarge]
+  BastionInstanceType:
+    Description: The instance type of the bastion node, which runs JMeter.
+    Type: String
+    Default: c6i.xlarge
+    AllowedValues: [c6i.xlarge, c6i.2xlarge]
+  PostgresEngineVersion:
+    Description: The PostgreSQL major version for both RDS instances.
+    Type: String
+    Default: '16'
+    AllowedValues: ['15', '16', '17']
+  DBUsername:
+    Description: The master user of both RDS instances.
+    Type: String
+    Default: perfadmin
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]{1,15}$'
+  CDSDBPassword:
+    Description: The master password of the CDS RDS instance.
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    AllowedPattern: '^[a-zA-Z0-9]+$'
+  CDSDBInstanceType:
+    Description: The instance class of the CDS RDS instance.
+    Type: String
+    Default: db.m6i.xlarge
+    AllowedValues: [db.m6i.large, db.m6i.xlarge, db.m6i.2xlarge]
+  CDSDBStorageGB:
+    Description: The gp3 storage of the CDS RDS instance in GB. Use 100 or more.
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 1000
+  CDSDBSnapshotId:
+    Description: >-
+      Optional. A DB snapshot with a loaded data set. Empty
+      means an empty database.
+    Type: String
+    Default: ''
+  ISDBPassword:
+    Description: The master password of the IS RDS instance.
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    AllowedPattern: '^[a-zA-Z0-9]+$'
+  ISDBInstanceType:
+    Description: The instance class of the IS RDS instance.
+    Type: String
+    Default: db.m6i.large
+    AllowedValues: [db.m6i.large, db.m6i.xlarge, db.m6i.2xlarge]
+
+Conditions:
+  IsSmoke: !Equals [!Ref DeploymentSize, smoke]
+  HasCDSNode2: !Not [!Equals [!Ref CDSNodeCount, 1]]
+  HasCDSNode3: !Equals [!Ref CDSNodeCount, 3]
+  HasISNode2: !Equals [!Ref ISNodeCount, 2]
+  UseCDSDBSnapshot: !Not [!Equals [!Ref CDSDBSnapshotId, '']]
+
+Resources:
+  # ------------------------------------------------------------------------ #
+  # Network
+  # ------------------------------------------------------------------------ #
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-vpc'}
+        - {Key: User, Value: !Ref UserTag}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # The bastion node and the NAT gateway.
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.254.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-public'}
+        - {Key: User, Value: !Ref UserTag}
+
+  # All test nodes and both RDS instances. One availability zone, so that the
+  # network latency between the nodes is low and does not change between runs.
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-1'}
+        - {Key: User, Value: !Ref UserTag}
+
+  # Not used by a node. An RDS subnet group must cover two availability zones.
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-2'}
+        - {Key: User, Value: !Ref UserTag}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  # The private nodes download packages (apt, ActiveMQ, the JDBC driver) through
+  # this gateway.
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ------------------------------------------------------------------------ #
+  # Security groups
+  # ------------------------------------------------------------------------ #
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH to the bastion node from the operator only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSshCidr
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  # All test nodes. Open between the members and from the bastion node only.
+  InternalSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Traffic between the test nodes, and from the bastion node
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  InternalSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref InternalSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref InternalSecurityGroup
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PostgreSQL from the test nodes and the bastion node
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref InternalSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  # ------------------------------------------------------------------------ #
+  # Databases
+  # ------------------------------------------------------------------------ #
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets of the CDS performance test
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  # 3 CDS nodes x 100 pooled connections, the IS-side tools, and psql.
+  CDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: CDS performance test parameters
+      Family: !Sub 'postgres${PostgresEngineVersion}'
+      Parameters:
+        max_connections: '500'
+        log_min_duration_statement: '1000'
+        track_io_timing: '1'
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  CDSDBInstance:
+    Type: AWS::RDS::DBInstance
+    # The start script makes a new random password for each run and passes it
+    # as a NoEcho parameter. The stack lives for one run only, so a Secrets
+    # Manager secret adds no protection here.
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W1011]
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceClass: !If [IsSmoke, db.t4g.small, !Ref CDSDBInstanceType]
+      Engine: postgres
+      EngineVersion: !Ref PostgresEngineVersion
+      DBSnapshotIdentifier: !If [UseCDSDBSnapshot, !Ref CDSDBSnapshotId, !Ref 'AWS::NoValue']
+      DBName: !If [UseCDSDBSnapshot, !Ref 'AWS::NoValue', cds_db]
+      MasterUsername: !If [UseCDSDBSnapshot, !Ref 'AWS::NoValue', !Ref DBUsername]
+      MasterUserPassword: !Ref CDSDBPassword
+      AllocatedStorage: !If [IsSmoke, 20, !Ref CDSDBStorageGB]
+      StorageType: gp3
+      DBParameterGroupName: !Ref CDSDBParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      # The small classes of a smoke stack do not need Performance Insights.
+      EnablePerformanceInsights: !If [IsSmoke, false, true]
+      PerformanceInsightsRetentionPeriod: !If [IsSmoke, !Ref 'AWS::NoValue', 7]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-cds-db'}
+        - {Key: User, Value: !Ref UserTag}
+
+  # The IS pools are the same as in performance-is (maxActive 1500 each). The
+  # default max_connections of db.m6i.large is about 900, so set it higher.
+  ISDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: IS database parameters for the CDS performance test
+      Family: !Sub 'postgres${PostgresEngineVersion}'
+      Parameters:
+        max_connections: '1500'
+      Tags:
+        - {Key: User, Value: !Ref UserTag}
+
+  ISDBInstance:
+    Type: AWS::RDS::DBInstance
+    # The start script makes a new random password for each run and passes it
+    # as a NoEcho parameter. The stack lives for one run only, so a Secrets
+    # Manager secret adds no protection here.
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W1011]
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceClass: !If [IsSmoke, db.t4g.small, !Ref ISDBInstanceType]
+      Engine: postgres
+      EngineVersion: !Ref PostgresEngineVersion
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref ISDBPassword
+      AllocatedStorage: !If [IsSmoke, 20, 50]
+      StorageType: gp3
+      DBParameterGroupName: !Ref ISDBParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      # The small classes of a smoke stack do not need Performance Insights.
+      EnablePerformanceInsights: !If [IsSmoke, false, true]
+      PerformanceInsightsRetentionPeriod: !If [IsSmoke, !Ref 'AWS::NoValue', 7]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-is-db'}
+        - {Key: User, Value: !Ref UserTag}
+
+  # ------------------------------------------------------------------------ #
+  # Nodes
+  # ------------------------------------------------------------------------ #
+  # The bastion node runs JMeter, as in performance-is. It is the only node with
+  # a public IP. The setup scripts reach the other nodes through the bastion node.
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.medium, !Ref BastionInstanceType]
+      KeyName: !Ref KeyPairName
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 50, VolumeType: gp3, DeleteOnTermination: true}
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref PublicSubnet
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref BastionSecurityGroup
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-bastion-jmeter'}
+        - {Key: Role, Value: bastion}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq openjdk-21-jdk-headless postgresql-client jq unzip zip sysstat python3 curl
+          systemctl enable --now sysstat || true
+
+  NginxInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [PublicRoute, PrivateRoute]
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.small, !Ref NginxInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 20, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nginx'}
+        - {Key: Role, Value: nginx}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq nginx sysstat
+          systemctl enable --now sysstat || true
+
+  ISInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.large, !Ref ISInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 30, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-wso2is'}
+        - {Key: Role, Value: wso2is}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq openjdk-21-jdk-headless postgresql-client jq unzip sysstat curl
+          systemctl enable --now sysstat || true
+
+  ISNode2Instance:
+    Type: AWS::EC2::Instance
+    Condition: HasISNode2
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.large, !Ref ISInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 30, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-wso2is-2'}
+        - {Key: Role, Value: wso2is}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq openjdk-21-jdk-headless postgresql-client jq unzip sysstat curl
+          systemctl enable --now sysstat || true
+
+  ActiveMQInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.medium, !Ref ActiveMQInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 30, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-activemq'}
+        - {Key: Role, Value: activemq}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq openjdk-21-jre-headless sysstat curl
+          systemctl enable --now sysstat || true
+
+  CDSNode1Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.small, !Ref CDSInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 20, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-cds-1'}
+        - {Key: Role, Value: cds}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq sysstat curl
+          systemctl enable --now sysstat || true
+
+  CDSNode2Instance:
+    Type: AWS::EC2::Instance
+    Condition: HasCDSNode2
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.small, !Ref CDSInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 20, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-cds-2'}
+        - {Key: Role, Value: cds}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq sysstat curl
+          systemctl enable --now sysstat || true
+
+  CDSNode3Instance:
+    Type: AWS::EC2::Instance
+    Condition: HasCDSNode3
+    DependsOn: PrivateRoute
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !If [IsSmoke, t3.small, !Ref CDSInstanceType]
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref InternalSecurityGroup
+      PropagateTagsToVolumeOnCreation: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeSize: 20, VolumeType: gp3, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-cds-3'}
+        - {Key: Role, Value: cds}
+        - {Key: User, Value: !Ref UserTag}
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -yq sysstat curl
+          systemctl enable --now sysstat || true
+
+Outputs:
+  BastionPublicIp:
+    Description: The public IP of the bastion (JMeter) node
+    Value: !GetAtt BastionInstance.PublicIp
+  BastionPrivateIp:
+    Description: The private IP of the bastion (JMeter) node
+    Value: !GetAtt BastionInstance.PrivateIp
+  NginxPrivateIp:
+    Description: The private IP of the nginx load balancer
+    Value: !GetAtt NginxInstance.PrivateIp
+  ISPrivateIp:
+    Description: The private IP of the first Identity Server node
+    Value: !GetAtt ISInstance.PrivateIp
+  ISNode2PrivateIp:
+    Condition: HasISNode2
+    Description: The private IP of the second Identity Server node
+    Value: !GetAtt ISNode2Instance.PrivateIp
+  ActiveMQPrivateIp:
+    Description: The private IP of the ActiveMQ node
+    Value: !GetAtt ActiveMQInstance.PrivateIp
+  CDSNode1PrivateIp:
+    Description: The private IP of CDS node 1
+    Value: !GetAtt CDSNode1Instance.PrivateIp
+  CDSNode2PrivateIp:
+    Condition: HasCDSNode2
+    Description: The private IP of CDS node 2
+    Value: !GetAtt CDSNode2Instance.PrivateIp
+  CDSNode3PrivateIp:
+    Condition: HasCDSNode3
+    Description: The private IP of CDS node 3
+    Value: !GetAtt CDSNode3Instance.PrivateIp
+  CDSDBEndpoint:
+    Description: The endpoint of the CDS RDS instance
+    Value: !GetAtt CDSDBInstance.Endpoint.Address
+  CDSDBInstanceId:
+    Description: The identifier of the CDS RDS instance, for a snapshot
+    Value: !Ref CDSDBInstance
+  ISDBEndpoint:
+    Description: The endpoint of the IS RDS instance
+    Value: !GetAtt ISDBInstance.Endpoint.Address

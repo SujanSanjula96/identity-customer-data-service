@@ -1,0 +1,198 @@
+# WSO2 Identity Server configuration for the CDS performance tests.
+#
+# Copied from wso2/performance-is, single-node/setup/resources/deployment.toml
+# (commit 31b79a4), with the PostgreSQL values that its update-is-conf.sh puts
+# in. Thus IS has the same settings as in the IS performance tests.
+#
+# Changes from performance-is, and the reasons:
+#   - hostname: the name that CDS uses. CDS checks the host name of IS.
+#   - The admin password and the database credentials come from this run
+#     (random values), not wso2carbon.
+#   - No product default secret: a new primary key for each stack, new key store and trust store
+#     passwords, a new symmetric encryption key, a new app_password for the
+#     authentication endpoints, and no SOAP admin services.
+#   - [keystore.tls]: a certificate from the test CA with the IS host name.
+#   - [datasource.AgentIdentity]: on PostgreSQL (AGENT_IDENTITY_DB) with the IS
+#     database user, not on the H2 file of the pack with user wso2carbon.
+#
+# setup-is.sh fills the placeholders and appends the CDS section from
+# scripts/local-setup/templates/is-deployment.toml.
+
+[server]
+hostname = "${IS_HOSTNAME}"
+node_ip = "${IS_NODE_IP}"
+base_path = "https://$ref{server.hostname}:${carbon.management.port}"
+enable_admin_services = false
+
+[super_admin]
+username = "admin"
+password = "${IS_ADMIN_PASS}"
+create_admin_account = true
+
+[user_store]
+type = "database_unique_id"
+[user_store.properties]
+CaseInsensitiveUsername = "false"
+CaseInsensitiveAttributes = "false"
+UseCaseSensitiveUsernameForCacheKeys = false
+SCIMEnabled = true
+IsBulkImportSupported = false
+
+[realm_manager]
+data_source = "WSO2USER_DB"
+
+[database.identity_db]
+driver = "org.postgresql.Driver"
+url = "jdbc:postgresql://${IS_DB_HOST}:5432/IDENTITY_DB"
+validation_query = "SELECT 1"
+username = "${IS_DB_USER}"
+password = "${IS_DB_PASS}"
+[database.identity_db.pool_options]
+maxActive = "1500"
+defaultAutoCommit = false
+testOnBorrow = true
+testWhileIdle = true
+validationInterval = "30000"
+maxWait = "60000"
+minIdle = "5"
+validationQueryTimeout = "1"
+commitOnReturn = false
+
+[database.shared_db]
+driver = "org.postgresql.Driver"
+url = "jdbc:postgresql://${IS_DB_HOST}:5432/REG_DB"
+validation_query = "SELECT 1"
+username = "${IS_DB_USER}"
+password = "${IS_DB_PASS}"
+[database.shared_db.pool_options]
+maxActive = "1500"
+defaultAutoCommit = false
+testOnBorrow = true
+testWhileIdle = true
+validationInterval = "30000"
+maxWait = "60000"
+minIdle = "5"
+validationQueryTimeout = "1"
+commitOnReturn = false
+
+[database.user]
+driver = "org.postgresql.Driver"
+url = "jdbc:postgresql://${IS_DB_HOST}:5432/UM_DB"
+validation_query = "SELECT 1"
+username = "${IS_DB_USER}"
+password = "${IS_DB_PASS}"
+[database.user.pool_options]
+maxActive = "1500"
+defaultAutoCommit = false
+testOnBorrow = true
+testWhileIdle = true
+validationInterval = "30000"
+maxWait = "60000"
+minIdle = "5"
+validationQueryTimeout = "1"
+commitOnReturn = false
+
+# performance-is puts SESSION_DB on its own RDS instance. Here it is on the IS
+# RDS instance: the CDS tests use no browser sessions.
+[session]
+data_source = "jdbc/WSO2SessionDB"
+
+[datasource.WSO2SessionDB]
+id = "WSO2SessionDB"
+url = "jdbc:postgresql://${IS_DB_HOST}:5432/SESSION_DB"
+username = "${IS_DB_USER}"
+password = "${IS_DB_PASS}"
+driver = "org.postgresql.Driver"
+jmxEnabled = false
+[datasource.WSO2SessionDB.pool_options]
+maxActive = "1500"
+defaultAutoCommit = false
+testOnBorrow = true
+testWhileIdle = true
+validationInterval = "30000"
+maxWait = "60000"
+minIdle = "5"
+validationQueryTimeout = "1"
+commitOnReturn = false
+
+[datasource.AgentIdentity]
+id = "AgentIdentity"
+url = "jdbc:postgresql://${IS_DB_HOST}:5432/AGENT_IDENTITY_DB"
+username = "${IS_DB_USER}"
+password = "${IS_DB_PASS}"
+driver = "org.postgresql.Driver"
+jmxEnabled = false
+[datasource.AgentIdentity.pool_options]
+maxActive = "50"
+defaultAutoCommit = false
+testOnBorrow = true
+testWhileIdle = true
+validationQuery = "SELECT 1"
+validationInterval = "30000"
+maxWait = "60000"
+minIdle = "1"
+validationQueryTimeout = "1"
+commitOnReturn = false
+
+[transport.https.properties]
+maxThreads = "750"
+acceptCount = "750"
+
+[authentication.consent]
+prompt = true
+
+[admin_service]
+wsdl.enable = false
+
+# The primary key of this stack (not the public default key of the pack). It
+# signs the tokens.
+[keystore.primary]
+file_name = "perf-primary.p12"
+password = "${IS_KEYSTORE_PASS}"
+type = "PKCS12"
+alias = "perf-primary"
+key_password = "${IS_KEYSTORE_PASS}"
+
+[keystore.internal]
+file_name = "perf-primary.p12"
+password = "${IS_KEYSTORE_PASS}"
+type = "PKCS12"
+alias = "perf-primary"
+key_password = "${IS_KEYSTORE_PASS}"
+
+# The TLS certificate of IS comes from the test CA and has the host name that
+# CDS uses.
+[keystore.tls]
+file_name = "perf-tls.p12"
+type = "PKCS12"
+password = "${IS_KEYSTORE_PASS}"
+alias = "perf-tls"
+key_password = "${IS_KEYSTORE_PASS}"
+
+[truststore]
+file_name = "client-truststore.p12"
+password = "${IS_KEYSTORE_PASS}"
+type = "PKCS12"
+
+# The symmetric key that encrypts the secrets in the IS database (32 hex
+# characters). The default key of the pack is public.
+[encryption]
+key = "${IS_ENCRYPTION_KEY}"
+
+# The hash is the SHA-256 of app_password. The pack defaults are public.
+[account_recovery.endpoint.auth]
+hash = "${IS_APP_PASS_HASH}"
+
+[identity.auth_framework.endpoint]
+app_password = "${IS_APP_PASS}"
+
+[oauth.grant_type.jwt]
+iat_validity_period = 1440
+
+[[oauth.custom_grant_type]]
+name = "urn:ietf:params:oauth:grant-type:token-exchange"
+grant_handler = "org.wso2.carbon.identity.oauth2.grant.token.exchange.TokenExchangeGrantHandler"
+grant_validator = "org.wso2.carbon.identity.oauth2.grant.token.exchange.TokenExchangeGrantValidator"
+[oauth.custom_grant_type.properties]
+IdTokenAllowed = true
+IATValidityPeriod = "86400"

@@ -1,0 +1,109 @@
+# CDS configuration for the AWS performance test deployment. setup-cds.sh
+# copies this file to <CDS_HOME>/repository/conf/deployment.yaml and appends
+# the required_scopes block of config/repository/conf/deployment.yaml.
+#
+# CDS expands the placeholders from the environment when it loads the file.
+# The values come from /etc/cds/cds.env (mode 600), so no secret is in this file.
+# Keep this file in step with config/repository/conf/deployment.yaml.
+
+env: perf
+
+log:
+  log_level: "${CDS_LOG_LEVEL}"
+
+cache:
+  enabled: true
+  default_cache_timeout: 15
+
+auth:
+  cors_allowed_origins:
+    - "${IS_BASE}"
+    - "${CDS_BASE}"
+
+addr:
+  host: "0.0.0.0"
+  port: ${CDS_PORT}
+
+server_url: "${CDS_BASE}"
+
+idp:
+  type: "wso2is"
+  # Seals the credentials that IS sends for each organization when it enables
+  # CDS (docs/guides/on-prem-installation.md of CDS). A random key for each run.
+  service_credentials:
+    encryption_key: "${SERVICE_CREDENTIALS_ENCRYPTION_KEY}"
+    introspection_auth: "bearer_token"
+
+organization_management:
+  enabled: true
+
+sync:
+  schema:
+    enabled: true
+    interval: 3600
+
+cleanup:
+  cookie:
+    enabled: true
+    interval: 86400
+    batch_size: 500
+
+shutdown:
+  grace_period_seconds: 25
+
+# All deployment patterns use ActiveMQ, also the single node.
+message_queue:
+  type: "activemq"
+  broker:
+    addr: "${BROKER_ADDR}"
+    username: "${BROKER_USER}"
+    password: "${BROKER_PASSWORD}"
+    profile_queue_name: "/queue/cds-profile-unification"
+    schema_sync_queue_name: "/queue/cds-schema-sync"
+
+datasource:
+  type: postgres
+  hostname: "${PG_HOST}"
+  port: 5432
+  username: "${PG_USER}"
+  password: "${DB_PASSWORD}"
+  name: "${PG_DB}"
+  sslmode: require
+  postgres:
+    max_open_conns: 100
+    max_idle_conns: 25
+
+# The CDS server does not request a client certificate. mtls_enabled applies
+# only to the calls from CDS to IS, and IS does not need a client certificate.
+tls:
+  mtls_enabled: false
+  cert_dir: "${CDS_CERT_DIR}"
+  server_cert: "server.crt"
+  server_key: "server.key"
+  trust_store: "trust_store.pem"
+
+identity_resolution:
+  allow_evidence_strength_override: false
+  fuzzy_matching_enabled: ${CDS_FUZZY_MATCHING}
+
+# Must match [console.extensions] cds_application_identifier_type in the IS
+# configuration.
+application_identifier_type: app_id
+
+# required_scopes comes last, so that the appended block is inside auth_server.
+auth_server:
+  host: "${IS_HOST}"
+  port: ${IS_PORT}
+  adu_is_hostname: "${IS_HOST}"
+  cookieDomain: "${IS_HOST}"
+  introspectionEndpoint: "/oauth2/introspect"
+  tokenEndpoint: "/oauth2/token"
+  revocationEndpoint: "/oauth2/revoke"
+  claimsEndpoint: "api/server/v1/claim-dialects"
+  isSystemAppGrantEnabled: false
+  client_id: "${CDS_SYS_CLIENT_ID}"
+  client_secret: "${AUTH_SERVER_CLIENT_SECRET}"
+  introspection_client_id: "${CDS_SYS_CLIENT_ID}"
+  introspection_client_secret: "${INTROSPECTION_CLIENT_SECRET}"
+  admin_username: "${CDS_SYNC_USER}"
+  admin_password: "${AUTH_SERVER_ADMIN_PASSWORD}"

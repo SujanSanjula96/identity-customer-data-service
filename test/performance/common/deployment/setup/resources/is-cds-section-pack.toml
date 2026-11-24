@@ -1,0 +1,31 @@
+${TOML_BEGIN}
+# The CDS section for an IS pack that has the CDS integration in it. The pack has the CDS bundles in
+# repository/components/plugins, and "[customer_data_service] enable = true"
+# adds the event handlers, the CDS API resources and scopes, and the Console
+# settings (repository/resources/conf/infer.json and
+# system-api-resource.xml.j2). Thus this section has only the values that a
+# deployment must give, as in docs/guides/on-prem-installation.md of CDS.
+#
+# The pack also sets system_applications.read_only_apps, and CDS introspects
+# with the service credentials of each organization (bearer_token), so this
+# section has no [system_applications] and no access rule for introspect.
+#
+# start-performance.sh uses this file in place of
+# scripts/local-setup/templates/is-deployment.toml when the pack has the CDS
+# bundles. setup-is.sh fills the placeholders.
+
+# admin_username and admin_password are the Basic auth credentials that IS
+# sends to the CDS sync endpoints. They must match auth_server.admin_* in the
+# CDS deployment.yaml.
+[customer_data_service]
+enable = true
+server_url = "${CDS_BASE}"
+admin_username = "${CDS_SYNC_USER}"
+admin_password = "${CDS_SYNC_PASS}"
+
+[cors]
+allowed_origins = ["${IS_BASE}", "${CDS_BASE}"]
+supported_methods = ["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"]
+exposed_headers = ["Location"]
+
+${TOML_END}

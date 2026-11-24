@@ -1,0 +1,7 @@
+results/
+# The run directory of an AWS run holds the secrets, keys, and certificates of the run.
+aws-run-*/
+deployment.env
+*.deployment.env
+.DS_Store
+__pycache__/
