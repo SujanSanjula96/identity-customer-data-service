@@ -32,6 +32,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/client"
@@ -49,10 +50,12 @@ var (
 )
 
 // SetTestDB installs a database handle used by every subsequent GetDBClient
-// call, bypassing the configured datasource.
+// call, bypassing the configured datasource. The rows that the caches hold
+// came from the previous database, so it clears every cache.
 func SetTestDB(db *sql.DB, dbType string) {
 	testDBOverride = db
 	testDBTypeOverride = dbType
+	cache.ClearAll()
 }
 
 // The process holds one pool per datasource, opened on first use and kept open.

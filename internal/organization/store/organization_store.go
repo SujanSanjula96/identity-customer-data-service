@@ -45,6 +45,56 @@ var refs = cache.NewCache(refCacheTTL)
 // refsByID caches LookupOrganizationRefByID by org ID, as refs does by org handle.
 var refsByID = cache.NewCache(refCacheTTL)
 
+// orgRowCacheTTL bounds how long a node uses an organization row after the row changes on another node. A
+// change on this node clears the row at once. Each request reads the organization row several times, and
+// the row changes rarely, so a short TTL removes almost all of these reads.
+const orgRowCacheTTL = 30 * time.Second
+
+// orgsByID and orgsByHandle cache the stored organization rows of GetOrganizationByID and
+// GetOrganizationByHandle. They hold only stored organizations, so that a row that another node stores is
+// found on the next read.
+var (
+	orgsByID     = cache.NewCache(orgRowCacheTTL)
+	orgsByHandle = cache.NewCache(orgRowCacheTTL)
+)
+
+// forgetOrganization clears the cached rows and references of the organization on this node.
+func forgetOrganization(orgID, orgHandle string) {
+	if orgHandle == "" {
+		if value, ok := orgsByID.Get(orgID); ok {
+			if org, ok := value.(model.Organization); ok {
+				orgHandle = org.OrgHandle
+			}
+		}
+	}
+	orgsByID.Delete(orgID)
+	refsByID.Delete(orgID)
+	if orgHandle != "" {
+		orgsByHandle.Delete(orgHandle)
+		refs.Delete(orgHandle)
+	} else {
+		// The handle is not known: clear all rows by handle. Organization changes are rare.
+		orgsByHandle.Clear()
+	}
+}
+
+// getCachedOne returns the organization row from the cache, or reads it and caches a stored row.
+func getCachedOne(ctx context.Context, rowCache *cache.Cache, query dbmodel.DBQuery, arg string) (
+	*model.Organization, error) {
+	if value, ok := rowCache.Get(arg); ok {
+		if org, ok := value.(model.Organization); ok {
+			return &org, nil
+		}
+	}
+	org, err := getOne(ctx, query, arg)
+	if err != nil || org == nil {
+		return org, err
+	}
+	// The cache holds a copy, so that a caller that changes the returned row does not change the cache.
+	rowCache.Set(arg, *org)
+	return org, nil
+}
+
 func serverError(description string, err error) error {
 	return errors2.NewServerError(errors2.ErrorMessage{
 		Code:        errors2.OrganizationStore.Code,
@@ -70,8 +120,9 @@ func UpsertOrganization(ctx context.Context, org model.Organization) error {
 	if err != nil {
 		return serverError(fmt.Sprintf("Failed to store the organization: %s", org.OrgID), err)
 	}
-	refs.Delete(org.OrgHandle)
-	refsByID.Delete(org.OrgID)
+	forgetOrganization(org.OrgID, org.OrgHandle)
+	// The handle of the organization can change: clear the row of the previous handle too.
+	orgsByHandle.Clear()
 	return nil
 }
 
@@ -81,7 +132,7 @@ func GetOrganizationByID(ctx context.Context, orgID string) (*model.Organization
 	if !config.OrganizationManagementEnabled() {
 		return nil, nil
 	}
-	return getOne(ctx, scripts.GetOrganizationByID, orgID)
+	return getCachedOne(ctx, orgsByID, scripts.GetOrganizationByID, orgID)
 }
 
 // GetOrganizationByHandle returns the organization, or nil when it is not stored or organization
@@ -90,7 +141,7 @@ func GetOrganizationByHandle(ctx context.Context, orgHandle string) (*model.Orga
 	if !config.OrganizationManagementEnabled() {
 		return nil, nil
 	}
-	return getOne(ctx, scripts.GetOrganizationByHandle, orgHandle)
+	return getCachedOne(ctx, orgsByHandle, scripts.GetOrganizationByHandle, orgHandle)
 }
 
 // LookupOrganizationRef returns the org ID and the org handle of the stored organization. found is
@@ -256,6 +307,7 @@ func UpdateOrganizationStatus(ctx context.Context, orgID, status string) error {
 		orgID); err != nil {
 		return serverError(fmt.Sprintf("Failed to update the status of organization: %s", orgID), err)
 	}
+	forgetOrganization(orgID, "")
 	return nil
 }
 

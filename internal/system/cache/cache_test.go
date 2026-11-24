@@ -121,3 +121,18 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 		<-done
 	}
 }
+
+func TestClearAllClearsEveryCache(t *testing.T) {
+	first, second := NewCache(time.Minute), NewCache(time.Minute)
+	first.Set("a", 1)
+	second.Set("b", 2)
+
+	ClearAll()
+
+	if _, found := first.Get("a"); found {
+		t.Error("the first cache still holds its entry")
+	}
+	if _, found := second.Get("b"); found {
+		t.Error("the second cache still holds its entry")
+	}
+}

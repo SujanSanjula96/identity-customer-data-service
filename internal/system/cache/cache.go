@@ -47,12 +47,33 @@ type Cache struct {
 // initialSweepThreshold is the entry count at which a cache first sweeps expired items.
 const initialSweepThreshold = 1024
 
+// registry holds every cache that NewCache made, so that ClearAll can reach them.
+var (
+	registryMu sync.Mutex
+	registry   []*Cache
+)
+
 // NewCache creates a new cache with a TTL (time-to-live)
 func NewCache(defaultTTL time.Duration) *Cache {
-	return &Cache{
+	c := &Cache{
 		items:   make(map[string]CacheItem),
 		ttl:     defaultTTL,
 		sweepAt: initialSweepThreshold,
+	}
+	registryMu.Lock()
+	registry = append(registry, c)
+	registryMu.Unlock()
+	return c
+}
+
+// ClearAll removes every entry of every cache. A switch to another database makes every cached row
+// invalid, so the test hook that switches the database calls it.
+func ClearAll() {
+	registryMu.Lock()
+	caches := append([]*Cache(nil), registry...)
+	registryMu.Unlock()
+	for _, c := range caches {
+		c.Clear()
 	}
 }
 
