@@ -20,6 +20,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -495,4 +496,77 @@ func TestGetAllProfilesCursorListsMastersNotMergedProfiles(t *testing.T) {
 	require.Len(t, page, 1)
 	assert.Equal(t, master.ProfileID, page[0].ProfileID)
 	require.Len(t, page[0].MergedFrom, 1)
+}
+
+// requireSameAsRead checks that a response built after a write is the same JSON as a read of the profile.
+func (e *profileEnv) requireSameAsRead(t *testing.T, written *profileModel.ProfileResponse, profileID string) {
+	t.Helper()
+	read, err := e.svc.GetProfile(e.ctx, profileID, e.orgID)
+	require.NoError(t, err)
+	writtenJSON, err := json.Marshal(written)
+	require.NoError(t, err)
+	readJSON, err := json.Marshal(read)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(readJSON), string(writtenJSON))
+}
+
+func TestTheResponseOfAWriteIsTheSameAsARead(t *testing.T) {
+	env := newProfileEnv(t)
+	env.seedSchemaForApp(t, "app-1")
+	env.seedSchemaForApp(t, "app-2")
+
+	created := env.create(t, profileModel.ProfileRequest{
+		UserID:             "u-1",
+		IdentityAttributes: map[string]interface{}{"email": "a@b.c"},
+		Traits:             map[string]interface{}{"city": "Colombo", "age": 30},
+		ApplicationData:    map[string]interface{}{"app-1": map[string]interface{}{"theme": "dark"}},
+	})
+	env.requireSameAsRead(t, created, created.ProfileID)
+	assert.Equal(t, float64(30), created.Traits["age"], "the values have the types that a read gives")
+
+	plain := env.create(t, profileModel.ProfileRequest{})
+	env.requireSameAsRead(t, plain, plain.ProfileID)
+
+	env.addChild(t, created.ProfileID, "child-1")
+
+	// The application data of the update is merged with the stored data of the other application.
+	updated, err := env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfileRequest{
+		UserID:          "u-1",
+		Traits:          map[string]interface{}{"city": "Kandy"},
+		ApplicationData: map[string]interface{}{"app-2": map[string]interface{}{"theme": "light"}},
+	})
+	require.NoError(t, err)
+	env.requireSameAsRead(t, updated, created.ProfileID)
+	assert.Len(t, updated.ApplicationData, 2)
+	require.Len(t, updated.MergedFrom, 1, "the references of the master are in the response")
+
+	noAppData, err := env.svc.UpdateProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfileRequest{
+		UserID: "u-1",
+		Traits: map[string]interface{}{"city": "Galle"},
+	})
+	require.NoError(t, err)
+	env.requireSameAsRead(t, noAppData, created.ProfileID)
+	assert.Len(t, noAppData.ApplicationData, 2, "the stored application data stays")
+
+	// An update of a child profile writes the master, and the response is the child as a read gives it.
+	childUpdate, err := env.svc.UpdateProfile(env.ctx, "child-1", env.orgID, profileModel.ProfileRequest{
+		UserID: "u-1",
+		Traits: map[string]interface{}{"city": "Jaffna"},
+	})
+	require.NoError(t, err)
+	env.requireSameAsRead(t, childUpdate, "child-1")
+	require.NotNil(t, childUpdate.MergedTo)
+
+	patched, err := env.svc.PatchProfile(env.ctx, "child-1", env.orgID, map[string]interface{}{
+		"traits": map[string]interface{}{"tier": "gold"},
+	})
+	require.NoError(t, err)
+	env.requireSameAsRead(t, patched, "child-1")
+	assert.Equal(t, "Jaffna", patched.Traits["city"], "a patch of a child keeps the data of the master")
+
+	patchedMaster, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
+		"application_data": map[string]interface{}{"app-1": map[string]interface{}{"theme": "blue"}},
+	})
+	require.NoError(t, err)
+	env.requireSameAsRead(t, patchedMaster, created.ProfileID)
 }

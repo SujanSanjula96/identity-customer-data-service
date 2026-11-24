@@ -180,7 +180,9 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	}
 
 	// convert profile request to model
-	createdTime := time.Now().UTC()
+	// The databases keep microseconds, so the time is cut to microseconds here. The response is built
+	// from this value and must match a later read.
+	createdTime := time.Now().UTC().Truncate(time.Microsecond)
 	profileID := uuid.New().String()
 	appData, err := ConvertAppData(profileRequest.ApplicationData)
 	if err != nil {
@@ -205,10 +207,12 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 		logger.Debug(fmt.Sprintf("Error inserting profile: %s", profile.ProfileID), log.Error(err))
 		return nil, err
 	}
-	profileFetched, errWait := ps.GetProfile(ctx, profileID, orgID)
-	if errWait != nil || profileFetched == nil {
-		logger.Warn(fmt.Sprintf("Profile: %s not available after insertion: %v", profile.ProfileID, errWait))
-		return nil, errWait
+	// The response is built from the profile that was written: a new profile has no references, and
+	// its application data is read only when the request had some.
+	profileFetched, err := writtenProfileResponse(ctx, orgID, profile, profile, nil, false)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Profile: %s not available after insertion: %v", profile.ProfileID, err))
+		return nil, err
 	}
 
 	queue := &workers.ProfileWorkerQueue{}
@@ -873,7 +877,9 @@ func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, 
 	}
 
 	var profileToUpDate profileModel.Profile
-	updatedTime := time.Now().UTC()
+	// Cut to microseconds, as the databases keep them; the response is built from this value.
+	updatedTime := time.Now().UTC().Truncate(time.Microsecond)
+	var storedAppData []profileModel.ApplicationData
 	appData, err := ConvertAppData(updatedProfile.ApplicationData)
 	if err != nil {
 		return nil, err
@@ -891,6 +897,7 @@ func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, 
 			CreatedAt:          profile.CreatedAt,
 			ProfileStatus:      profile.ProfileStatus,
 		}
+		storedAppData = profile.ApplicationData
 	} else {
 		// If it is a child profile, we need to update the master profile
 		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileID, orgID)
@@ -916,6 +923,7 @@ func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, 
 			CreatedAt:          masterProfile.CreatedAt,
 			ProfileStatus:      masterProfile.ProfileStatus,
 		}
+		storedAppData = masterProfile.ApplicationData
 	}
 
 	if err := profileStore.UpdateProfile(ctx, orgID, profileToUpDate); err != nil {
@@ -923,9 +931,10 @@ func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, 
 		return nil, err
 	}
 
-	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileID, orgID)
-	if errWait != nil || profileFetched == nil {
-		return nil, errWait
+	// The response is built from the profile that was written, and the profile is not read again.
+	profileFetched, err := writtenProfileResponse(ctx, orgID, *profile, profileToUpDate, storedAppData, true)
+	if err != nil {
+		return nil, err
 	}
 
 	config := UnificationModel.DefaultConfig()
@@ -980,6 +989,82 @@ func ConvertAppDataToMap(appDataList []profileModel.ApplicationData) map[string]
 	}
 
 	return result
+}
+
+// writtenProfileResponse builds the response of a create or an update from the profile that CDS wrote, so that
+// the profile is not read again. The response is the same as GetProfile returns after the write.
+//
+// requested is the profile of the request: for a child profile the response keeps its ID and points to the
+// master. written is the profile that was written (the master, for a child). storedAppData is the application
+// data before the write. The store merges written application data with the stored data, so the application
+// data is read again only when the write had some. The child references are read only when readReferences
+// is true: a new profile has none.
+func writtenProfileResponse(ctx context.Context, orgID string, requested, written profileModel.Profile,
+	storedAppData []profileModel.ApplicationData, readReferences bool) (*profileModel.ProfileResponse, error) {
+	orgHandle, err := orgService.GetOrganizationHandle(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	appData := storedAppData
+	if len(written.ApplicationData) > 0 {
+		if appData, err = profileStore.FetchApplicationData(ctx, written.ProfileID); err != nil {
+			return nil, err
+		}
+	}
+
+	response := &profileModel.ProfileResponse{
+		ProfileID:          written.ProfileID,
+		UserID:             written.UserID,
+		ApplicationData:    ConvertAppDataToMap(appData),
+		Traits:             asStoredJSON(written.Traits),
+		IdentityAttributes: asStoredJSON(written.IdentityAttributes),
+		Meta: profileModel.Meta{
+			CreatedAt: written.CreatedAt,
+			UpdatedAt: written.UpdatedAt,
+			Location:  utils.BuildProfileLocation(ctx, orgHandle, written.ProfileID),
+		},
+	}
+
+	if requested.ProfileStatus != nil && !requested.ProfileStatus.IsReferenceProfile {
+		response.ProfileID = requested.ProfileID
+		response.MergedTo = &profileModel.Reference{
+			ProfileID: requested.ProfileStatus.ReferenceProfileID,
+			Reason:    requested.ProfileStatus.ReferenceReason,
+		}
+		return response, nil
+	}
+
+	if readReferences {
+		alias, err := profileStore.FetchReferencedProfiles(ctx, written.ProfileID)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Error fetching references for profile: %s", written.ProfileID)
+			log.GetLogger().Debug(errorMsg, log.Error(err))
+			return nil, errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.GetProfile.Code,
+				Message:     errors2.GetProfile.Message,
+				Description: errorMsg,
+			}, err)
+		}
+		if len(alias) > 0 {
+			response.MergedFrom = alias
+		}
+	}
+	return response, nil
+}
+
+// asStoredJSON returns the attributes as a read from the database gives them: the values pass through JSON, so a
+// caller sees the same types (float64, []interface{}, map[string]interface{}) as after GetProfile.
+func asStoredJSON(attributes map[string]interface{}) map[string]interface{} {
+	raw, err := json.Marshal(attributes)
+	if err != nil {
+		return attributes
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return attributes
+	}
+	return out
 }
 
 // GetProfile retrieves a profile

@@ -692,22 +692,11 @@ func (ph *ProfileHandler) UpdateProfile(writer http.ResponseWriter, request *htt
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 
-	_, err = profilesService.UpdateProfile(ctx, profileID, org.ID, profile)
+	// The update returns the profile as a read after the write gives it, so the profile is not read again.
+	profileResponse, err := profilesService.UpdateProfile(ctx, profileID, org.ID, profile)
 	if err != nil {
 		utils.HandleError(writer, err)
 		return
-	}
-
-	profileResponse, err := profilesService.GetProfile(ctx, profileID, org.ID)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to update profile with profileId: %s", profileID)
-		log.GetLogger().Debug(errMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UpdateProfile.Code,
-			Message:     errors2.UpdateProfile.Message,
-			Description: errMsg,
-		}, err)
-		utils.HandleError(writer, serverError)
 	}
 	utils.RespondJSON(writer, http.StatusOK, profileResponse, constants.ProfileResource)
 }
