@@ -239,6 +239,34 @@ var InsertProfileReference = newQuery("CDS-PRF-02",
 		VALUES ($1,$2,$3,$4, $5, $6)
 		ON CONFLICT (profile_id) DO NOTHING;`)
 
+// InsertProfileWithReferenceAndCookie stores a new profile, its reference row and, when $13 is not null, its
+// cookie in one statement, so that a profile create costs one round trip. It is used on PostgreSQL only (see
+// PostgresOnlyQueries): the other datasources write the same rows with InsertProfile, InsertProfileReference
+// and InsertCookie in one transaction. The foreign keys of the reference and the cookie are checked at the end
+// of the statement, so they see the new profile row. $10 to $12 are the status, the reference profile ID and
+// the reason, and $14 is the cookie state.
+var InsertProfileWithReferenceAndCookie = newQuery("CDS-PRF-27",
+	`WITH new_profile AS (
+		INSERT INTO profiles (
+			profile_id, user_id, org_id, created_at, updated_at, list_profile, delete_profile, traits,
+			identity_attributes
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (profile_id) DO NOTHING
+	), new_reference AS (
+		INSERT INTO profile_reference (profile_id, profile_status, reference_profile_id, reference_reason, org_id,
+			reference_profile_org_id)
+		VALUES ($1, $10, $11, $12, $3, $3)
+		ON CONFLICT (profile_id) DO NOTHING
+	)
+	INSERT INTO profile_cookies (cookie_id, profile_id, is_active)
+	SELECT CAST($13 AS VARCHAR), $1, CAST($14 AS BOOLEAN) WHERE CAST($13 AS VARCHAR) IS NOT NULL`)
+
+// PostgresOnlyQueries names the statements that run on PostgreSQL only. The code does not send them to
+// another datasource, so the tests do not prepare them there.
+var PostgresOnlyQueries = map[string]bool{
+	"InsertProfileWithReferenceAndCookie": true,
+}
+
 // GetProfileByID returns a profile of an org by ID, with its reference details.
 var GetProfileByID = newQuery("CDS-PRF-03",
 	`

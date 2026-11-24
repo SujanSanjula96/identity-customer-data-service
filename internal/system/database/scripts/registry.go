@@ -46,6 +46,7 @@ func AllQueries() map[string]model.DBQuery {
 		"UpdateUnificationRule":                  UpdateUnificationRule,
 		"InsertProfile":                          InsertProfile,
 		"InsertProfileReference":                 InsertProfileReference,
+		"InsertProfileWithReferenceAndCookie":    InsertProfileWithReferenceAndCookie,
 		"GetProfileByID":                         GetProfileByID,
 		"GetProfileConsentsByProfileID":          GetProfileConsentsByProfileID,
 		"DeleteProfileConsentsByProfileID":       DeleteProfileConsentsByProfileID,

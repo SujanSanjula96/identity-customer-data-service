@@ -65,6 +65,10 @@ var postgresOnlySyntax = []struct {
 // rejects without an override listed for it, and why that is correct. A new entry needs a
 // reason a reviewer can check.
 var portabilityExceptions = map[string]map[string]string{
+	"CDS-PRF-27": {
+		database.TypeMySQL: "PostgresOnlyQueries: InsertProfile writes the rows in one transaction on MySQL",
+		database.TypeMSSQL: "PostgresOnlyQueries: InsertProfile writes the rows in one transaction on SQL Server",
+	},
 	"CDS-PRF-20": {
 		database.TypeMSSQL: "the SQL Server text depends on the number of keys, so " +
 			"BuildFindOldestReferenceProfileIDByAttributeValuesQuery builds it for the call",

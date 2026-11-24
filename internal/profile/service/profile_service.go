@@ -62,6 +62,9 @@ type ProfilesServiceInterface interface {
 		orgID string, limit int, cursor *profileModel.ProfileCursor) ([]profileModel.ProfileResponse, bool, error)
 	CreateProfile(ctx context.Context,
 		profile profileModel.ProfileRequest, orgID string) (*profileModel.ProfileResponse, error)
+	CreateProfileWithCookie(ctx context.Context,
+		profile profileModel.ProfileRequest, orgID string) (*profileModel.ProfileResponse,
+		*profileModel.ProfileCookie, error)
 	UpdateProfile(ctx context.Context,
 		profileID string, orgID string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
 	GetProfile(ctx context.Context, profileID string, orgID string) (*profileModel.ProfileResponse, error)
@@ -145,6 +148,25 @@ func WideAppDataMap(input map[string]map[string]interface{}) map[string]interfac
 // CreateProfile creates a new profile.
 func (ps *ProfilesService) CreateProfile(ctx context.Context,
 	profileRequest profileModel.ProfileRequest, orgID string) (*profileModel.ProfileResponse, error) {
+	return ps.createProfile(ctx, profileRequest, orgID, nil)
+}
+
+// CreateProfileWithCookie creates a new profile and an active cookie for it. The profile, its reference and
+// the cookie are written together, so that a create of an anonymous profile costs one round trip on
+// PostgreSQL.
+func (ps *ProfilesService) CreateProfileWithCookie(ctx context.Context, profileRequest profileModel.ProfileRequest,
+	orgID string) (*profileModel.ProfileResponse, *profileModel.ProfileCookie, error) {
+	cookie := &profileModel.ProfileCookie{CookieID: uuid.New().String(), IsActive: true}
+	created, err := ps.createProfile(ctx, profileRequest, orgID, cookie)
+	if err != nil {
+		return nil, nil, err
+	}
+	return created, cookie, nil
+}
+
+// createProfile creates a new profile and, when cookie is not nil, its cookie.
+func (ps *ProfilesService) createProfile(ctx context.Context, profileRequest profileModel.ProfileRequest,
+	orgID string, cookie *profileModel.ProfileCookie) (*profileModel.ProfileResponse, error) {
 	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, orgID)
 	logger := log.GetLogger()
 	if err != nil {
@@ -203,7 +225,10 @@ func (ps *ProfilesService) CreateProfile(ctx context.Context,
 		UpdatedAt: createdTime,
 	}
 
-	if err := profileStore.InsertProfile(ctx, orgID, profile); err != nil {
+	if cookie != nil {
+		cookie.ProfileID = profileID
+	}
+	if err := profileStore.InsertProfileWithCookie(ctx, orgID, profile, cookie); err != nil {
 		logger.Debug(fmt.Sprintf("Error inserting profile: %s", profile.ProfileID), log.Error(err))
 		return nil, err
 	}

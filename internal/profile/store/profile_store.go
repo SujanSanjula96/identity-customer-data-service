@@ -15,6 +15,8 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/profile/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
+	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
@@ -99,6 +101,35 @@ func scanProfileConsentRow(row map[string]interface{}) model.ConsentRecord {
 
 // InsertProfile inserts a new profile into the database
 func InsertProfile(ctx context.Context, orgID string, profile model.Profile) error {
+	return InsertProfileWithCookie(ctx, orgID, profile, nil)
+}
+
+// profileStatusOf returns the stored status of the profile reference row.
+func profileStatusOf(status *model.ProfileStatus) string {
+	switch {
+	case status.IsReferenceProfile:
+		return constants.ReferenceProfile
+	case status.IsWaitingOnUser:
+		return constants.WaitOnUser
+	case status.IsWaitingOnAdmin:
+		return constants.WaitOnAdmin
+	default:
+		return constants.MergedTo
+	}
+}
+
+// profileInsertStatement is one statement of a profile insert, with the description of its failure.
+type profileInsertStatement struct {
+	query       dbmodel.DBQuery
+	args        []interface{}
+	description string
+}
+
+// InsertProfileWithCookie inserts a new profile, its reference row and, when cookie is not nil, its cookie. The
+// three rows are written together: on PostgreSQL in one statement, so in one round trip, and on the other
+// datasources in one transaction. The application data of the profile is written after them.
+func InsertProfileWithCookie(ctx context.Context, orgID string, profile model.Profile,
+	cookie *model.ProfileCookie) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -115,20 +146,9 @@ func InsertProfile(ctx context.Context, orgID string, profile model.Profile) err
 
 	traitsJSON, _ := json.Marshal(profile.Traits)
 	identityJSON, _ := json.Marshal(profile.IdentityAttributes)
-	var profileStatus string
-	if profile.ProfileStatus.IsReferenceProfile {
-		profileStatus = constants.ReferenceProfile
-	} else if profile.ProfileStatus.IsWaitingOnUser {
-		profileStatus = constants.WaitOnUser
-	} else if profile.ProfileStatus.IsWaitingOnAdmin {
-		profileStatus = constants.WaitOnAdmin
-	} else {
-		profileStatus = constants.MergedTo
-	}
+	profileStatus := profileStatusOf(profile.ProfileStatus)
 
-	query := scripts.InsertProfile
-
-	_, err = dbClient.ExecuteQueryContext(ctx, query,
+	profileArgs := []interface{}{
 		profile.ProfileID,
 		profile.UserID,
 		orgID,
@@ -138,51 +158,65 @@ func InsertProfile(ctx context.Context, orgID string, profile model.Profile) err
 		false, // delete_profile is not used in this context, set to false
 		traitsJSON,
 		identityJSON,
-	)
-
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileID)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.AddProfile.Code,
-			Message:     errors2.AddProfile.Message,
-			Description: errorMsg,
-		}, err)
-		return serverError
 	}
-
-	referenceQuery := scripts.InsertProfileReference
-
-	_, err = dbClient.ExecuteQueryContext(ctx, referenceQuery,
+	referenceArgs := []interface{}{
 		profile.ProfileID,
 		profileStatus,
 		profile.ProfileStatus.ReferenceProfileID,
 		profile.ProfileStatus.ReferenceReason,
 		orgID,
 		orgID,
-	)
+	}
 
-	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to insert profile referencea with Id: %s", profile.ProfileID)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
+	insertError := func(description string, err error) error {
+		logger.Debug(description, log.Error(err))
+		return errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.AddProfile.Code,
 			Message:     errors2.AddProfile.Message,
-			Description: errorMsg,
+			Description: description,
 		}, err)
-		return serverError
+	}
+
+	if dbClient.DBType() == database.TypePostgres {
+		var cookieID, cookieActive interface{}
+		if cookie != nil {
+			cookieID, cookieActive = cookie.CookieID, cookie.IsActive
+		}
+		args := append(append([]interface{}{}, profileArgs...), profileStatus,
+			profile.ProfileStatus.ReferenceProfileID, profile.ProfileStatus.ReferenceReason, cookieID, cookieActive)
+		_, err = dbClient.ExecuteQueryContext(ctx, scripts.InsertProfileWithReferenceAndCookie, args...)
+		if err != nil {
+			return insertError(fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileID), err)
+		}
+	} else {
+		tx, err := dbClient.BeginTxContext(ctx)
+		if err != nil {
+			return insertError(fmt.Sprintf("Failed to begin the insert of profile with Id: %s", profile.ProfileID), err)
+		}
+		statements := []profileInsertStatement{
+			{scripts.InsertProfile, profileArgs, "Failed to insert profile with Id: %s"},
+			{scripts.InsertProfileReference, referenceArgs, "Failed to insert profile referencea with Id: %s"},
+		}
+		if cookie != nil {
+			statements = append(statements, profileInsertStatement{scripts.InsertCookie,
+				[]interface{}{cookie.CookieID, cookie.ProfileID, cookie.IsActive},
+				"Failed to insert the cookie of profile with Id: %s"})
+		}
+		for _, statement := range statements {
+			if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
+				_ = tx.Rollback()
+				return insertError(fmt.Sprintf(statement.description, profile.ProfileID), err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return insertError(fmt.Sprintf("Failed to commit the insert of profile with Id: %s", profile.ProfileID),
+				err)
+		}
 	}
 
 	err = InsertApplicationData(ctx, profile.ProfileID, profile.ApplicationData)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileID)
-		logger.Debug(errorMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.AddProfile.Code,
-			Message:     errors2.AddProfile.Message,
-			Description: errorMsg,
-		}, err)
-		return serverError
+		return insertError(fmt.Sprintf("Failed to insert profile with Id: %s", profile.ProfileID), err)
 	}
 
 	logger.Info("Profile added successfully: " + profile.ProfileID)

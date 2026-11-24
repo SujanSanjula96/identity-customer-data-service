@@ -577,20 +577,15 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If no valid cookie, create a new profile and cookie
-	profileResponse, err := profilesService.CreateProfile(ctx, profile.ToProfileRequest(), org.ID)
+	// The profile and its cookie are written together.
+	profileResponse, cookie, err := profilesService.CreateProfileWithCookie(ctx, profile.ToProfileRequest(), org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-	// Set the target now, so that a later failure still names the created profile.
 	audit.SetTargetID(ctx, profileResponse.ProfileID)
 
-	cookie, err := profilesService.CreateProfileCookie(ctx, profileResponse.ProfileID)
-	if err != nil {
-		utils.HandleError(w, err)
-		return
-	}
-	// Create and set a new cookie
+	// Set the new cookie
 	setProfileCookie(w, cookie.CookieID, r)
 
 	profileResponse.AnonymousTracker = cookie.CookieID

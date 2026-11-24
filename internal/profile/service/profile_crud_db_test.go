@@ -570,3 +570,41 @@ func TestTheResponseOfAWriteIsTheSameAsARead(t *testing.T) {
 	require.NoError(t, err)
 	env.requireSameAsRead(t, patchedMaster, created.ProfileID)
 }
+
+func TestCreateProfileWithCookieStoresTheProfileAndTheCookie(t *testing.T) {
+	env := newProfileEnv(t)
+
+	created, cookie, err := env.svc.CreateProfileWithCookie(env.ctx, profileModel.ProfileRequest{
+		Traits: map[string]interface{}{"city": "Colombo"},
+	}, env.orgID)
+	require.NoError(t, err)
+	require.NotNil(t, cookie)
+	assert.Equal(t, created.ProfileID, cookie.ProfileID)
+	assert.True(t, cookie.IsActive)
+	env.requireSameAsRead(t, created, created.ProfileID)
+
+	stored, err := env.svc.GetProfileCookieByID(env.ctx, cookie.CookieID, env.orgID)
+	require.NoError(t, err)
+	assert.Equal(t, created.ProfileID, stored.ProfileID)
+	assert.True(t, stored.IsActive)
+}
+
+func TestAProfileIsNotStoredWhenItsCookieCannotBe(t *testing.T) {
+	env := newProfileEnv(t)
+	first := env.createWithCity(t, "Colombo")
+	existing, err := env.svc.CreateProfileCookie(env.ctx, first.ProfileID)
+	require.NoError(t, err)
+
+	// A cookie ID that is already stored makes the cookie insert fail, and the profile with it.
+	err = profileStore.InsertProfileWithCookie(env.ctx, env.orgID, profileModel.Profile{
+		ProfileID:     "p-no-cookie",
+		OrgID:         env.orgID,
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+		ProfileStatus: &profileModel.ProfileStatus{IsReferenceProfile: true, ListProfile: true},
+	}, &profileModel.ProfileCookie{CookieID: existing.CookieID, ProfileID: "p-no-cookie", IsActive: true})
+	require.Error(t, err)
+
+	_, err = env.svc.GetProfile(env.ctx, "p-no-cookie", env.orgID)
+	_ = requireStatus(t, err, http.StatusNotFound)
+}
