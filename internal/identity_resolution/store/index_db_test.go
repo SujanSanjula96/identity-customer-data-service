@@ -186,6 +186,92 @@ func TestUpsertReplacesTheKeysOfAProfile(t *testing.T) {
 	assert.Equal(t, []string{"p-1"}, still)
 }
 
+// countKeyWrites records each row that is inserted into or deleted from blocking_keys.
+func (e *indexEnv) countKeyWrites(t *testing.T) func() (inserted, deleted int) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE TABLE key_writes (kind TEXT)`,
+		`CREATE TRIGGER key_inserted AFTER INSERT ON blocking_keys BEGIN INSERT INTO key_writes VALUES ('i'); END`,
+		`CREATE TRIGGER key_deleted AFTER DELETE ON blocking_keys BEGIN INSERT INTO key_writes VALUES ('d'); END`,
+	} {
+		_, err := e.db.Exec(statement)
+		require.NoError(t, err)
+	}
+	return func() (int, int) {
+		var inserted, deleted int
+		require.NoError(t, e.db.QueryRow(`SELECT COUNT(*) FROM key_writes WHERE kind = 'i'`).Scan(&inserted))
+		require.NoError(t, e.db.QueryRow(`SELECT COUNT(*) FROM key_writes WHERE kind = 'd'`).Scan(&deleted))
+		_, err := e.db.Exec(`DELETE FROM key_writes`)
+		require.NoError(t, err)
+		return inserted, deleted
+	}
+}
+
+func TestUpsertWritesOnlyTheKeysThatChanged(t *testing.T) {
+	env := newIndexEnv(t)
+	env.addProfile(t, "p-1", "Colombo", "a@b.c")
+	writes := env.countKeyWrites(t)
+	stored := func() []string {
+		got, err := FindCandidateIDsByKeys(env.ctx, env.orgID, "traits.city", []string{"a", "b", "c"}, "", 10)
+		require.NoError(t, err)
+		return got
+	}
+
+	require.NoError(t, UpsertBlockingKeys(env.ctx, "p-1", env.orgID,
+		append(keys("traits.city", "a", "b"), keys("identity_attributes.email", "a@b.c")...)))
+	inserted, deleted := writes()
+	assert.Equal(t, 3, inserted)
+	assert.Equal(t, 0, deleted)
+
+	require.NoError(t, UpsertBlockingKeys(env.ctx, "p-1", env.orgID,
+		append(keys("traits.city", "b", "a", "a"), keys("identity_attributes.email", "a@b.c")...)))
+	inserted, deleted = writes()
+	assert.Zero(t, inserted, "the same keys write nothing")
+	assert.Zero(t, deleted, "the same keys write nothing")
+
+	require.NoError(t, UpsertBlockingKeys(env.ctx, "p-1", env.orgID,
+		append(keys("traits.city", "b", "c"), keys("identity_attributes.email", "a@b.c")...)))
+	inserted, deleted = writes()
+	assert.Equal(t, 1, inserted, "only the new key is inserted")
+	assert.Equal(t, 1, deleted, "only the key that went away is deleted")
+	assert.Equal(t, []string{"p-1"}, stored())
+
+	old, err := FindCandidateIDsByKeys(env.ctx, env.orgID, "traits.city", []string{"a"}, "", 10)
+	require.NoError(t, err)
+	assert.Empty(t, old)
+	email, err := FindCandidateIDsByKeys(env.ctx, env.orgID, "identity_attributes.email", []string{"a@b.c"}, "", 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"p-1"}, email, "the keys of the other attribute stay")
+}
+
+func TestDiffBlockingKeys(t *testing.T) {
+	stored := []blockingKeyID{{"traits.city", "a"}, {"traits.city", "b"}, {"traits.name", "a"}}
+	toDelete, toInsert := diffBlockingKeys(stored, append(keys("traits.city", "b", "c", "c"),
+		keys("traits.name", "a")...))
+
+	assert.Equal(t, []blockingKeyID{{"traits.city", "a"}}, toDelete)
+	assert.Equal(t, keys("traits.city", "c"), toInsert)
+
+	toDelete, toInsert = diffBlockingKeys(nil, keys("traits.city", "a"))
+	assert.Empty(t, toDelete)
+	assert.Equal(t, keys("traits.city", "a"), toInsert)
+}
+
+func TestBlockingKeyDeletesAreSplitIntoStatements(t *testing.T) {
+	many := make([]blockingKeyID, maxBlockingKeyDeletesPerStatement+1)
+	for i := range many {
+		many[i] = blockingKeyID{"traits.city", fmt.Sprint(i)}
+	}
+	deletes := buildBlockingKeyDeletes("p-1", "org-1", many)
+
+	require.Len(t, deletes, 2)
+	assert.Len(t, deletes[0].args, 2+2*maxBlockingKeyDeletesPerStatement)
+	assert.Equal(t, []interface{}{"org-1", "p-1", "traits.city", fmt.Sprint(maxBlockingKeyDeletesPerStatement)},
+		deletes[1].args)
+	assert.Contains(t, deletes[1].query.Query, "(attribute_name = $3 AND key_value = $4)")
+	assert.Empty(t, buildBlockingKeyDeletes("p-1", "org-1", nil))
+}
+
 func TestKeysAreInsertedInABatchAndDeleted(t *testing.T) {
 	env := newIndexEnv(t)
 	for _, id := range []string{"p-1", "p-2"} {

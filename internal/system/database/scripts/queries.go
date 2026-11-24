@@ -712,6 +712,16 @@ var HealthCheckPing = newQuery("CDS-SYS-01", `SELECT 1;`)
 var DeleteBlockingKeysSQL = newQuery("CDS-IDR-01",
 	`DELETE FROM blocking_keys WHERE org_id = $1 AND profile_id = $2`)
 
+// IRGetBlockingKeysOfProfile returns the stored blocking keys of one profile, so that an update can change
+// only the keys that changed. The org_id prunes the partitions, as in DeleteBlockingKeysSQL.
+var IRGetBlockingKeysOfProfile = newQuery("CDS-IDR-25",
+	`SELECT attribute_name, key_value FROM blocking_keys WHERE org_id = $1 AND profile_id = $2`)
+
+// IRDeleteBlockingKeysOfProfile removes some blocking keys of one profile. The %s is an OR list of
+// (attribute_name = $n AND key_value = $m) pairs.
+var IRDeleteBlockingKeysOfProfile = newQuery("CDS-IDR-26",
+	`DELETE FROM blocking_keys WHERE org_id = $1 AND profile_id = $2 AND (%s)`)
+
 // DeleteBlockingKeysByAttributeSQL removes every blocking key of an org for one attribute.
 var DeleteBlockingKeysByAttributeSQL = newQuery("CDS-IDR-02",
 	`DELETE FROM blocking_keys WHERE org_id = $1 AND attribute_name = $2`)

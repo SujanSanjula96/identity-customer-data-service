@@ -74,6 +74,8 @@ func CompleteStatement(name, statement string) string {
 		return fmt.Sprintf(statement, "$1", 2, 3)
 	case "IRInsertBlockingKeys":
 		return fmt.Sprintf(statement, "($1, $2, $3, $4)")
+	case "IRDeleteBlockingKeysOfProfile":
+		return fmt.Sprintf(statement, "(attribute_name = $3 AND key_value = $4)")
 	case "GetProfileIDsWithFiltersBase":
 		return statement + " WHERE p.org_id = $1"
 	default:
