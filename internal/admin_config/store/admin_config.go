@@ -23,9 +23,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
+	"time"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/model"
+	"github.com/wso2/identity-customer-data-service/internal/system/cache"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
@@ -36,9 +39,44 @@ import (
 // storedTrue is how a true boolean configuration value is stored.
 const storedTrue = "true"
 
+// adminConfigCacheTTL bounds how long a node uses the configuration of an organization after it changes on
+// another node. A change on this node clears the entry at once. Each request reads the configuration, and it
+// changes rarely, so a short TTL removes almost all of these reads.
+const adminConfigCacheTTL = 30 * time.Second
+
+// adminConfigs caches GetAdminConfig by org ID.
+var adminConfigs = cache.NewCache(adminConfigCacheTTL)
+
+// forgetAdminConfig clears the cached configuration of the organization on this node.
+func forgetAdminConfig(orgID string) {
+	adminConfigs.Delete(orgID)
+}
+
+// copyAdminConfig returns a copy of the configuration that shares no slice with it, so that a caller that
+// changes its copy does not change the cache.
+func copyAdminConfig(config model.AdminConfig) *model.AdminConfig {
+	config.SystemApplications = slices.Clone(config.SystemApplications)
+	config.CORSAllowedOrigins = slices.Clone(config.CORSAllowedOrigins)
+	return &config
+}
+
 // GetAdminConfig reads the configuration of the organization. A setting that the organization has not
-// stored takes its default.
+// stored takes its default. The result is cached on this node for adminConfigCacheTTL.
 func GetAdminConfig(ctx context.Context, orgID string) (*model.AdminConfig, error) {
+	if value, ok := adminConfigs.Get(orgID); ok {
+		if config, ok := value.(model.AdminConfig); ok {
+			return copyAdminConfig(config), nil
+		}
+	}
+	config, err := readAdminConfig(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	adminConfigs.Set(orgID, *copyAdminConfig(*config))
+	return config, nil
+}
+
+func readAdminConfig(ctx context.Context, orgID string) (*model.AdminConfig, error) {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	logger := log.GetLogger()
 	if err != nil {
@@ -287,7 +325,11 @@ func UpdateAdminConfig(ctx context.Context, config model.AdminConfig, orgID stri
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	forgetAdminConfig(orgID)
+	return nil
 }
 
 // UpdateInitialSchemaSyncConfig updates organization-level admin configuration (e.g., CDS enablement, schema sync
@@ -331,7 +373,11 @@ func UpdateInitialSchemaSyncConfig(ctx context.Context, state bool, orgID string
 			Description: errorMsg,
 		}, err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	forgetAdminConfig(orgID)
+	return nil
 }
 
 // cleanupSettingRanges is the range of each temporary profile cleanup setting.
