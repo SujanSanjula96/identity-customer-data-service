@@ -629,6 +629,12 @@ const (
 	// RarityLookupCacheTTL bounds how long a value's frequency is reused. Frequencies
 	// move slowly, and the count is only used to pick a band.
 	RarityLookupCacheTTL = 10 * time.Minute
+
+	// CrowdedKeyCacheTTL bounds how long a key group that matched more than MaxCandidatesPerRule
+	// profiles is skipped without a query. A value that so many profiles share almost never
+	// becomes rare again, and the candidate query for it is the most expensive one in the
+	// resolution path. The crowded key is logged once in each TTL.
+	CrowdedKeyCacheTTL = 10 * time.Minute
 )
 
 // Name matching

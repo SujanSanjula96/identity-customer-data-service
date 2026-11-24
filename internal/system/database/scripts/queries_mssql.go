@@ -81,7 +81,7 @@ var mssqlStatements = map[string]string{
 		WHEN NOT MATCHED THEN INSERT (profile_id, org_id, attribute_name, key_value)
 			VALUES (s.profile_id, s.org_id, s.attribute_name, s.key_value);`,
 
-	"CDS-IDR-06": `SELECT DISTINCT TOP ($%[3]d) profile_id FROM blocking_keys
+	"CDS-IDR-06": `SELECT TOP ($%[3]d) profile_id, key_value FROM blocking_keys
 		WHERE org_id = $1 AND attribute_name = $2 AND key_value IN (%[1]s)
 		AND profile_id != $%[2]d`,
 

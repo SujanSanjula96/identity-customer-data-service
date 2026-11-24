@@ -741,10 +741,15 @@ var IRInsertBlockingKeys = newQuery("CDS-IDR-05",
 	`INSERT INTO blocking_keys (profile_id, org_id, attribute_name, key_value)
 				 VALUES %s ON CONFLICT DO NOTHING`)
 
-// IRFindCandidateIDsByKeys returns the profiles that share a blocking key value with the incoming profile.
-// The %s is the IN list of key values, and the %d placeholders take the excluded profile ID and the limit.
+// IRFindCandidateIDsByKeys returns the rows of the profiles that share a blocking key value with the incoming
+// profile. The %s is the IN list of key values, and the %d placeholders take the excluded profile ID and the
+// limit.
+//
+// There is no DISTINCT on purpose: with DISTINCT the database reads every row of the keys before the LIMIT
+// applies, which for a crowded key is thousands of rows. Without it the index scan stops at the limit, and the
+// caller removes the duplicates.
 var IRFindCandidateIDsByKeys = newQuery("CDS-IDR-06",
-	`SELECT DISTINCT profile_id FROM blocking_keys
+	`SELECT profile_id, key_value FROM blocking_keys
 				 WHERE org_id = $1 AND attribute_name = $2 AND key_value IN (%s)
 				   AND profile_id != $%d LIMIT $%d`)
 

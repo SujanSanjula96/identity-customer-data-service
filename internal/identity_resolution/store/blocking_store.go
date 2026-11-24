@@ -21,6 +21,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
@@ -29,6 +30,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	dbmodel "github.com/wso2/identity-customer-data-service/internal/system/database/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/database/rows"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/scripts"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -313,8 +315,59 @@ func flattenBlockingKeyRows(perProfileKeys map[string][]model.BlockingKey) []blo
 	return rows
 }
 
+// crowdedKeys remembers the key groups and the single keys that matched more than the candidate limit. A value
+// that so many profiles share almost never becomes rare again, so the lookup for it is skipped until the entry
+// expires. The cache is local to the node: each node learns the crowded keys on its own.
+var crowdedKeys = cache.NewCache(constants.CrowdedKeyCacheTTL)
+
+// maxCandidateQueryRounds bounds how many times one lookup widens its limit. See FindCandidateIDsByKeys.
+const maxCandidateQueryRounds = 4
+
+func crowdedKeyCacheKey(orgID, attributeName string, maxResults int, keyValues ...string) string {
+	return fmt.Sprintf("%s|%s|%d|%s", orgID, attributeName, maxResults, strings.Join(keyValues, "\x1f"))
+}
+
+// isCrowded reports whether the group, or one of its keys, matched more than maxResults profiles in the
+// current TTL.
+func isCrowded(orgID, attributeName string, maxResults int, keyValues []string) bool {
+	if _, found := crowdedKeys.Get(crowdedKeyCacheKey(orgID, attributeName, maxResults, keyValues...)); found {
+		return true
+	}
+	if len(keyValues) == 1 {
+		return false
+	}
+	for _, kv := range keyValues {
+		if _, found := crowdedKeys.Get(crowdedKeyCacheKey(orgID, attributeName, maxResults, kv)); found {
+			return true
+		}
+	}
+	return false
+}
+
+// uniqueSorted returns the distinct values in a stable order, so that the same group has the same cache key.
+func uniqueSorted(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // FindCandidateIDsByKeys returns the IDs of the organization's profiles indexed under any of keyValues for
-// attributeName, leaving out excludeProfileID.
+// attributeName, leaving out excludeProfileID. When more than maxResults profiles match, the group is too
+// crowded to be evidence and the result is nil.
+//
+// The query has no DISTINCT and asks for len(keys) × (maxResults+1) rows, so the index scan stops early
+// however large a key is. A (key, profile) pair is unique in the table, so a full result always holds more
+// than maxResults distinct profiles. If a result is full and has maxResults or fewer distinct profiles, the
+// query runs again with a larger limit. A crowded group, and each key that is crowded by itself, is
+// remembered for constants.CrowdedKeyCacheTTL and is logged once in that time.
 func FindCandidateIDsByKeys(ctx context.Context,
 	orgID, attributeName string,
 	keyValues []string,
@@ -323,8 +376,14 @@ func FindCandidateIDsByKeys(ctx context.Context,
 ) ([]string, error) {
 	logger := log.GetLogger()
 
+	keyValues = uniqueSorted(keyValues)
 	if len(keyValues) == 0 {
 		return []string{}, nil
+	}
+	if isCrowded(orgID, attributeName, maxResults, keyValues) {
+		logger.Debug(fmt.Sprintf("BlockingStore: attribute '%s' key group is crowded in org '%s', skipped",
+			attributeName, orgID))
+		return nil, nil
 	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -351,41 +410,80 @@ func FindCandidateIDsByKeys(ctx context.Context,
 	excludeArgIdx := argIdx
 	argIdx++
 
-	args = append(args, maxResults+1)
-	limitArgIdx := argIdx
+	limit := len(keyValues) * (maxResults + 1)
+	args = append(args, limit)
+	limitArgIdx := len(args) - 1
 
 	query := scripts.IRFindCandidateIDsByKeys.Format(strings.Join(inClauses, ", "),
 		excludeArgIdx,
-		limitArgIdx,
+		argIdx,
 	)
 
-	results, err := dbClient.ExecuteQueryContext(ctx, query, args...)
-	if err != nil {
-		logger.Error("BlockingStore: failed to query blocking keys", log.Error(err))
-		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.IRBlockingKeysFailed.Code,
-			Message:     errors2.IRBlockingKeysFailed.Message,
-			Description: fmt.Sprintf("Failed to query blocking keys for attribute: %s", attributeName),
-		}, err)
+	var profileIDs []string
+	var perKey map[string]map[string]struct{}
+	for round := 1; ; round++ {
+		results, err := dbClient.ExecuteQueryContext(ctx, query, args...)
+		if err != nil {
+			logger.Error("BlockingStore: failed to query blocking keys", log.Error(err))
+			return nil, errors2.NewServerError(errors2.ErrorMessage{
+				Code:        errors2.IRBlockingKeysFailed.Code,
+				Message:     errors2.IRBlockingKeysFailed.Message,
+				Description: fmt.Sprintf("Failed to query blocking keys for attribute: %s", attributeName),
+			}, err)
+		}
+
+		profileIDs, perKey = distinctCandidates(results)
+		if len(profileIDs) > maxResults || len(results) < limit || round >= maxCandidateQueryRounds {
+			break
+		}
+		// The rows filled the limit but hold maxResults or fewer distinct profiles. This needs duplicate
+		// (key, profile) rows, which the primary key does not permit, so it is rare. Widen the limit.
+		limit *= 4
+		args[limitArgIdx] = limit
 	}
 
 	// The bucket is too crowded to be evidence of anything — a value this common says
 	// nothing about identity, so no candidate from it is worth scoring.
-	if len(results) > maxResults {
+	if len(profileIDs) > maxResults {
+		crowdedKeys.Set(crowdedKeyCacheKey(orgID, attributeName, maxResults, keyValues...), true)
+		for kv, profiles := range perKey {
+			if len(profiles) > maxResults && len(keyValues) > 1 {
+				crowdedKeys.Set(crowdedKeyCacheKey(orgID, attributeName, maxResults, kv), true)
+			}
+		}
 		logger.Warn(fmt.Sprintf(
-			"BlockingStore: attribute '%s' matched more than %d profiles in org '%s' — skipping this key group",
-			attributeName, maxResults, orgID))
+			"BlockingStore: attribute '%s' matched more than %d profiles in org '%s' — skipping this key group "+
+				"for %s", attributeName, maxResults, orgID, constants.CrowdedKeyCacheTTL))
 		return nil, nil
 	}
 
-	profileIDs := make([]string, 0, len(results))
-	for _, row := range results {
-		if id, ok := row["profile_id"].(string); ok && id != "" {
-			profileIDs = append(profileIDs, id)
-		}
-	}
-
 	return profileIDs, nil
+}
+
+// distinctCandidates removes the duplicate profile IDs from the candidate rows, in the order of the rows. It
+// also groups the distinct profiles by key value.
+func distinctCandidates(results []map[string]interface{}) ([]string, map[string]map[string]struct{}) {
+	profileIDs := make([]string, 0, len(results))
+	seen := make(map[string]struct{}, len(results))
+	perKey := make(map[string]map[string]struct{})
+	for _, row := range results {
+		id := rows.String(row, "profile_id")
+		if id == "" {
+			continue
+		}
+		if kv := rows.String(row, "key_value"); kv != "" {
+			if perKey[kv] == nil {
+				perKey[kv] = make(map[string]struct{})
+			}
+			perKey[kv][id] = struct{}{}
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		profileIDs = append(profileIDs, id)
+	}
+	return profileIDs, perKey
 }
 
 // GetProfilesByIDs loads the profiles with the given IDs for scoring. A row that cannot be read is logged and

@@ -80,7 +80,7 @@ var oracleStatements = map[string]string{
 		INTO blocking_keys (profile_id, org_id, attribute_name, key_value)
 		VALUES %s`,
 
-	"CDS-IDR-06": `SELECT DISTINCT profile_id FROM blocking_keys
+	"CDS-IDR-06": `SELECT profile_id, key_value FROM blocking_keys
 		WHERE org_id = $1 AND attribute_name = $2 AND key_value IN (%[1]s)
 		AND ($%[2]d IS NULL OR profile_id != $%[2]d) FETCH FIRST $%[3]d ROWS ONLY`,
 

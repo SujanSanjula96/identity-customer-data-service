@@ -113,6 +113,60 @@ func TestCandidatesAreFoundByTheirBlockingKeys(t *testing.T) {
 	assert.Empty(t, other, "keys are per organization")
 }
 
+func TestACandidateThatSharesManyKeysIsReturnedOnce(t *testing.T) {
+	env := newIndexEnv(t)
+	for _, id := range []string{"p-1", "p-2"} {
+		env.addProfile(t, id, "Colombo", id+"@b.c")
+	}
+	require.NoError(t, InsertBlockingKeys(env.ctx, "p-1", env.orgID, keys("traits.city", "a", "b", "c")))
+	require.NoError(t, InsertBlockingKeys(env.ctx, "p-2", env.orgID, keys("traits.city", "b")))
+
+	got, err := FindCandidateIDsByKeys(env.ctx, env.orgID, "traits.city", []string{"a", "b", "c", "b"}, "", 2)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"p-1", "p-2"}, got)
+}
+
+func TestACrowdedKeyGroupIsSkippedUntilTheEntryExpires(t *testing.T) {
+	env := newIndexEnv(t)
+	for _, id := range []string{"p-1", "p-2", "p-3", "p-4"} {
+		env.addProfile(t, id, "Colombo", id+"@b.c")
+	}
+	for _, id := range []string{"p-1", "p-2", "p-3"} {
+		require.NoError(t, InsertBlockingKeys(env.ctx, id, env.orgID, keys("traits.city", "common")))
+	}
+	require.NoError(t, InsertBlockingKeys(env.ctx, "p-4", env.orgID, keys("traits.city", "rare")))
+	find := func(values ...string) []string {
+		got, err := FindCandidateIDsByKeys(env.ctx, env.orgID, "traits.city", values, "", 2)
+		require.NoError(t, err)
+		return got
+	}
+
+	assert.Nil(t, find("rare", "common"), "three profiles share the group, which is more than the limit of two")
+	assert.Equal(t, []string{"p-4"}, find("rare"), "a key that is not crowded by itself is still looked up")
+
+	// The rows go away, but the node remembers the crowded key: no query runs for it.
+	for _, id := range []string{"p-1", "p-2", "p-3"} {
+		require.NoError(t, DeleteBlockingKeys(env.ctx, env.orgID, id))
+	}
+	assert.Nil(t, find("common"), "the key that is crowded by itself is remembered")
+	assert.Nil(t, find("common", "other"), "a group that holds a crowded key is skipped")
+
+	crowdedKeys.Clear()
+	assert.Empty(t, find("common"), "after the entry expires, the key is looked up again")
+}
+
+func TestDistinctCandidatesKeepsTheRowOrder(t *testing.T) {
+	got, perKey := distinctCandidates([]map[string]interface{}{
+		{"profile_id": "p-2", "key_value": "a"},
+		{"profile_id": "p-1", "key_value": "a"},
+		{"profile_id": "p-2", "key_value": "b"},
+		{"profile_id": "", "key_value": "b"},
+	})
+	assert.Equal(t, []string{"p-2", "p-1"}, got)
+	assert.Len(t, perKey["a"], 2)
+	assert.Len(t, perKey["b"], 1)
+}
+
 func TestUpsertReplacesTheKeysOfAProfile(t *testing.T) {
 	env := newIndexEnv(t)
 	env.addProfile(t, "p-1", "Colombo", "a@b.c")
