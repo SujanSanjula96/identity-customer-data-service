@@ -17,8 +17,10 @@ set -euo pipefail
 
 bundle_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 state_file="$bundle_dir/state.env"
-is_base="https://wso2is:9443"
-cds_base="https://cdslb"
+# IS_BASE_URL and CDS_BASE_URL are for a local check only. The AWS run uses
+# the defaults (the names of nginx).
+is_base="${IS_BASE_URL:-https://wso2is:9443}"
+cds_base="${CDS_BASE_URL:-https://cdslb}"
 tenant="carbon.super"
 audience="iam-cds"
 token_expiry=7200

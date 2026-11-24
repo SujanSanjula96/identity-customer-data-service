@@ -9,7 +9,9 @@
 #
 # Bundle layout (~/cds-perf):
 #   secrets.env          CDS_DB_HOST, CDS_DB_USER, CDS_DB_PASS, IS_ADMIN_PASS, and
-#                        CDS_SYNC_USER and CDS_SYNC_PASS for the sync use cases (U3, U8, U12)
+#                        CDS_SYNC_USER and CDS_SYNC_PASS for the sync use cases (U3, U8, U12).
+#                        IS_DB_HOST, IS_DB_USER, and IS_DB_PASS for the query
+#                        statistics of the IS database (optional).
 #   dbscripts/postgres.sql
 #   perf/common/         test/performance/common (jmeter/ and tools/)
 
@@ -64,3 +66,16 @@ psql_cds -q -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements' >/dev/null 2>
     || echo "pg_stat_statements is not available. The query statistics are not collected."
 psql_cds -tAc "SELECT 'profiles: ' || count(*) FROM profiles"
 unset PGPASSWORD
+
+# The IS databases (IDENTITY_DB, UM_DB, and the others) are on one server.
+# pg_stat_statements in its "postgres" database shows the statements of all of
+# them. IS connects with the same user, so this user can read the query text.
+if [ -n "${IS_DB_HOST:-}" ]; then
+    echo "==> Query statistics of the IS database on $IS_DB_HOST"
+    if PGPASSWORD="${IS_DB_PASS:-}" psql -h "$IS_DB_HOST" -U "${IS_DB_USER:-}" -d postgres -q \
+        -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements' >/dev/null 2>&1; then
+        echo "pg_stat_statements is ready."
+    else
+        echo "pg_stat_statements is not available. The IS query statistics are not collected."
+    fi
+fi

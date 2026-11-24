@@ -50,6 +50,9 @@ password = "${IS_DB_PASS}"
 [database.identity_db.pool_options]
 maxActive = "1500"
 defaultAutoCommit = false
+# The pool rolls back an open transaction when a connection comes back to it. Thus no
+# query gets a pooled connection that is still in a failed transaction.
+rollbackOnReturn = true
 testOnBorrow = true
 testWhileIdle = true
 validationInterval = "30000"
@@ -67,6 +70,8 @@ password = "${IS_DB_PASS}"
 [database.shared_db.pool_options]
 maxActive = "1500"
 defaultAutoCommit = false
+# See the comment on rollbackOnReturn in [database.identity_db.pool_options].
+rollbackOnReturn = true
 testOnBorrow = true
 testWhileIdle = true
 validationInterval = "30000"
@@ -84,6 +89,8 @@ password = "${IS_DB_PASS}"
 [database.user.pool_options]
 maxActive = "1500"
 defaultAutoCommit = false
+# See the comment on rollbackOnReturn in [database.identity_db.pool_options].
+rollbackOnReturn = true
 testOnBorrow = true
 testWhileIdle = true
 validationInterval = "30000"
@@ -107,6 +114,8 @@ jmxEnabled = false
 [datasource.WSO2SessionDB.pool_options]
 maxActive = "1500"
 defaultAutoCommit = false
+# See the comment on rollbackOnReturn in [database.identity_db.pool_options].
+rollbackOnReturn = true
 testOnBorrow = true
 testWhileIdle = true
 validationInterval = "30000"
@@ -125,6 +134,8 @@ jmxEnabled = false
 [datasource.AgentIdentity.pool_options]
 maxActive = "50"
 defaultAutoCommit = false
+# See the comment on rollbackOnReturn in [database.identity_db.pool_options].
+rollbackOnReturn = true
 testOnBorrow = true
 testWhileIdle = true
 validationQuery = "SELECT 1"

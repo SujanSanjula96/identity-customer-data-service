@@ -33,6 +33,13 @@ key_name=""
 is_pack=""
 ext_dir=""
 cds_binary=""
+cds_pack=""
+# The inputs of the CDS nodes. They come from the CDS source checkout (-b, -c)
+# or from the CDS release pack (-A).
+cds_schema=""
+cds_base_config=""
+cds_start_cmd=""
+is_pack_dir=""
 no_of_nodes=""
 is_nodes=1
 ssh_cidr=""
@@ -61,21 +68,30 @@ deployment_file=""
 
 usage() {
     cat <<EOF
-Usage: $0 -g <nodes> -k <key.pem> -n <is.zip> -x <extensions dir> -b <cds binary>
+Usage: $0 -g <nodes> -k <key.pem> -n <is.zip|is dir> [-x <extensions dir>]
+          (-A <cdd pack.zip> | -b <cds binary> [-c <cds source>])
           -a <ssh cidr> -q <user tag> [options] [-- <perf-test-cds.sh options>]
-       $0 -g <nodes> -k <key.pem> -n <is.zip> -x <extensions dir> -b <cds binary>
+       $0 -g <nodes> -k <key.pem> -n <is.zip|is dir> [-x <extensions dir>]
+          (-A <cdd pack.zip> | -b <cds binary> [-c <cds source>])
           -O <deployment file> [-o <dir>] [-T] [-- <perf-test-cds.sh options>]
 
 Required:
   -g <1|2|3>     Number of CDS nodes. The pattern folders set this value.
   -k <file>      The private key of the EC2 key pair. The key pair name is the
                  file name without .pem, unless -K gives it.
-  -n <file>      The WSO2 Identity Server pack (zip).
+  -n <file|dir>  The WSO2 Identity Server pack: a zip, or an extracted pack
+                 folder (for example an IS that the update tool changed). The
+                 script zips a folder into the run directory.
+  -A <file>      The CDS (CDD) release pack for linux/amd64, for example
+                 cdd-linux-amd64-<version>.zip. The binary (bin/cdd), the
+                 database schema, and the CDS configuration come from the
+                 pack. If <file>.sha256 exists, the script checks the pack
+                 against it. Use -A or -b, not both.
   -x <dir>       The directory with the four CDS extension bundles for IS
                  (org.wso2.identity.customer.data.service.*.jar). It can be a
                  build tree: the script searches it. Not needed for an IS pack
                  that has the CDS bundles. Such a pack uses its own bundles.
-  -b <file>      The CDS binary for linux/amd64. Build it from the CDS commit that
+  -b <file>      The CDS binary for linux/amd64, in place of -A. Build it from the CDS commit that
                  you want to test:
                    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o cds-linux-amd64 ./cmd/server
   -c <dir>       The CDS source checkout of the binary. The database schema
@@ -120,7 +136,7 @@ Options:
                  later with -R. Keeps the stack.
   -R             Manual mode only. Collect the results of the tests that -D
                  started: wait until they are done, then download the
-                 results and the logs of all nodes. No setup. -n, -x, -b, and
+                 results and the logs of all nodes. No setup. -n, -x, -A, -b, and
                  -c are not necessary.
   -P             Keep the stack after the tests. Delete it later with
                  common/stop-performance.sh.
@@ -134,8 +150,9 @@ Options after -- go to perf-test-cds.sh on the bastion node, for example
 EOF
 }
 
-while getopts "g:i:k:n:x:b:c:a:q:K:o:s:C:I:N:M:B:E:F:S:H:O:zTDRPyph" opt; do
+while getopts "g:i:k:n:x:b:c:A:a:q:K:o:s:C:I:N:M:B:E:F:S:H:O:zTDRPyph" opt; do
     case "$opt" in
+        A) cds_pack="$OPTARG" ;;
         g) no_of_nodes="$OPTARG" ;;
         i) is_nodes="$OPTARG" ;;
         k) key_file="$OPTARG" ;;
@@ -190,19 +207,50 @@ key_file="$(cd "$(dirname "$key_file")" && pwd)/$(basename "$key_file")"
 if $collect_only; then
     $manual || die "-R works only in manual mode (-O)."
 else
-    [ -f "$is_pack" ] || die "Give the IS pack with -n."
+    bundles_info_path="repository/components/default/configuration/org.eclipse.equinox.simpleconfigurator/bundles.info"
+    if [ -d "$is_pack" ]; then
+        # An extracted IS pack. The script zips it into the run directory later.
+        [ -f "$is_pack/repository/conf/deployment.toml" ] && [ -f "$is_pack/$bundles_info_path" ] \
+            || die "$is_pack is not an IS pack folder."
+        is_pack_dir="$(cd "$is_pack" && pwd)"
+        # setup-is.sh moves ~/wso2is-* to ~/wso2is.
+        case "$(basename "$is_pack_dir")" in wso2is-*) ;; *) die "The IS folder name must start with wso2is-." ;; esac
+        is_bundles_info() { cat "$is_pack_dir/$bundles_info_path"; }
+    else
+        [ -f "$is_pack" ] || die "Give the IS pack (zip or folder) with -n."
+        unzip -l "$is_pack" | grep 'repository/conf/deployment.toml' >/dev/null || die "$is_pack is not an IS pack."
+        is_bundles_info() { unzip -p "$is_pack" "*/$bundles_info_path" 2>/dev/null; }
+    fi
     # An IS pack with the CDS integration lists the CDS bundles in bundles.info.
     pack_has_cds=false
-    if unzip -p "$is_pack" '*/org.eclipse.equinox.simpleconfigurator/bundles.info' 2>/dev/null \
-        | grep -q '^org\.wso2\.identity\.customer\.data\.service\.client,'; then
+    if grep -q '^org\.wso2\.identity\.customer\.data\.service\.client,' <<<"$(is_bundles_info)"; then
         pack_has_cds=true
     fi
     $pack_has_cds || [ -d "$ext_dir" ] || die "Give the directory of the CDS extension bundles with -x."
-    [ -f "$cds_binary" ] || die "Give the CDS binary with -b."
-    [ -n "$cds_src" ] || cds_src="$repo_dir"
-    [ -f "$cds_src/dbscripts/postgres.sql" ] && [ -f "$cds_src/config/repository/conf/deployment.yaml" ] \
-        || die "$cds_src is not a CDS source checkout. Give the source of the binary with -c."
-    cds_src="$(cd "$cds_src" && pwd)"
+    if [ -n "$cds_pack" ]; then
+        [ -z "$cds_binary" ] && [ -z "$cds_src" ] || die "Give -A, or -b and -c. Not both."
+        [ -f "$cds_pack" ] || die "Cannot read the CDS pack: $cds_pack"
+        cds_pack="$(cd "$(dirname "$cds_pack")" && pwd)/$(basename "$cds_pack")"
+        if [ -f "$cds_pack.sha256" ]; then
+            [ "$(awk '{print $1; exit}' "$cds_pack.sha256")" = "$(shasum -a 256 "$cds_pack" | awk '{print $1}')" ] \
+                || die "The SHA-256 of $cds_pack is not the value in $cds_pack.sha256."
+        else
+            echo "WARNING: no $cds_pack.sha256. The script does not check the pack." >&2
+        fi
+        # One listing: "unzip | grep -q" can fail with pipefail when grep stops early.
+        pack_files="$(unzip -Z1 "$cds_pack")" || die "Cannot read $cds_pack as a zip file."
+        for f in bin/cdd repository/dbscripts/postgres.sql repository/conf/deployment.yaml; do
+            grep -q "^[^/]*/$f\$" <<<"$pack_files" || die "$cds_pack has no $f. Is it a CDS pack?"
+        done
+    else
+        [ -f "$cds_binary" ] || die "Give the CDS pack with -A, or the CDS binary with -b."
+        [ -n "$cds_src" ] || cds_src="$repo_dir"
+        [ -f "$cds_src/dbscripts/postgres.sql" ] && [ -f "$cds_src/config/repository/conf/deployment.yaml" ] \
+            || die "$cds_src is not a CDS source checkout. Give the source of the binary with -c."
+        cds_src="$(cd "$cds_src" && pwd)"
+        cds_schema="$cds_src/dbscripts/postgres.sql"
+        cds_base_config="$cds_src/config/repository/conf/deployment.yaml"
+    fi
 
     # cds_build_info KEY - a value that the Go tool chain stored in the CDS binary
     # at build time: "mod" (the module version, with the commit for a build from a
@@ -218,10 +266,13 @@ else
             printf '%s\n' "$out" | awk -v k="$1=" '$1 == "build" && index($2, k) == 1 { print substr($2, length(k) + 1); exit }'
         fi | grep . || echo unknown
     }
-    binary_commit="$(cds_build_info vcs.revision)"
-    source_commit="$(git -C "$cds_src" rev-parse HEAD 2>/dev/null || echo unknown)"
-    if [ "$binary_commit" != "unknown" ] && [ "$source_commit" != "unknown" ] && [ "$binary_commit" != "$source_commit" ]; then
-        die "The binary is from commit ${binary_commit:0:7}, but $cds_src is at commit ${source_commit:0:7}. Give the source of the binary with -c."
+    # The files of a pack come from one build, so only -b and -c need this check.
+    if [ -z "$cds_pack" ]; then
+        binary_commit="$(cds_build_info vcs.revision)"
+        source_commit="$(git -C "$cds_src" rev-parse HEAD 2>/dev/null || echo unknown)"
+        if [ "$binary_commit" != "unknown" ] && [ "$source_commit" != "unknown" ] && [ "$binary_commit" != "$source_commit" ]; then
+            die "The binary is from commit ${binary_commit:0:7}, but $cds_src is at commit ${source_commit:0:7}. Give the source of the binary with -c."
+        fi
     fi
 fi
 if $manual; then
@@ -233,10 +284,14 @@ else
 fi
 
 if ! $collect_only; then
-    if command -v file >/dev/null 2>&1; then
+    # The binary of a pack is checked after the script extracts the pack.
+    if [ -z "$cds_pack" ] && command -v file >/dev/null 2>&1; then
         file -b "$cds_binary" | grep -q 'ELF 64-bit.*x86-64' \
             || die "The CDS binary is not a linux/amd64 executable: $(file -b "$cds_binary")"
     fi
+    # The IS section for an IS without the CDS bundles comes from the CDS source.
+    [ -z "$cds_pack" ] || $pack_has_cds \
+        || die "With -A, give an IS pack that has the CDS integration (the CDS bundles in plugins)."
     bundles=""
     if $pack_has_cds; then
         # The pack has the CDS bundles and the CDS API resources. IS gets only
@@ -252,13 +307,42 @@ if ! $collect_only; then
             bundles="$bundles $jar"
         done
     fi
-    unzip -l "$is_pack" | grep 'repository/conf/deployment.toml' >/dev/null || die "$is_pack is not an IS pack."
 fi
 
 [ -n "$run_dir" ] || run_dir="$PWD/aws-run-$timestamp"
 mkdir -p "$run_dir"
 run_dir="$(cd "$run_dir" && pwd)"
 chmod 700 "$run_dir"
+
+if ! $collect_only && [ -n "$cds_pack" ]; then
+    # Extract the CDS pack into the run directory. The CDS nodes get the binary
+    # and the configuration of the pack, and the bastion node gets its schema.
+    pack_dir="$run_dir/cds-pack"
+    rm -rf "$pack_dir"
+    mkdir -p "$pack_dir"
+    unzip -q "$cds_pack" -d "$pack_dir"
+    pack_root="$(find "$pack_dir" -mindepth 1 -maxdepth 1 -type d | head -1)"
+    cds_binary="$pack_root/bin/cdd"
+    cds_schema="$pack_root/repository/dbscripts/postgres.sql"
+    cds_base_config="$pack_root/repository/conf/deployment.yaml"
+    # A pack binary has subcommands. "cdd start" runs the server.
+    cds_start_cmd="start"
+    if command -v file >/dev/null 2>&1; then
+        file -b "$cds_binary" | grep -q 'ELF 64-bit.*x86-64' \
+            || die "The binary of $cds_pack is not a linux/amd64 executable: $(file -b "$cds_binary")"
+    fi
+    log "CDS pack $(basename "$cds_pack") ($(cat "$pack_root/version.txt" 2>/dev/null || echo 'no version.txt'))"
+fi
+
+if ! $collect_only && ! $dry_run && [ -n "$is_pack_dir" ]; then
+    # setup-is.sh takes a zip. Zip the folder without the files of the macOS
+    # Finder and the logs of the update tool. The top folder keeps its name.
+    is_pack="$run_dir/$(basename "$is_pack_dir").zip"
+    log "Zip the IS folder $is_pack_dir into $is_pack. This can take some minutes."
+    rm -f "$is_pack"
+    (cd "$(dirname "$is_pack_dir")" && zip -qr -X "$is_pack" "$(basename "$is_pack_dir")" \
+        -x '*/.DS_Store' "$(basename "$is_pack_dir")/updates/logs/*")
+fi
 stack_name="cds-perf-${no_of_nodes}node-$timestamp"
 secret() { openssl rand -hex 16; }
 # The key that seals the service credentials in the CDS database (32 bytes, base64).
@@ -689,10 +773,17 @@ chmod 600 ~/.ssh/config'
 CDS_DB_HOST="$cds_db_host"
 # shellcheck disable=SC2034
 CDS_DB_USER="$DB_USER"
-send_secrets bastion CDS_DB_HOST CDS_DB_USER CDS_DB_PASS IS_ADMIN_PASS CDS_SYNC_USER CDS_SYNC_PASS BROKER_USER BROKER_PASSWORD
+# The bastion node reads the query statistics of the IS database too
+# (pg_stat_statements). setup-is.sh uses the same user.
+# shellcheck disable=SC2034
+IS_DB_HOST="$is_db_host"
+# shellcheck disable=SC2034
+IS_DB_USER="$DB_USER"
+send_secrets bastion CDS_DB_HOST CDS_DB_USER CDS_DB_PASS IS_DB_HOST IS_DB_USER IS_DB_PASS \
+    IS_ADMIN_PASS CDS_SYNC_USER CDS_SYNC_PASS BROKER_USER BROKER_PASSWORD
 ssh_node bastion 'mkdir -p ~/cds-perf/perf/common ~/cds-perf/dbscripts'
 scp_to bastion "cds-perf/perf/common/" "$common_dir/jmeter" "$common_dir/tools"
-scp_to bastion "cds-perf/dbscripts/" "$cds_src/dbscripts/postgres.sql"
+scp_to bastion "cds-perf/dbscripts/postgres.sql" "$cds_schema"
 scp_to bastion "cds-perf/" "$common_dir/deployment/run-performance-tests.sh"
 ssh_node bastion "cds-perf/setup/setup-bastion.sh -c $cds_db_host"
 
@@ -701,8 +792,6 @@ prepare_node "$activemq_ip"
 send_secrets "$activemq_ip" BROKER_USER BROKER_PASSWORD
 ssh_node "$activemq_ip" 'cds-perf/setup/setup-activemq.sh'
 
-# shellcheck disable=SC2034  # send_secrets reads it with eval.
-IS_DB_USER="$DB_USER"
 # With 2 IS nodes, setup-is.sh gets the IPs of all members (-k).
 cluster_opt=""
 [ "$is_nodes" -lt 2 ] || cluster_opt=" -k $(printf '%q' "${is_ips[*]}")"
@@ -748,12 +837,9 @@ cds_env="$run_dir/cds.env"
     umask 077
     cat >"$cds_env" <<EOF
 CDS_LOG_LEVEL=WARN
-CDS_PORT=8900
 CDS_BASE=https://cdslb
-CDS_CERT_DIR=/opt/cds/certs
 CDS_FUZZY_MATCHING=true
 IS_HOST=wso2is
-IS_PORT=9443
 IS_BASE=https://wso2is:9443
 CDS_SYNC_USER=$CDS_SYNC_USER
 AUTH_SERVER_ADMIN_PASSWORD=$CDS_SYNC_PASS
@@ -784,9 +870,9 @@ for ip in "${cds_ips[@]}"; do
     prepare_node "$ip"
     scp_to "$ip" "cds-perf/cds" "$cds_binary"
     scp_to "$ip" "cds-perf/cds.env" "$cds_env"
-    scp_to "$ip" "cds-perf/base-deployment.yaml" "$cds_src/config/repository/conf/deployment.yaml"
+    scp_to "$ip" "cds-perf/base-deployment.yaml" "$cds_base_config"
     scp_to "$ip" "cds-perf/certs/" "$certs/cds.crt" "$certs/cds.key"
-    ssh_node "$ip" 'chmod 600 ~/cds-perf/cds.env && ~/cds-perf/setup/setup-cds.sh'
+    ssh_node "$ip" "chmod 600 ~/cds-perf/cds.env && ~/cds-perf/setup/setup-cds.sh${cds_start_cmd:+ -s $cds_start_cmd}"
     i=$((i + 1))
 done
 
@@ -803,12 +889,16 @@ jq -n --arg nodes "$no_of_nodes" --arg isnodes "$is_nodes" --arg cds "$cds_insta
     --arg cdsversion "$(cds_build_info mod)" --arg cdscommit "$(cds_build_info vcs.revision)" \
     --arg cdsmodified "$(cds_build_info vcs.modified)" \
     --arg cdssha "$(shasum -a 256 "$cds_binary" | awk '{print $1}')" \
-    --arg ispack "$(basename "$is_pack")" --arg heap "$is_heap" --arg size "$deployment_size" \
+    --arg cdspack "$(if [ -n "$cds_pack" ]; then basename "$cds_pack"; fi)" \
+    --arg cdspacksha "$(if [ -n "$cds_pack" ]; then shasum -a 256 "$cds_pack" | awk '{print $1}'; fi)" \
+    --arg ispack "$(basename "$is_pack")" --arg ispacksrc "$is_pack_dir" \
+    --arg heap "$is_heap" --arg size "$deployment_size" \
     '{deployment_size:$size, cds_nodes:$nodes, is_nodes:$isnodes, cds_instance_type:$cds, is_instance_type:$is, is_heap:$heap,
       nginx_instance_type:$nginx, activemq_instance_type:$amq, bastion_instance_type:$bastion,
       cds_db_instance_type:$cdsdb, is_db_instance_type:$isdb, cds_db_snapshot:$snapshot,
       cds_version:$cdsversion, cds_commit:$cdscommit, cds_uncommitted_changes:$cdsmodified,
-      cds_binary_sha256:$cdssha, is_pack:$ispack}' >"$run_dir/test-metadata.json"
+      cds_binary_sha256:$cdssha, cds_pack:$cdspack, cds_pack_sha256:$cdspacksha,
+      is_pack:$ispack, is_pack_folder:$ispacksrc}' >"$run_dir/test-metadata.json"
 scp_to bastion "cds-perf/test-metadata.json" "$run_dir/test-metadata.json"
 
 log "Setup done in $(format_time "$(measure_time "$script_start_time")")"

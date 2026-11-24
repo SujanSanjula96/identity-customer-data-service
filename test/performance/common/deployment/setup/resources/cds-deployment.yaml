@@ -4,6 +4,11 @@
 #
 # CDS expands the placeholders from the environment when it loads the file.
 # The values come from /etc/cds/cds.env (mode 600), so no secret is in this file.
+#
+# addr.port, auth_server.port, and tls.cert_dir have no placeholder. The
+# "cdd start" command of a release pack reads these keys before it expands the
+# placeholders, and it cannot read "${CDS_PORT}" as a number. setup-cds.sh
+# installs CDS to /opt/cds and checks port 8900, so the values are fixed.
 # Keep this file in step with config/repository/conf/deployment.yaml.
 
 env: perf
@@ -22,7 +27,7 @@ auth:
 
 addr:
   host: "0.0.0.0"
-  port: ${CDS_PORT}
+  port: 8900
 
 server_url: "${CDS_BASE}"
 
@@ -77,7 +82,7 @@ datasource:
 # only to the calls from CDS to IS, and IS does not need a client certificate.
 tls:
   mtls_enabled: false
-  cert_dir: "${CDS_CERT_DIR}"
+  cert_dir: "/opt/cds/certs"
   server_cert: "server.crt"
   server_key: "server.key"
   trust_store: "trust_store.pem"
@@ -93,7 +98,7 @@ application_identifier_type: app_id
 # required_scopes comes last, so that the appended block is inside auth_server.
 auth_server:
   host: "${IS_HOST}"
-  port: ${IS_PORT}
+  port: 9443
   adu_is_hostname: "${IS_HOST}"
   cookieDomain: "${IS_HOST}"
   introspectionEndpoint: "/oauth2/introspect"

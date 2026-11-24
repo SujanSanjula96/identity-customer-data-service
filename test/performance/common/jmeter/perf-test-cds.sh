@@ -206,6 +206,11 @@ printf 'scenario,level,%s\n' "$(python3 "$tools/queue-stats.py" --header)" >"$qu
 # queue drain). The file stays empty if the runner has no access to the CDS database.
 db_file="$results_dir/db-by-level.csv"
 printf 'scenario,level,%s\n' "$(python3 "$tools/pg-stats-diff.py" --header)" >"$db_file"
+# The same for the IS database server (all IS databases). IS introspects each token that CDS
+# gets, so the IS database also does work for each CDS request. The file stays empty if the
+# runner has no access to the IS database (IS_DB_HOST).
+is_db_file="$results_dir/is-db-by-level.csv"
+printf 'scenario,level,%s\n' "$(python3 "$tools/pg-stats-diff.py" --header)" >"$is_db_file"
 : >"$counts_file"
 
 export HEAP="-Xms${jmeter_heap} -Xmx${jmeter_heap}"
@@ -319,6 +324,8 @@ for entry in "${scenarios[@]}"; do
 
     python3 "$tools/cds-admin.py" pg-stats "$run_dir/.pg-stats-before.csv" >/dev/null 2>&1 \
       || rm -f "$run_dir/.pg-stats-before.csv"
+    python3 "$tools/cds-admin.py" pg-stats-is "$run_dir/.is-pg-stats-before.csv" >/dev/null 2>&1 \
+      || rm -f "$run_dir/.is-pg-stats-before.csv"
     level_start="$(date +%s)"
     if ! jmeter -n -t "$script_dir/$jmx" \
       -q "$secrets_file" \
@@ -373,6 +380,14 @@ for entry in "${scenarios[@]}"; do
       echo "  database: $d"
     fi
     rm -f "$run_dir/.pg-stats-before.csv" "$run_dir/.pg-stats-after.csv"
+    if [ -s "$run_dir/.is-pg-stats-before.csv" ] &&
+      python3 "$tools/cds-admin.py" pg-stats-is "$run_dir/.is-pg-stats-after.csv" >/dev/null 2>&1 &&
+      d="$(python3 "$tools/pg-stats-diff.py" "$run_dir/.is-pg-stats-before.csv" \
+        "$run_dir/.is-pg-stats-after.csv" "$run_dir/is-pg-stat-statements.csv")"; then
+      printf '%s,%s,%s\n' "$name" "$level" "$d" >>"$is_db_file"
+      echo "  IS database: $d"
+    fi
+    rm -f "$run_dir/.is-pg-stats-before.csv" "$run_dir/.is-pg-stats-after.csv"
     [ -z "$data_file" ] || rm -f "$data_file"
     data_file=""
   done

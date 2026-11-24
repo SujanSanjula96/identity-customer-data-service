@@ -18,6 +18,8 @@ Subcommands:
     purge-queue            Clear the unification queue (before each scenario).
     pg-stats <file>        Save all rows of pg_stat_statements of the CDS database as CSV.
                            pg-stats-diff.py compares two of these files.
+    pg-stats-is <file>     The same for the IS database server (IS_DB_HOST, IS_DB_USER,
+                           IS_DB_PASS). The query text starts with [<database name>].
     restart-cds            Restart all CDS nodes and wait until they are ready.
     counts <start epoch> [<end epoch>]
                            The result of the profiles that were made in the window:
@@ -178,12 +180,20 @@ def api(method, path, body=None, ok=(200, 201, 204)):
     return status, parsed
 
 
-def psql(sql, csv_out=False):
-    cmd = ["psql", "-h", env("CDS_DB_HOST", "localhost"), "-U", env("CDS_DB_USER", "postgres"),
-           "-d", env("CDS_DB_NAME", "cds_db"), "-v", "ON_ERROR_STOP=1", "-qAt"]
+def psql(sql, csv_out=False, target="cds"):
+    # target "is": the "postgres" database of the IS database server.
+    if target == "is":
+        host, user, db, password = (env("IS_DB_HOST"), env("IS_DB_USER", "postgres"), "postgres",
+                                    env("IS_DB_PASS"))
+        if not host:
+            die("No IS_DB_HOST. The IS query statistics need access to the IS database.")
+    else:
+        host, user, db, password = (env("CDS_DB_HOST", "localhost"), env("CDS_DB_USER", "postgres"),
+                                    env("CDS_DB_NAME", "cds_db"), env("CDS_DB_PASS"))
+    cmd = ["psql", "-h", host, "-U", user, "-d", db, "-v", "ON_ERROR_STOP=1", "-qAt"]
     if csv_out:
         cmd += ["--csv"]
-    run_env = dict(os.environ, PGPASSWORD=env("CDS_DB_PASS"))
+    run_env = dict(os.environ, PGPASSWORD=password)
     out = subprocess.run(cmd + ["-c", sql], env=run_env, capture_output=True, text=True)
     if out.returncode != 0:
         die(f"psql: {out.stderr.strip()}")
@@ -269,19 +279,28 @@ def cmd_load_seed(path, threads=32):
                 row = work.get_nowait()
             except queue.Empty:
                 break
+            # POST /profiles takes no user_id. A permanent seed profile gets its user ID
+            # through POST /profiles/link, as an application does.
+            headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
             if row["kind"] == "permanent":
-                body = {"user_id": row["user_id"], "traits": {
+                body = {"traits": {
                     k: row[k] for k in ("email", "phone", "nic", "first_name", "last_name",
                                         "address", "alt_email", "alt_name")}}
             else:
                 body = {"traits": {"last_page": "/home", "page_views": 1}}
             try:
-                conn.request("POST", f"{API}/profiles", json.dumps(body),
-                             {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
+                conn.request("POST", f"{API}/profiles", json.dumps(body), headers)
                 resp = conn.getresponse()
-                resp.read()
+                raw = resp.read()
                 good = resp.status in (200, 201)
-            except (OSError, http.client.HTTPException):
+                if good and row["kind"] == "permanent":
+                    profile_id = json.loads(raw)["profile_id"]
+                    conn.request("POST", f"{API}/profiles/link", json.dumps(
+                        {"profile_id": profile_id, "user_id": row["user_id"]}), headers)
+                    resp = conn.getresponse()
+                    resp.read()
+                    good = resp.status in (200, 201)
+            except (OSError, http.client.HTTPException, ValueError, KeyError):
                 conn.close()
                 conn = http.client.HTTPSConnection(url.hostname, url.port or 443, context=SSL,
                                                    timeout=60)
@@ -407,13 +426,24 @@ def cmd_purge_queue():
         print("The unification queue was not cleared (no CDS nodes or no access).")
 
 
-def cmd_pg_stats(path):
+def cmd_pg_stats(path, target="cds"):
     # The runner saves the statistics before and after each level. The values add up for the
     # life of the database, so the difference is the work of that level.
-    out = psql("SELECT queryid, calls, round(total_exec_time::numeric, 3) AS total_ms, rows,"
-               " shared_blks_hit, shared_blks_read,"
-               " left(regexp_replace(query, '\\s+', ' ', 'g'), 300) AS query"
-               " FROM pg_stat_statements WHERE queryid IS NOT NULL", csv_out=True)
+    if target == "is":
+        # One server has all IS databases. The same statement in two databases has the same
+        # queryid, so the key has the database too, and the text names the database.
+        out = psql("SELECT s.dbid || ':' || s.queryid AS queryid, s.calls,"
+                   " round(s.total_exec_time::numeric, 3) AS total_ms, s.rows,"
+                   " s.shared_blks_hit, s.shared_blks_read,"
+                   " '[' || d.datname || '] ' ||"
+                   " left(regexp_replace(s.query, '\\s+', ' ', 'g'), 300) AS query"
+                   " FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid"
+                   " WHERE s.queryid IS NOT NULL", csv_out=True, target="is")
+    else:
+        out = psql("SELECT queryid, calls, round(total_exec_time::numeric, 3) AS total_ms, rows,"
+                   " shared_blks_hit, shared_blks_read,"
+                   " left(regexp_replace(query, '\\s+', ' ', 'g'), 300) AS query"
+                   " FROM pg_stat_statements WHERE queryid IS NOT NULL", csv_out=True)
     # psql -t leaves out the header line.
     with open(path, "w") as h:
         h.write("queryid,calls,total_ms,rows,shared_blks_hit,shared_blks_read,query\n")
@@ -560,6 +590,7 @@ def main(argv):
         "counts": (cmd_counts, 1), "reindex": (cmd_reindex, 4),
         "deactivate": (cmd_deactivate, 2), "purge-queue": (cmd_purge_queue, 0),
         "pg-stats": (cmd_pg_stats, 1),
+        "pg-stats-is": (lambda path: cmd_pg_stats(path, "is"), 1),
     }
     if cmd not in table:
         print(__doc__, file=sys.stderr)

@@ -38,6 +38,7 @@ mkdir -p "$results_dir"
 
 # shellcheck source=/dev/null
 source "$bundle_dir/secrets.env"
+# shellcheck disable=SC2153  # secrets.env sets CDS_DB_HOST.
 cds_db_count() {
     PGPASSWORD="$CDS_DB_PASS" psql -h "$CDS_DB_HOST" -U "$CDS_DB_USER" -d cds_db -tAc \
         "SELECT json_build_object('time', now(), 'profiles', (SELECT count(*) FROM profiles),
@@ -51,6 +52,12 @@ cds_db_count() {
 cds_db_count >"$results_dir/db-before.json"
 PGPASSWORD="$CDS_DB_PASS" psql -h "$CDS_DB_HOST" -U "$CDS_DB_USER" -d cds_db -qc \
     'SELECT pg_stat_statements_reset()' >/dev/null 2>&1 || true
+# The IS database server: all IS databases, from its "postgres" database.
+is_psql() {
+    [ -n "${IS_DB_HOST:-}" ] || return 1
+    PGPASSWORD="${IS_DB_PASS:-}" psql -h "$IS_DB_HOST" -U "${IS_DB_USER:-}" -d postgres "$@"
+}
+is_psql -qc 'SELECT pg_stat_statements_reset()' >/dev/null 2>&1 || true
 
 # The queue monitor runs until this script ends.
 export QUEUE_CSV="$results_dir/queue.csv"
@@ -88,6 +95,13 @@ PGPASSWORD="$CDS_DB_PASS" psql -h "$CDS_DB_HOST" -U "$CDS_DB_USER" -d cds_db --c
             rows, left(regexp_replace(query, '\s+', ' ', 'g'), 300) AS query
        FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 50" \
     >"$results_dir/pg-stat-statements.csv" 2>/dev/null || true
+is_psql --csv -c \
+    "SELECT d.datname AS database, s.calls, round(s.total_exec_time::numeric, 1) AS total_ms,
+            round(s.mean_exec_time::numeric, 3) AS mean_ms, s.rows,
+            left(regexp_replace(s.query, '\s+', ' ', 'g'), 300) AS query
+       FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid
+      ORDER BY s.total_exec_time DESC LIMIT 50" \
+    >"$results_dir/is-pg-stat-statements.csv" 2>/dev/null || true
 
 (cd "$bundle_dir" && rm -f results.zip && zip -qr results.zip results)
 echo "$rc" >"$bundle_dir/run.done"

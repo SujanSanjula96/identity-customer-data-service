@@ -3,11 +3,17 @@
 # copies the bundle to ~/cds-perf and runs this script.
 #
 # Bundle layout (~/cds-perf):
-#   cds                                 the CDS binary (linux/amd64)
+#   cds                                 the CDS binary (linux/amd64): a build of
+#                                       cmd/server, or bin/cdd of a CDS release pack
 #   cds.env                             the environment of CDS, with the secrets (mode 600)
 #   certs/ca.crt, cds.crt, cds.key      from the test CA
-#   base-deployment.yaml                config/repository/conf/deployment.yaml of the CDS build
+#   base-deployment.yaml                config/repository/conf/deployment.yaml of the CDS build,
+#                                       or repository/conf/deployment.yaml of the pack
 #   setup/resources/cds-deployment.yaml the CDS configuration template
+#
+# Options:
+#   -s <subcommand>   The subcommand that starts the server. A pack binary
+#                     (bin/cdd) needs "start". A build of cmd/server takes none.
 #
 # CDS expands ${NAME} in deployment.yaml from its environment. systemd reads the
 # environment from /etc/cds/cds.env, which only root can read. Thus no secret
@@ -18,6 +24,15 @@ set -euo pipefail
 bundle_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cds_home="/opt/cds"
 port=8900
+start_cmd=""
+
+while getopts "s:" opt; do
+    case "$opt" in
+        s) start_cmd="$OPTARG" ;;
+        *) echo "Usage: $0 [-s <subcommand>]" >&2; exit 2 ;;
+    esac
+done
+case "$start_cmd" in "" | start) ;; *) echo "Unknown subcommand: $start_cmd" >&2; exit 2 ;; esac
 
 sudo systemctl stop cds 2>/dev/null || true
 
@@ -64,8 +79,10 @@ Wants=network-online.target
 User=cds
 WorkingDirectory=$cds_home
 EnvironmentFile=/etc/cds/cds.env
+# A pack binary finds its home from CDD_HOME. An older build uses CDS_HOME.
 Environment=CDS_HOME=$cds_home
-ExecStart=$cds_home/cds
+Environment=CDD_HOME=$cds_home
+ExecStart=$cds_home/cds${start_cmd:+ $start_cmd}
 LimitNOFILE=65535
 Restart=on-failure
 RestartSec=5

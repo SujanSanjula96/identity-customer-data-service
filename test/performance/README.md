@@ -87,6 +87,8 @@ The loader does not use the index backfill of CDS. T8 measures the backfill.
 - `queue-summary.csv`: for each level with a data file, the enqueue and dequeue rates,
   the worker capacity (the dequeue rate while the queue has a backlog), the queue growth,
   and the drain time.
+- `is-db-by-level.csv`: for each level, the statements of the IS database server
+  (`pg_stat_statements`), if the runner has access to the IS database.
 - `unification-counts.jsonl`: for each level, the new profiles that merged, that are in a
   review task, or that had no action.
 
@@ -271,8 +273,9 @@ CDS does not request a client certificate, and `mtls_enabled` is false.
 |-------|--------|---------|
 | AWS credentials and region | `AWS_PROFILE`, `AWS_REGION` | A profile that can create the resources of the template |
 | EC2 key pair | `-k <file.pem>` | The key pair name is the file name without `.pem`, or `-K` |
-| IS pack | `-n <zip>` | A pack whose Console knows `cds_host` |
+| IS pack | `-n <zip or folder>` | A pack whose Console knows `cds_host`. The script zips a folder into the run directory |
 | CDS extension bundles | `-x <dir>` | The `components` folder of an `identity-customer-data-service-extensions` build. Not for a pack that has the CDS bundles |
+| CDS release pack for linux/amd64 | `-A <zip>` | `cdd-linux-amd64-<version>.zip`. The binary, schema, and configuration come from the pack. Needs an IS pack that has the CDS bundles. Use `-A` or `-b` |
 | CDS binary for linux/amd64 | `-b <file>` | See below |
 | CDS source checkout of the binary (schema and configuration) | `-c <dir>` | The folder that you built the binary in |
 | SSH source CIDR | `-a <cidr>` | The public IP of the operator machine with `/32` |
@@ -283,6 +286,9 @@ Build the CDS binary from the commit that you want to test:
 ```bash
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o <out dir>/cds-linux-amd64 ./cmd/server
 ```
+
+To test a CDS release, download the linux/amd64 pack and its `.sha256` file from the
+release page into the same folder. The script checks the pack against the `.sha256` file.
 
 Tools on the operator machine: `aws` (CLI v2), `jq`, `ssh`, `scp`, `openssl`, `zip`.
 
