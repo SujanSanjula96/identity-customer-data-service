@@ -242,7 +242,7 @@ BEGIN
     ddl('CREATE INDEX idx_review_tasks_org_id_status ON review_tasks (org_id, status)');
     ddl('CREATE INDEX idx_review_tasks_created ON review_tasks (created_at DESC)');
     ddl('CREATE INDEX idx_review_tasks_incoming ON review_tasks (incoming_profile_id, status)');
-    ddl('CREATE INDEX idx_review_tasks_candidate ON review_tasks (candidate_profile_id)');
+    ddl('CREATE INDEX idx_review_tasks_candidate ON review_tasks (candidate_profile_id, status)');
 
     -- Pairs an administrator explicitly rejected as non-matches. Kept separate from review_tasks so profile
     -- edits and deletes can clear them without losing task history. The lower id is first, so one row is one

@@ -266,7 +266,7 @@ CREATE TABLE dbo.review_tasks
 CREATE INDEX idx_review_tasks_org_id_status ON dbo.review_tasks (org_id, status);
 CREATE INDEX idx_review_tasks_created ON dbo.review_tasks (created_at DESC);
 CREATE INDEX idx_review_tasks_incoming ON dbo.review_tasks (incoming_profile_id, status);
-CREATE INDEX idx_review_tasks_candidate ON dbo.review_tasks (candidate_profile_id);
+CREATE INDEX idx_review_tasks_candidate ON dbo.review_tasks (candidate_profile_id, status);
 END;
 
 -- Pairs an administrator explicitly rejected as non-matches. Kept separate from
