@@ -192,7 +192,8 @@ func Test_UnificationCandidateGINEligibility(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.Exec(
-		`CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin ON profiles USING GIN (identity_attributes)`,
+		`CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_path_gin
+			ON profiles USING GIN (identity_attributes jsonb_path_ops)`,
 	)
 	require.NoError(t, err)
 	_, err = tx.Exec(`SET LOCAL enable_seqscan = off; SET LOCAL enable_indexscan = off`)
@@ -215,7 +216,7 @@ func Test_UnificationCandidateGINEligibility(t *testing.T) {
 		plan += fmt.Sprintln(line)
 	}
 	require.NoError(t, rows.Err())
-	require.Contains(t, plan, "idx_profiles_identity_attributes_gin")
+	require.Contains(t, plan, "idx_profiles_identity_attributes_path_gin")
 }
 
 // Run with -run '^$' -bench Benchmark_UnificationCandidateLookup -benchmem.

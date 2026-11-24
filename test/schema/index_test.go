@@ -45,3 +45,37 @@ func TestEverySchemaIndexesTheReviewTaskCandidate(t *testing.T) {
 		}
 	}
 }
+
+// pathOpsIndex matches a GIN index on a profiles JSON column with the jsonb_path_ops operator class.
+func pathOpsIndex(column string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)ON\s+profiles\s+USING\s+GIN\s*\(\s*` + column + `\s+jsonb_path_ops\s*\)`)
+}
+
+// TestTheProfileJSONIndexesUseJSONBPathOps keeps the profile JSON indexes on jsonb_path_ops in the PostgreSQL
+// schemas and on the upgrade path. The profile queries use only @> and @? on these columns, which
+// jsonb_path_ops supports with a smaller index that costs less on each profile write.
+func TestTheProfileJSONIndexesUseJSONBPathOps(t *testing.T) {
+	for _, path := range []string{
+		installSchema,
+		testSchema,
+		"../../dbscripts/migrations/005-profile-json-path-ops-postgres.sql",
+	} {
+		schema := read(t, path)
+		for _, column := range []string{"traits", "identity_attributes"} {
+			if !pathOpsIndex(column).MatchString(schema) {
+				t.Errorf("%s has no jsonb_path_ops GIN index on profiles.%s", path, column)
+			}
+		}
+	}
+}
+
+// TestTheUserIDTrigramIndexIsKept keeps the trigram index on profiles.user_id: the user_id co, sw and ew
+// profile filters are ILIKE on PostgreSQL, and only this index serves them.
+func TestTheUserIDTrigramIndexIsKept(t *testing.T) {
+	trigram := regexp.MustCompile(`(?i)ON\s+profiles\s+USING\s+GIN\s*\(\s*user_id\s+gin_trgm_ops\s*\)`)
+	for _, path := range []string{installSchema, testSchema} {
+		if !trigram.MatchString(read(t, path)) {
+			t.Errorf("%s has no trigram index on profiles.user_id", path)
+		}
+	}
+}

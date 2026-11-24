@@ -277,7 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_org_id_created_profile
 CREATE INDEX IF NOT EXISTS idx_profiles_org_id_user
     ON profiles (org_id, user_id);
 
--- Optional: speeds ILIKE/contains on user_id
+-- Serves the user_id co, sw and ew profile filters, which are ILIKE on PostgreSQL.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id_trgm
     ON profiles USING GIN (user_id gin_trgm_ops);
@@ -314,12 +314,15 @@ CREATE INDEX IF NOT EXISTS idx_application_data_app_specific_gin
 -- ================================
 -- JSONB FILTERING (Profiles)
 -- ================================
--- These help mainly after switching eq → @> (still safe to add now)
-CREATE INDEX IF NOT EXISTS idx_profiles_traits_gin
-    ON profiles USING GIN (traits);
+-- The profile filters use @> (eq) and the oldest reference lookup uses @?. jsonb_path_ops
+-- supports both, and its index is smaller and cheaper to update on each profile write than
+-- the default jsonb_ops. No query uses the key-exists operators (?, ?|, ?&), which only
+-- jsonb_ops supports.
+CREATE INDEX IF NOT EXISTS idx_profiles_traits_path_gin
+    ON profiles USING GIN (traits jsonb_path_ops);
 
-CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_gin
-    ON profiles USING GIN (identity_attributes);
+CREATE INDEX IF NOT EXISTS idx_profiles_identity_attributes_path_gin
+    ON profiles USING GIN (identity_attributes jsonb_path_ops);
 
 -- ================================
 -- PROFILE_SCHEMA (Rare filtering, minimal indexes)
