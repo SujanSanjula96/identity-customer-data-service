@@ -43,12 +43,14 @@ type DBClientInterface interface {
 	ExecuteQuery(query model.DBQuery, args ...interface{}) ([]map[string]interface{}, error)
 	// ExecuteQueryContext runs a query under the caller's context, and under no
 	// deadline of its own. The caller ends the wait for a free connection, and
-	// the query itself, by ending that context.
+	// the query itself, by ending that context. A context that carries a
+	// transaction (model.ContextWithTx) runs the query in that transaction.
 	ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 		[]map[string]interface{}, error)
 	// BeginTxContext starts a transaction under the caller's context. When that
 	// context ends, database/sql rolls the transaction back and returns its
-	// connection to the pool.
+	// connection to the pool. A context that already carries a transaction
+	// joins it instead.
 	BeginTxContext(ctx context.Context) (*model.Tx, error)
 	// Deprecated: use BeginTxContext. A transaction without a context holds
 	// its connection until some code ends it.
@@ -87,8 +89,16 @@ func (client *DBClient) ExecuteQuery(query model.DBQuery, args ...interface{}) (
 // ExecuteQueryContext executes a query under the caller's context and returns
 // the result as a slice of maps. Every row is read before it returns, so the
 // context covers the whole call.
+//
+// When the context carries a transaction, the query runs in it. The work in
+// that transaction then holds one connection, and a row it locked does not
+// block its own later statements.
 func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQuery, args ...interface{}) (
 	[]map[string]interface{}, error) {
+	if tx := model.TxFromContext(ctx); tx != nil {
+		return client.executeInTx(ctx, tx, query, args...)
+	}
+
 	sqlText, args, err := database.BindStatement(client.dbType, query.GetQuery(client.dbType), args)
 	if err != nil {
 		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
@@ -105,6 +115,35 @@ func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQ
 	if err != nil {
 		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
 	}
+	return client.readRows(rows)
+}
+
+// executeInTx runs a query in tx. The transaction binds the statement itself,
+// so the text is bound here only to learn whether it returns rows.
+func (client *DBClient) executeInTx(ctx context.Context, tx *model.Tx, query model.DBQuery,
+	args ...interface{}) ([]map[string]interface{}, error) {
+	sqlText, _, err := database.BindStatement(tx.DBType(), query.GetQuery(tx.DBType()), args)
+	if err != nil {
+		return nil, fmt.Errorf("query %s failed: %w", query.ID, err)
+	}
+
+	if !database.ReturnsRows(tx.DBType(), sqlText) {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return client.readRows(rows)
+}
+
+// readRows reads every row into a map keyed by the lowercased column name, and
+// closes the rows.
+func (client *DBClient) readRows(rows *sql.Rows) ([]map[string]interface{}, error) {
 	defer func() { _ = rows.Close() }()
 
 	columns, err := rows.Columns()
@@ -159,7 +198,15 @@ func (client *DBClient) ExecuteQueryContext(ctx context.Context, query model.DBQ
 //
 // A transaction holds its connection until it ends. When the context ends
 // first, database/sql rolls the transaction back and returns that connection.
+//
+// When the context already carries a transaction, the new one joins it: its
+// statements run in that transaction, its Commit does nothing, and its
+// Rollback makes the whole transaction roll back.
 func (client *DBClient) BeginTxContext(ctx context.Context) (*model.Tx, error) {
+	if outer := model.TxFromContext(ctx); outer != nil {
+		return outer.Join(), nil
+	}
+
 	tx, err := client.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err

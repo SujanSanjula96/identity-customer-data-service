@@ -183,13 +183,23 @@ func InsertReviewTask(ctx context.Context, orgID string, task model.ReviewTask) 
 	return nil
 }
 
-// CancelRelatedReviewTasks cancels all PENDING review tasks that reference either of the given profile IDs.
-// Returns the incoming profile IDs of the cancelled tasks so they can be re-evaluated.
+// noReviewTask is a task ID that no review task has. Oracle stores an empty string as NULL, and
+// "id != NULL" matches no row, so an empty excluded ID is replaced with this one.
+const noReviewTask = "-"
+
+// CancelRelatedReviewTasks cancels all PENDING review tasks, other than excludeTaskID, that reference
+// either of the given profile IDs. Returns the profile IDs on both sides of the cancelled tasks, so they
+// can be evaluated again.
+//
+// A merge calls it in its transaction, so a failure fails the merge.
 func CancelRelatedReviewTasks(
 	ctx context.Context,
 	excludeTaskID, incomingProfileID, candidateProfileID, cancelledBy string,
 ) ([]string, error) {
 	logger := log.GetLogger()
+	if excludeTaskID == "" {
+		excludeTaskID = noReviewTask
+	}
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -198,23 +208,26 @@ func CancelRelatedReviewTasks(
 	}
 	defer func() { _ = dbClient.Close() }()
 
-	// Step 1: Find incoming profile IDs that will be affected before canceling.
+	// Step 1: Find the profiles of the tasks before canceling them.
 	findQuery := scripts.IRFindRelatedPendingReviewTasks
 	rows, err := dbClient.ExecuteQueryContext(ctx, findQuery,
 		excludeTaskID, constants.ReviewStatusPending,
 		incomingProfileID, candidateProfileID)
 	if err != nil {
-		logger.Warn("Store: failed to query related tasks for re-evaluation", log.Error(err))
-		// Non-fatal for the find step — proceed with cancel anyway.
+		logger.Error("Store: failed to query related tasks for re-evaluation", log.Error(err))
+		return nil, err
 	}
 
-	var affectedIncomingIDs []string
+	var affectedIDs []string
+	seen := map[string]bool{}
 	for _, row := range rows {
-		if v, ok := row["incoming_profile_id"]; ok && v != nil {
-			id := fmt.Sprintf("%v", v)
-			// Don't re-evaluate profiles that were just merged (incoming or candidate of the resolved task).
-			if id != incomingProfileID && id != candidateProfileID {
-				affectedIncomingIDs = append(affectedIncomingIDs, id)
+		for _, column := range []string{"incoming_profile_id", "candidate_profile_id"} {
+			if v, ok := row[column]; ok && v != nil {
+				id := fmt.Sprintf("%v", v)
+				if !seen[id] {
+					seen[id] = true
+					affectedIDs = append(affectedIDs, id)
+				}
 			}
 		}
 	}
@@ -223,7 +236,7 @@ func CancelRelatedReviewTasks(
 	cancelQuery := scripts.IRCancelRelatedReviewTasks
 	_, err = dbClient.ExecuteQueryContext(ctx, cancelQuery,
 		constants.ReviewStatusCancelled, cancelledBy,
-		fmt.Sprintf("Auto-cancelled: related task %s was resolved", excludeTaskID),
+		"Auto-cancelled: a profile of the pair was merged with another profile",
 		excludeTaskID, constants.ReviewStatusPending,
 		incomingProfileID, candidateProfileID)
 	if err != nil {
@@ -231,7 +244,7 @@ func CancelRelatedReviewTasks(
 		return nil, err
 	}
 
-	return affectedIncomingIDs, nil
+	return affectedIDs, nil
 }
 
 // GetReviewTaskByID returns the review task with the given ID, or nil without an error when there is none.

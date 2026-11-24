@@ -211,6 +211,9 @@ var mssqlStatements = map[string]string{
 		  AND NOT EXISTS (SELECT 1 FROM profile_reference c WHERE c.reference_profile_id = p.profile_id)
 		ORDER BY p.updated_at`,
 
+	"CDS-PRF-26": `SELECT profile_id, profile_status FROM profile_reference WITH (UPDLOCK, ROWLOCK)
+		WHERE profile_id = $1 AND org_id = $2`,
+
 	"CDS-PRF-19": `SELECT TOP (1) p.profile_id
 		FROM profiles p JOIN profile_reference r ON r.profile_id = p.profile_id
 		WHERE p.org_id = $1 AND r.org_id = $1

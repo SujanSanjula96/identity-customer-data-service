@@ -97,6 +97,8 @@ cloud:
           # unification exact; while it is off new fuzzy rules are refused and any already
           # stored are evaluated as exact.
           fuzzyMatchingEnabled: true
+          # How many queued profiles each pod unifies at the same time.
+          unificationWorkers: 5
 
       tls:
         mtls_enabled: false

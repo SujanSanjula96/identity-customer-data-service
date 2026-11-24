@@ -276,3 +276,8 @@ identity_resolution:
   # configuration unifies profiles exactly as it did. While it is off new fuzzy rules are
   # refused and any already stored are evaluated as exact.
   fuzzy_matching_enabled: true
+
+  # How many queued profiles this instance unifies at the same time. Matching runs in
+  # parallel, and two merges that share a profile wait for each other. Each worker holds
+  # at most one database connection at a time. 5 when the key is absent.
+  unification_workers: 5

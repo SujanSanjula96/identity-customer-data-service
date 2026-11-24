@@ -212,7 +212,7 @@ A review task does not return either number. It returns an **explanation**, reco
 | `AUTO_MERGE_DISABLED` | The pair scored for a merge, but the organisation has `auto_merge_enabled` off |
 | `REJECTION_RECONSIDERED` | An administrator rejected the pair before; names the rules that agree now and gives `previous_similarity` |
 | `AUTO_MERGE_FAILED` | The pair scored for a merge, but the merge could not be made |
-| `MERGED_WITH_ANOTHER_PROFILE` | The pair scored for a merge, but the profile merged with another candidate in the same evaluation |
+| `MERGED_WITH_ANOTHER_PROFILE` | Raised by earlier versions when the pair scored for a merge but the profile merged with another candidate in the same evaluation. One evaluation still merges once, but the new master is now evaluated again, so such a pair is merged then or held for one of the reasons above |
 
 A reason is reported whenever its condition holds, not only when it was the one that lowered the score. *Marcus Delacroix* against *Marcus Delacroix* with different emails has a similarity of 1.0 and two reasons, `CONFLICTING_EVIDENCE` on the email rule and `WEAK_SOLE_EVIDENCE` on the name rule; either alone would have held it.
 
@@ -278,6 +278,26 @@ It is the same blocking index and the same comparators the worker uses, driven b
 The decision thresholds do not apply here. A search reports scores and lets the caller decide; it never merges anything, and never raises a review task. The `threshold` parameter is a floor on what is returned, unrelated to the organisation's auto-merge and review settings.
 
 Both paths honour `identity_resolution.fuzzy_matching_enabled`. With it off a rule stored as fuzzy is read as exact everywhere, search included, so the endpoint keeps working and returns only exact matches. That is worth stating because the two halves fail differently: with the switch off no new tolerant blocking keys are written, but keys written earlier remain until each profile is next re-indexed — so blocking may still reach a candidate that scoring then declines to call a match.
+
+---
+
+## Workers and concurrent merges
+
+Each instance unifies up to `identity_resolution.unification_workers` profiles at the same time (5 when the key is absent). With several instances on a shared broker, every worker on every instance takes jobs from the same queue.
+
+Matching runs without locks: reading the profile, finding and scoring candidates, and deciding are reads, and they are the bulk of the work. Only the merge is protected:
+
+1. The merge begins a transaction and locks the reference rows of both profiles, one at a time in profile ID order, so two merges that share a profile wait for each other rather than deadlock.
+2. It reads both profiles again under the lock. If either is no longer a reference profile, because another job merged it after the pair was matched, the merge writes nothing and both profiles are queued again, each as the master it now belongs to.
+3. It writes the references, the merged data and the index changes, and commits. A merge that fails at any step writes nothing, so a profile is never left as a child of a master that did not receive its data.
+
+One evaluation merges once. When it finds several candidates that score for a merge, it merges the first and queues the new master, whose evaluation takes the next. The result is the same whichever of several related profiles is evaluated first.
+
+A merge also cancels, in its transaction, the pending review tasks that name either profile, since each was raised on data the merge changed, and queues the profiles of those tasks to be evaluated again against the merged result. An approval is held to the same rule: a task whose profile was merged after it was raised is never applied to the master that profile now belongs to. See [Reviewing matches](../guides/reviewing-matches.md#tasks-that-resolve-themselves).
+
+A profile has at most one job running on an instance. A job that arrives for a profile that is being unified does not wait for a worker. It asks the running job to unify the profile once more when it ends, since the running job may have read the profile before the change that queued the new one.
+
+With ActiveMQ, a job is acknowledged after the worker finishes it, and the broker sends an instance no more unacknowledged jobs than it has workers. A job that an instance had not finished when it stopped is delivered again to an instance that is running.
 
 ---
 

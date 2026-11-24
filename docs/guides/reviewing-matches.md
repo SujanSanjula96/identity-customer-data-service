@@ -76,6 +76,13 @@ Scope `identity_resolution:update`. `decision` is `APPROVED` or `REJECTED`;
 
 Resolving a task that is already resolved is a 409.
 
+A merge cancels the tasks of its profiles (see
+[Tasks that resolve themselves](#tasks-that-resolve-themselves)), so a task
+whose profile was merged is normally no longer pending. If it still is — it was
+raised by an earlier version, or it was approved while the merge ran — approving
+it is a 409 as well. The task is marked `CANCELLED` rather than applied to the
+merged result, and both profiles are evaluated again.
+
 ### Rejected pairs stay rejected
 
 A rejection is a statement about identity, so the pair does not come back
@@ -87,7 +94,9 @@ before — and the task then carries the reason `REJECTION_RECONSIDERED`. See
 
 ### Tasks that resolve themselves
 
-When a merge happens — automatically or by approving another task — pending
-tasks involving the merged profile are marked `CANCELLED`, and the profiles
-are evaluated again against the merged result. A new task is raised if the
-match still needs a person.
+When two profiles merge — automatically or by approving another task — the
+pending tasks that name either of them are marked `CANCELLED`, in the same
+transaction as the merge. Each was raised on the data of a profile before the
+merge changed it. The profiles on both sides of those tasks are then evaluated
+again against the merged result, and a new task is raised if the match still
+needs a person. Nobody has to approve a task to find out it is out of date.

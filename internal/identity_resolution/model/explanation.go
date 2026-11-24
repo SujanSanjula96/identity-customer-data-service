@@ -43,7 +43,8 @@ const (
 	// ReasonAutoMergeFailed — the pair scored for a merge, but the merge could not be made.
 	ReasonAutoMergeFailed = "AUTO_MERGE_FAILED"
 	// ReasonMergedWithAnother — the pair scored for a merge, but the profile was merged with
-	// another candidate in the same evaluation, and one evaluation merges once.
+	// another candidate in the same evaluation, and one evaluation merges once. No longer
+	// raised: the new master is evaluated again instead. Tasks raised earlier keep it.
 	ReasonMergedWithAnother = "MERGED_WITH_ANOTHER_PROFILE"
 )
 

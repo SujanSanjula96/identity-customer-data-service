@@ -361,6 +361,11 @@ type IdentityResolutionConfig struct {
 	// fuzzy rule raised stay in the queue to be answered, and blocking keys written for
 	// fuzzy matching remain until each profile is next re-indexed.
 	FuzzyMatchingEnabled bool `yaml:"fuzzy_matching_enabled"`
+
+	// UnificationWorkers is how many queued profiles one instance unifies at the same time.
+	// Zero, which is also what an omitted key gives, means constants.DefaultUnificationWorkers.
+	// A negative value is refused at start.
+	UnificationWorkers int `yaml:"unification_workers"`
 }
 
 // ShutdownConfig bounds the graceful shutdown of the whole process. Zero, which

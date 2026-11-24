@@ -59,9 +59,9 @@ func TestAnUnknownProviderIsRefused(t *testing.T) {
 
 type fakeProfileQueue struct{}
 
-func (fakeProfileQueue) Enqueue(profileModel.Profile) error     { return nil }
-func (fakeProfileQueue) Start(func(profileModel.Profile)) error { return nil }
-func (fakeProfileQueue) Close(context.Context) error            { return nil }
+func (fakeProfileQueue) Enqueue(profileModel.Profile) error                { return nil }
+func (fakeProfileQueue) Start(func(profileModel.Profile) error, int) error { return nil }
+func (fakeProfileQueue) Close(context.Context) error                       { return nil }
 
 type fakeSchemaQueue struct{}
 

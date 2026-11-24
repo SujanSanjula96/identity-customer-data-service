@@ -25,7 +25,7 @@ Both interfaces require three methods:
 | Method | Description |
 |---|---|
 | `Enqueue(…) error` | Publish a message to the broker. Returns `nil` on success or a descriptive error (queue full, serialization failure, broker unreachable, etc.). |
-| `Start(handler) error` | Subscribe to the queue and forward messages to `handler` in a background goroutine. Returns an error only if the initial subscription fails. |
+| `Start(handler, …) error` | Subscribe to the queue and forward messages to `handler` in the background. Returns an error only if the initial subscription fails. The profile queue's `Start` also takes the number of workers: run up to that many handlers at the same time, and acknowledge a message only after its handler returns `nil`, so that a message whose handler returns an error is delivered again. |
 | `Close() error` | Graceful shutdown — flush in-flight items and release connections, channels, and goroutines. Must be safe to call more than once. |
 
 Providers register themselves at startup via the factory's provider registry
@@ -72,8 +72,10 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
     return nil
 }
 
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
-    // subscribe and forward messages to handler in a goroutine
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error, workers int) error {
+    // subscribe, and run up to workers handlers at the same time. Acknowledge a
+    // message after its handler returns nil; leave it unacknowledged when the
+    // handler returns an error, so the broker delivers it again.
     go func() { /* consume loop */ }()
     return nil
 }

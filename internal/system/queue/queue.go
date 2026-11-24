@@ -41,11 +41,18 @@ type ProfileUnificationQueue interface {
 	// (e.g. queue full, serialization failure, broker unreachable).
 	Enqueue(profile profileModel.Profile) error
 
-	// Start begins consuming queue items and invokes handler for each one.
-	// Implementations must start the consumer loop in a separate goroutine
-	// so that Start returns immediately. An error is returned when the queue
-	// cannot be started (e.g. broker subscription failure).
-	Start(handler func(profileModel.Profile)) error
+	// Start begins consuming queue items and invokes handler for each one,
+	// in up to workers goroutines at the same time, so handler must be safe
+	// for concurrent use. Implementations must start the consumer loop in a
+	// separate goroutine so that Start returns immediately. An error is
+	// returned when the queue cannot be started (e.g. broker subscription
+	// failure).
+	//
+	// A handler that returns nil is done with the item. One that returns an
+	// error did not process it: a provider that can deliver the item again,
+	// such as a broker, leaves it unacknowledged so that it is delivered again,
+	// to this instance or to another.
+	Start(handler func(profileModel.Profile) error, workers int) error
 
 	// Close performs a graceful shutdown of the queue, flushing any
 	// in-flight items and releasing underlying resources (connections,

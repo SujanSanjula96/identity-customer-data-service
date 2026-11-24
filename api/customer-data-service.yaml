@@ -1536,7 +1536,10 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: Conflict. The task is already resolved.
+          description: |
+            Conflict. The task is already resolved, or it was approved after one of its profiles
+            was merged with another profile. In that case the task is cancelled, and both profiles
+            are evaluated again.
           content:
             application/json:
               schema:

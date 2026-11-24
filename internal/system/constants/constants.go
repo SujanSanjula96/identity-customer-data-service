@@ -68,6 +68,10 @@ const SystemAppHeader = "SystemApp"
 // DefaultQueueSize is the buffer size of the in-memory profile and schema sync queues.
 const DefaultQueueSize = 1000
 
+// DefaultUnificationWorkers is how many queued profiles one instance unifies at the same time
+// when identity_resolution.unification_workers is not set.
+const DefaultUnificationWorkers = 5
+
 // DefaultLimit is the default number of items a list request returns.
 const DefaultLimit = 50
 

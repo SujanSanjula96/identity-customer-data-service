@@ -441,6 +441,18 @@ var ListExpiredTemporaryProfiles = newQuery("CDS-PRF-22",
 var DeleteProfilesByIDs = newQuery("CDS-PRF-25",
 	`DELETE FROM profiles WHERE org_id = $1 AND profile_id IN (%s)`)
 
+// LockProfileReference locks the reference row of one profile until the transaction ends, and
+// returns its status. A merge locks the rows of both profiles first, one statement each in
+// profile ID order, so two merges that share a profile wait for each other rather than
+// deadlock. The inbuilt database takes its write lock when the transaction begins, so it needs
+// no row lock.
+var LockProfileReference = newQuery("CDS-PRF-26",
+	`SELECT profile_id, profile_status FROM profile_reference
+	WHERE profile_id = $1 AND org_id = $2
+	FOR UPDATE`,
+	`SELECT profile_id, profile_status FROM profile_reference
+	WHERE profile_id = $1 AND org_id = $2`)
+
 // DeleteReviewTasksByCandidateProfileIDs removes the review tasks that name a profile in the IN list %s
 // as candidate.
 var DeleteReviewTasksByCandidateProfileIDs = newQuery("CDS-IDR-24",
@@ -813,7 +825,7 @@ var IRInsertReviewTask = newQuery(
 
 // IRMirrorReviewTaskExists checks whether a PENDING task exists for the reverse pair (candidate→incoming).
 var IRMirrorReviewTaskExists = newQuery("CDS-IDR-09",
-	`SELECT COUNT(*) FROM review_tasks
+	`SELECT COUNT(*) AS count FROM review_tasks
 				 WHERE incoming_profile_id = $1 AND candidate_profile_id = $2 AND status = $3`)
 
 // IRUpdateMirrorReviewTask flips the direction of a mirror task and refreshes its evidence.
@@ -835,9 +847,9 @@ var IRCancelRelatedReviewTasks = newQuery("CDS-IDR-11",
 				 WHERE id != $4 AND status = $5
 				   AND (incoming_profile_id IN ($6, $7) OR candidate_profile_id IN ($6, $7))`)
 
-// IRFindRelatedPendingReviewTasks finds incoming profile IDs of PENDING tasks affected by a cascade cancel.
+// IRFindRelatedPendingReviewTasks finds the profile pairs of PENDING tasks affected by a cascade cancel.
 var IRFindRelatedPendingReviewTasks = newQuery("CDS-IDR-12",
-	`SELECT DISTINCT incoming_profile_id
+	`SELECT DISTINCT incoming_profile_id, candidate_profile_id
 				 FROM review_tasks
 				 WHERE id != $1 AND status = $2
 				   AND (incoming_profile_id IN ($3, $4) OR candidate_profile_id IN ($3, $4))`)
@@ -860,7 +872,7 @@ var IRGetPendingReviewTasks = newQuery("CDS-IDR-14",
 
 // IRCountPendingReviewTasks counts an org's review tasks in one status.
 var IRCountPendingReviewTasks = newQuery("CDS-IDR-15",
-	`SELECT COUNT(*) FROM review_tasks WHERE org_id = $1 AND status = $2`)
+	`SELECT COUNT(*) AS count FROM review_tasks WHERE org_id = $1 AND status = $2`)
 
 // IRGetPendingReviewTasksByProfile returns an org's review tasks in one status raised for an incoming profile,
 // highest score first, up to the limit.
@@ -875,7 +887,7 @@ var IRGetPendingReviewTasksByProfile = newQuery("CDS-IDR-16",
 
 // IRCountPendingReviewTasksByProfile counts an org's review tasks in one status that involve a profile on either side.
 var IRCountPendingReviewTasksByProfile = newQuery("CDS-IDR-17",
-	`SELECT COUNT(*) FROM review_tasks WHERE org_id = $1 AND status = $2
+	`SELECT COUNT(*) AS count FROM review_tasks WHERE org_id = $1 AND status = $2
 				   AND (incoming_profile_id = $3 OR candidate_profile_id = $3)`)
 
 // IRUpdateReviewTaskStatus sets the status of a review task and records who resolved it and when.

@@ -53,6 +53,15 @@ type fakeBroker struct {
 	readEnded chan struct{}
 	// sends receives the headers of each SEND frame.
 	sends chan map[string]string
+	// subscribes receives the headers of each SUBSCRIBE frame, and acks those of each ACK frame.
+	subscribes chan map[string]string
+	acks       chan map[string]string
+
+	// subscriber is the connection and subscription ID of the last SUBSCRIBE, which deliver
+	// sends a MESSAGE on. writeMu keeps frames written from two goroutines whole.
+	writeMu      sync.Mutex
+	subscriber   net.Conn
+	subscription string
 }
 
 // startFakeBroker listens on a local port. When answerReceipt is false the
@@ -66,7 +75,8 @@ func startFakeBroker(t *testing.T, answerReceipt bool) *fakeBroker {
 	}
 
 	broker := &fakeBroker{listener: listener, readEnded: make(chan struct{}, 4),
-		sends: make(chan map[string]string, 16)}
+		sends: make(chan map[string]string, 16), subscribes: make(chan map[string]string, 4),
+		acks: make(chan map[string]string, 16)}
 	t.Cleanup(func() {
 		_ = listener.Close()
 		broker.mu.Lock()
@@ -118,20 +128,35 @@ func (b *fakeBroker) serve(conn net.Conn, answerReceipt bool) {
 
 		switch command {
 		case "CONNECT", "STOMP":
-			if _, err := conn.Write([]byte("CONNECTED\nversion:1.2\n\n\x00")); err != nil {
+			if err := b.write(conn, "CONNECTED\nversion:1.2\n\n\x00"); err != nil {
 				return
 			}
 		case "SEND":
 			b.sends <- headers
+		case "SUBSCRIBE":
+			b.writeMu.Lock()
+			b.subscriber, b.subscription = conn, headers["id"]
+			b.writeMu.Unlock()
+			b.subscribes <- headers
+		case "ACK":
+			b.acks <- headers
 		case "DISCONNECT":
 			if !answerReceipt {
 				continue
 			}
-			if _, err := fmt.Fprintf(conn, "RECEIPT\nreceipt-id:%s\n\n\x00", headers["receipt"]); err != nil {
+			if err := b.write(conn, fmt.Sprintf("RECEIPT\nreceipt-id:%s\n\n\x00", headers["receipt"])); err != nil {
 				return
 			}
 		}
 	}
+}
+
+// write sends one frame on conn.
+func (b *fakeBroker) write(conn net.Conn, frame string) error {
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
+	_, err := conn.Write([]byte(frame))
+	return err
 }
 
 // readFrame reads one STOMP frame, which ends at a null byte.

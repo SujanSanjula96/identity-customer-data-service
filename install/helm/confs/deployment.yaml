@@ -162,3 +162,4 @@ message_queue:
 identity_resolution:
   allow_evidence_strength_override: {{ .Values.cloud.deployment.cds.config.identityResolution.allowEvidenceStrengthOverride }}
   fuzzy_matching_enabled: {{ .Values.cloud.deployment.cds.config.identityResolution.fuzzyMatchingEnabled }}
+  unification_workers: {{ .Values.cloud.deployment.cds.config.identityResolution.unificationWorkers }}

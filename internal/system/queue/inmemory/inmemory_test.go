@@ -46,7 +46,10 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 func TestProfileQueueDeliversEveryProfileInOrder(t *testing.T) {
 	queue := NewProfileQueue(10)
 	received := make(chan profileModel.Profile, 10)
-	require.NoError(t, queue.Start(func(p profileModel.Profile) { received <- p }))
+	require.NoError(t, queue.Start(func(p profileModel.Profile) error {
+		received <- p
+		return nil
+	}, 1))
 
 	for _, id := range []string{"p-1", "p-2", "p-3"} {
 		require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: id}))
@@ -92,15 +95,46 @@ func TestProfileQueueKeepsDrainingAfterAHandlerPanics(t *testing.T) {
 	queue := NewProfileQueue(10)
 	var once sync.Once
 	received := make(chan string, 10)
-	require.NoError(t, queue.Start(func(p profileModel.Profile) {
+	require.NoError(t, queue.Start(func(p profileModel.Profile) error {
 		once.Do(func() { panic("a bad profile") })
 		received <- p.ProfileID
-	}))
+		return nil
+	}, 1))
 
 	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "bad"}))
 	require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: "good"}))
 
 	assert.Equal(t, "good", receive(t, received))
+	require.NoError(t, queue.Close(context.Background()))
+}
+
+func TestProfileQueueRunsUpToWorkersHandlersAtOnce(t *testing.T) {
+	queue := NewProfileQueue(10)
+	const workers = 3
+	started := make(chan string, workers)
+	release := make(chan struct{})
+	require.NoError(t, queue.Start(func(p profileModel.Profile) error {
+		started <- p.ProfileID
+		<-release
+		return nil
+	}, workers))
+
+	for _, id := range []string{"p-1", "p-2", "p-3", "p-4"} {
+		require.NoError(t, queue.Enqueue(profileModel.Profile{ProfileID: id}))
+	}
+
+	// Every worker holds a profile, and the fourth waits for one of them.
+	for range workers {
+		receive(t, started)
+	}
+	select {
+	case id := <-started:
+		t.Fatalf("profile %s started while every worker was busy", id)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	receive(t, started)
 	require.NoError(t, queue.Close(context.Background()))
 }
 

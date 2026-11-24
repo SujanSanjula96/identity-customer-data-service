@@ -21,7 +21,9 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 )
@@ -32,6 +34,43 @@ import (
 type Tx struct {
 	internal *sql.Tx
 	dbType   string
+
+	// outer is the transaction this one joined, or nil when this one began the work. A joined
+	// transaction leaves the commit to the code that began the work.
+	outer *Tx
+	// rollbackOnly records that a joined part rolled back, so the work as a whole must not
+	// commit.
+	rollbackOnly atomic.Bool
+}
+
+// ErrTxRolledBack says that a part of the work rolled back its share of a transaction it had
+// joined, so the whole transaction was rolled back instead of committed.
+var ErrTxRolledBack = errors.New("a part of the transaction rolled back, so the transaction was rolled back")
+
+// txContextKey is the context key of the transaction a caller runs its statements in.
+type txContextKey struct{}
+
+// ContextWithTx returns a context whose statements run in tx. A store that runs a statement, or
+// begins a transaction, under that context joins tx instead of taking a connection of its own,
+// so work spread over several stores commits or rolls back as one.
+func ContextWithTx(ctx context.Context, tx *Tx) context.Context {
+	return context.WithValue(ctx, txContextKey{}, tx)
+}
+
+// TxFromContext returns the transaction the context carries, or nil.
+func TxFromContext(ctx context.Context) *Tx {
+	tx, _ := ctx.Value(txContextKey{}).(*Tx)
+	return tx
+}
+
+// Join returns a transaction that runs its statements in t and leaves the commit to t: its
+// Commit does nothing, and its Rollback makes t roll back instead of commit.
+func (t *Tx) Join() *Tx {
+	outer := t
+	for outer.outer != nil {
+		outer = outer.outer
+	}
+	return &Tx{internal: outer.internal, dbType: outer.dbType, outer: outer}
 }
 
 // DBType returns the dialect of the connection the transaction belongs to.
@@ -47,13 +86,25 @@ func NewTx(tx *sql.Tx, dbType string) *Tx {
 	}
 }
 
-// Commit commits the transaction.
+// Commit commits the transaction. A joined transaction leaves the commit to the one it joined.
+// When a joined part rolled back, the transaction rolls back and Commit returns ErrTxRolledBack.
 func (t *Tx) Commit() error {
+	if t.outer != nil {
+		return nil
+	}
+	if t.rollbackOnly.Load() {
+		return errors.Join(ErrTxRolledBack, t.internal.Rollback())
+	}
 	return t.internal.Commit()
 }
 
-// Rollback rolls back the transaction.
+// Rollback rolls back the transaction. A joined transaction marks the one it joined, which then
+// rolls back instead of committing.
 func (t *Tx) Rollback() error {
+	if t.outer != nil {
+		t.outer.rollbackOnly.Store(true)
+		return nil
+	}
 	return t.internal.Rollback()
 }
 

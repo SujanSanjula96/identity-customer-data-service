@@ -68,20 +68,26 @@ func (q *ProfileQueue) Enqueue(profile profileModel.Profile) error {
 	}
 }
 
-// Start launches a goroutine that reads profiles from the channel and
-// forwards each one to handler. The goroutine runs until the channel is
+// Start launches workers goroutines that read profiles from the channel and
+// forward each one to handler. The goroutines run until the channel is
 // closed. Always returns nil.
-func (q *ProfileQueue) Start(handler func(profileModel.Profile)) error {
-	go func() {
-		defer utils.RecoverPanic("in-memory profile unification consumer")
-		for profile := range q.ch {
-			// Recover per message so one bad profile cannot stop the queue being drained.
-			func() {
-				defer utils.RecoverPanic("in-memory profile unification handler")
-				handler(profile)
-			}()
-		}
-	}()
+//
+// A profile the handler did not process is not delivered again: the channel
+// keeps no record of it, and the handler refuses work only while the process
+// is stopping, when the channel is lost as well.
+func (q *ProfileQueue) Start(handler func(profileModel.Profile) error, workers int) error {
+	for range max(workers, 1) {
+		go func() {
+			defer utils.RecoverPanic("in-memory profile unification consumer")
+			for profile := range q.ch {
+				// Recover per message so one bad profile cannot stop the queue being drained.
+				func() {
+					defer utils.RecoverPanic("in-memory profile unification handler")
+					_ = handler(profile)
+				}()
+			}
+		}()
+	}
 	return nil
 }
 
