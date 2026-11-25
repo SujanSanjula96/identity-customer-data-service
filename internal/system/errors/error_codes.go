@@ -89,11 +89,6 @@ var (
 		Message: "Error while fetching local claims.",
 	}
 
-	GetSCIMUserFailed = ErrorMessage{
-		Code:    errorPrefix + "15110",
-		Message: "Error while fetching SCIM user.",
-	}
-
 	GetApplicationsFailed = ErrorMessage{
 		Code:    errorPrefix + "15111",
 		Message: "Error while fetching applications.",

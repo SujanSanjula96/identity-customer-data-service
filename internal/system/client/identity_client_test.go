@@ -123,7 +123,12 @@ func TestFetchTokenUsesClientCredentialsPerOrganization(t *testing.T) {
 	assert.Equal(t, "/t/acme/oauth2/token", is.tokenPaths[0])
 	assert.Equal(t, clientID, is.tokenUsers[0])
 	assert.Equal(t, "client_credentials", is.tokenRequests[0].Get("grant_type"))
-	assert.Contains(t, is.tokenRequests[0].Get("scope"), "internal_application_mgt_view")
+	assert.ElementsMatch(t, []string{
+		"internal_application_mgt_view",
+		"internal_claim_meta_view",
+		"internal_organization_view",
+	}, strings.Fields(is.tokenRequests[0].Get("scope")),
+		"CDS asks only for the scopes of the IS APIs it calls; it reads no users")
 }
 
 func TestFetchTokenUsesTheSystemAppGrantWhenEnabled(t *testing.T) {
@@ -385,33 +390,6 @@ func TestGetProfileSchemaFailures(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestGetSCIMUserFlattensTheNestedClaims(t *testing.T) {
-	is, c := newIdentityServer(t, false)
-	is.handle("/t/acme/scim2/Users/u-1", func(w http.ResponseWriter, r *http.Request) {
-		requireToken(t, r, false)
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"id":       "u-1",
-			"userName": "jane",
-			"name":     map[string]interface{}{"givenName": "Jane", "familyName": "Doe"},
-		})
-	})
-	is.handle("/t/acme/scim2/Users/garbled", func(w http.ResponseWriter, r *http.Request) {
-		_,
-			_ = w.Write([]byte("nope"))
-	})
-
-	user, err := c.GetSCIMUser("acme", "u-1")
-	require.NoError(t, err)
-	assert.Equal(t, map[string]interface{}{
-		"id": "u-1", "userName": "jane", "name.givenName": "Jane", "name.familyName": "Doe",
-	}, user)
-
-	_, err = c.GetSCIMUser("acme", "garbled")
-	requireServerError(t, err)
-	_, err = c.GetSCIMUser("bad/handle", "u-1")
-	assert.Error(t, err)
-}
-
 func TestSubOrganizationCallsUseTheOrgPath(t *testing.T) {
 	is, c := newIdentityServer(t, false)
 	subOrg := uuid.New().String()
@@ -565,6 +543,4 @@ func TestSmallHelpers(t *testing.T) {
 	assert.Equal(t, "plain", extractClaimKeyFromLocalURI("plain"))
 	assert.Equal(t, "a", ifThenElse(true, "a", "b"))
 	assert.Equal(t, "b", ifThenElse(false, "a", "b"))
-	assert.Equal(t, map[string]interface{}{"a.b": 1, "c": 2, "d": []int{1}},
-		flattenSCIMClaims(map[string]interface{}{"a": map[string]interface{}{"b": 1}, "c": 2, "d": []int{1}}))
 }
