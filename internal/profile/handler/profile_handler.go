@@ -877,8 +877,8 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.GetLogger().Info(fmt.Sprintf("Linked profile: %s to user: %s in organization: %s", profileID, userID,
-		org.ID))
+	log.GetLogger().Info("Linked the profile to a user.", log.String(log.KeyProfileID, profileID),
+		log.String("org_id", org.ID))
 
 	linkResponse := model.ProfileLinkResponse{
 		ProfileID: profileID,
@@ -964,7 +964,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 	if profileSync.Event == constants.AddUserEvent {
 		if profileSync.ProfileCookie != "" && profileSync.UserID != "" {
-			logger.Debug("Syncing profile for user id: " + profileSync.UserID + " with a profile cookie")
+			logger.Debug("Syncing profile for a user with a profile cookie.",
+				log.String(log.KeyUserID, profileSync.UserID))
 			cookieObj, err := profilesService.GetProfileCookieByID(ctx, profileSync.ProfileCookie, org.ID)
 			if err == nil && cookieObj != nil && cookieObj.IsActive {
 				profileID = cookieObj.ProfileID
@@ -982,8 +983,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			if existingProfile != nil && isLinkedToAnotherUser(existingProfile, profileSync.UserID) {
 				// The profile of the cookie (or the profile it is merged into) already belongs to a different
 				// user. Do not give it to the new user. Create a separate profile for the new user instead.
-				logger.Warn(fmt.Sprintf("Profile: %s is already linked to a different user. Not linking it "+
-					"to the new user: %s.", existingProfile.ProfileID, profileSync.UserID))
+				logger.Warn("Profile is already linked to a different user. Not linking it to the new user.",
+					log.String(log.KeyProfileID, existingProfile.ProfileID))
 				if err := createProfileForUserIfMissing(ctx, profilesService, profileSync.UserID, org.ID,
 					identityClaims); err != nil {
 					utils.HandleError(writer, err)
@@ -1019,7 +1020,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			}
 			return
 		} else if profileSync.ProfileCookie == "" && profileSync.UserID != "" {
-			logger.Debug("Syncing profile for user id: " + profileSync.UserID + " without profile cookie")
+			logger.Debug("Syncing profile for a user without a profile cookie.",
+				log.String(log.KeyUserID, profileSync.UserID))
 			// this is when we create a profile for a new user created in IS
 			if err := createProfileForUserIfMissing(ctx, profilesService, profileSync.UserID, org.ID,
 				identityClaims); err != nil {
@@ -1038,7 +1040,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			return
 		}
 		if existingProfile == nil {
-			logger.Debug("No profile found for user: " + profileSync.UserID)
+			logger.Debug("No profile found for the user.", log.String(log.KeyUserID, profileSync.UserID))
 			return
 		}
 		audit.SetTargetID(ctx, existingProfile.ProfileID)
@@ -1058,7 +1060,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				return
 			}
 			if existingProfile == nil {
-				log.GetLogger().Info("creating new profile for user: " + profileSync.UserID)
+				logger.Info("Creating a new profile for a user.")
 				identityAttributes := make(map[string]interface{})
 
 				for claimURI, value := range identityClaims {
@@ -1108,7 +1110,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 	}
 
 	if profileSync.Event == constants.AuthenticationSuccess {
-		logger.Info("Authentication success event received for user: " + profileSync.UserID)
+		logger.Debug("Authentication success event received.", log.String(log.KeyUserID, profileSync.UserID))
 
 		if profileSync.UserID == "" {
 			clientError := errors2.NewClientError(errors2.ErrorMessage{
@@ -1122,8 +1124,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 		// cookie + userId (anonymous → authenticated)
 		if profileSync.ProfileCookie != "" {
-			logger.Debug("Syncing profile for user id: " + profileSync.UserID +
-				" with profile cookie: " + profileSync.ProfileCookie)
+			logger.Debug("Syncing profile for a user with a profile cookie.",
+				log.String(log.KeyUserID, profileSync.UserID))
 
 			// Step 1: Resolve anonymous profile from cookie
 			var anonymousProfile *model.ProfileResponse
@@ -1158,11 +1160,12 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				// The profile of the cookie (or the profile it is merged into) is already linked to a user.
 				// Do not give a profile of a different user to this user.
 				if isLinkedToAnotherUser(anonymousProfile, profileSync.UserID) {
-					logger.Warn(fmt.Sprintf("Profile: %s is already linked to a different user. Not linking it "+
-						"to the user: %s.", anonymousProfile.ProfileID, profileSync.UserID))
+					logger.Warn("Profile is already linked to a different user. Not linking it to the user.",
+						log.String(log.KeyProfileID, anonymousProfile.ProfileID))
 				} else {
-					logger.Debug("Profile: " + anonymousProfile.ProfileID + " is already linked to the user: " +
-						profileSync.UserID + ". No action needed.")
+					logger.Debug("Profile is already linked to the user. No action needed.",
+						log.String(log.KeyProfileID, anonymousProfile.ProfileID),
+						log.String(log.KeyUserID, profileSync.UserID))
 				}
 			} else if anonymousProfile != nil && existingUserProfile != nil {
 				if anonymousProfile.ProfileID != existingUserProfile.ProfileID {
@@ -1192,8 +1195,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 			} else if anonymousProfile != nil && existingUserProfile == nil {
 				// Only anonymous profile exists. Attach userId and make it into a permanent profile.
-				logger.Info("Attaching user id: " + profileSync.UserID +
-					" to anonymous profile with profile id: " + anonymousProfile.ProfileID)
+				logger.Info("Attaching a user to the anonymous profile.",
+					log.String(log.KeyProfileID, anonymousProfile.ProfileID))
 
 				profileRequest := model.ProfileRequest{
 					UserID:             profileSync.UserID,
@@ -1210,16 +1213,16 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 			} else {
 				// Cookie was stale or invalid. No anonymous session data to recover.
-				logger.Debug("Cookie was stale or invalid for user id: " + profileSync.UserID +
-					". No anonymous profile to link.")
+				logger.Debug("Cookie was stale or invalid. No anonymous profile to link.",
+					log.String(log.KeyUserID, profileSync.UserID))
 			}
 		} else {
 			// Decide whether to create a profile here for existing user accounts that misses profile.
-			logger.Debug("No profile cookie provided for user id: " + profileSync.UserID)
+			logger.Debug("No profile cookie provided.", log.String(log.KeyUserID, profileSync.UserID))
 		}
 	}
 	if profileSync.Event == constants.SessionTermination {
-		logger.Info("Event received session termination for user: " + profileSync.UserID)
+		logger.Debug("Session termination event received.", log.String(log.KeyUserID, profileSync.UserID))
 		if profileSync.UserID != "" {
 			if strings.TrimSpace(profileSync.ProfileCookie) == "" {
 				logger.Debug("No profile cookie provided for session termination. Skipping cookie deactivation.")
@@ -1232,7 +1235,7 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			}
 
 			if existingProfile == nil {
-				logger.Debug("No profile found for user: " + profileSync.UserID)
+				logger.Debug("No profile found for the user.", log.String(log.KeyUserID, profileSync.UserID))
 				return
 			}
 			audit.SetTargetID(ctx, existingProfile.ProfileID)

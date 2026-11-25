@@ -25,7 +25,7 @@ cloud:
       containerPort: 8900
       config:
         env: "dev"
-        logLevel: "DEBUG" # Log level: "INFO", "WARN", "ERROR", "DEBUG"
+        logLevel: "INFO" # Log level: "INFO", "WARN", "ERROR", "DEBUG". DEBUG adds user IDs to the log.
         logFormat: "text" # Record format on the console for the application log and the access log: "text", "json"
         auth:
           corsAllowedOrigins: []

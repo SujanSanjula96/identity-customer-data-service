@@ -633,9 +633,8 @@ func mergeMatchedProfiles(ctx context.Context, orgID string, existingMasterProfi
 
 	// ── Case: Both permanent with different userIds — do not merge ──
 	if hasUserIDExisting && hasUserIDNew && existingMasterProfile.UserID != newProfile.UserID {
-		logger.Info(fmt.Sprintf("Not merging profiles %s and %s — different userIds (%s vs %s)",
-			existingMasterProfile.ProfileID, newProfile.ProfileID,
-			existingMasterProfile.UserID, newProfile.UserID))
+		logger.Info(fmt.Sprintf("Not merging profiles %s and %s: different user IDs",
+			existingMasterProfile.ProfileID, newProfile.ProfileID))
 		return nil, nil
 	}
 

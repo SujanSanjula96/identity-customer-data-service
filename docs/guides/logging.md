@@ -119,6 +119,9 @@ JSON format:
 {"time":"2026-11-11T09:30:15.123Z","level":"INFO","msg":"Profile created.","log_type":"app","component":"ProfileService","profile_id":"3f6c2a1e","correlation_id":"8fa8f0b5","org":"carbon.super"}
 ```
 
+At `INFO` and higher, the application log has profile IDs but no user IDs. At `DEBUG`, records can have the `user_id`
+field. Use `DEBUG` only to find a problem, and then set the level back to `INFO`.
+
 ## Access log
 
 ```json
@@ -258,6 +261,8 @@ Rules:
 - Put values in fields, not in the message text. Use the names in `log/field.go`. A new name is in `snake_case`.
 - Do not log personal data, tokens, or secrets. If a record must show that a value was present, use
   `log.MaskedString`.
+- Put a user ID only in a `DEBUG` record, in the `user_id` field. Use `profile_id` at the other levels.
+- Never log the value of the profile cookie (`cds_profile`). It identifies an anonymous profile, as a token does.
 - Levels: `ERROR` when an operation did not complete and an operator must look. `WARN` when it completed but
   something is wrong. `INFO` for a state change of the server or of a background job. `DEBUG` for developer detail.
 - Do not write an `INFO` record for each request. The access log does that.

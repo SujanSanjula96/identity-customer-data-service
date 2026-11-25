@@ -1733,7 +1733,7 @@ func (ps *ProfilesService) GetProfileCookieByID(ctx context.Context,
 	cookieObj, err := profileStore.GetProfileCookie(ctx, cookie, orgID)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error fetching profile cookie : %s", cookie)
+		errMsg := "Error fetching a profile cookie."
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.GetProfileCookie.Code,
@@ -1746,7 +1746,7 @@ func (ps *ProfilesService) GetProfileCookieByID(ctx context.Context,
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.ProfileCookieNotFound.Code,
 			Message:     errors2.ProfileCookieNotFound.Message,
-			Description: fmt.Sprintf("Profile cookie : %s not found", cookie),
+			Description: "Profile cookie not found.",
 		}, http.StatusNotFound)
 		return nil, clientError
 	}
@@ -1798,7 +1798,7 @@ func (ps *ProfilesService) UpdateCookieStatusByCookieID(ctx context.Context, coo
 	err := profileStore.UpdateProfileCookieByCookieID(ctx, cookieID, isActive)
 	logger := log.GetLogger()
 	if err != nil {
-		errMsg := fmt.Sprintf("Error updating profile cookie: %s", cookieID)
+		errMsg := "Error updating a profile cookie."
 		logger.Debug(errMsg, log.Error(err))
 		serverError := errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.UpdateCookie.Code,
