@@ -124,7 +124,6 @@ func AllQueries() map[string]model.DBQuery {
 		"InsertIdentityClaimsForProfileSchema":      InsertIdentityClaimsForProfileSchema,
 		"UpsertIdentityClaimsForProfileSchema":      UpsertIdentityClaimsForProfileSchema,
 		"InsertProfileSchemaAttributesForScope":     InsertProfileSchemaAttributesForScope,
-		"UpdateProfileSchemaAttributeFields":        UpdateProfileSchemaAttributeFields,
 		"DeleteStaleIdentityClaimsForProfileSchema": DeleteStaleIdentityClaimsForProfileSchema,
 		"GetAppDataByProfileIDs":                    GetAppDataByProfileIDs,
 		"GetConsentCategoryAttributesByCategoryIDs": GetConsentCategoryAttributesByCategoryIDs,

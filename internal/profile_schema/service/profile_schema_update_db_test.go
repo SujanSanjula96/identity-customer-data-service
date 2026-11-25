@@ -24,18 +24,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 )
 
-func updateBody(name string, extra map[string]interface{}) map[string]interface{} {
-	body := map[string]interface{}{
-		"attribute_name": name,
-		"value_type":     constants.StringDataType,
-		"merge_strategy": "overwrite",
-		"mutability":     constants.MutabilityReadWrite,
+func ptr[T any](value T) *T {
+	return &value
+}
+
+// updateBody returns an update with the required fields and the name, after the changes are applied.
+func updateBody(name string, changes ...func(*model.ProfileSchemaAttributeUpdate)) model.ProfileSchemaAttributeUpdate {
+	body := model.ProfileSchemaAttributeUpdate{
+		AttributeName: ptr(name),
+		ValueType:     ptr(constants.StringDataType),
+		MergeStrategy: ptr("overwrite"),
+		Mutability:    ptr(constants.MutabilityReadWrite),
 	}
-	for key, value := range extra {
-		body[key] = value
+	for _, change := range changes {
+		change(&body)
 	}
 	return body
 }
@@ -46,9 +52,9 @@ func TestUpdateAttributeChangesItsDefinition(t *testing.T) {
 	id := stored[0].AttributeID
 
 	err := env.svc.UpdateProfileSchemaAttributeByID(env.ctx, env.orgID, id, updateBody("traits.tags",
-		map[string]interface{}{
-			"mutability":   constants.MutabilityWriteOnce,
-			"multi_valued": true,
+		func(u *model.ProfileSchemaAttributeUpdate) {
+			u.Mutability = ptr(constants.MutabilityWriteOnce)
+			u.MultiValued = ptr(true)
 		}), constants.Traits)
 
 	require.NoError(t, err)
@@ -64,31 +70,29 @@ func TestUpdateAttributeRefusals(t *testing.T) {
 	id := stored[0].AttributeID
 
 	tests := []struct {
-		name    string
-		id      string
-		updates map[string]interface{}
-		status  int
+		name   string
+		id     string
+		update model.ProfileSchemaAttributeUpdate
+		status int
 	}{
-		{"no updates", id, map[string]interface{}{}, http.StatusBadRequest},
-		{"an attribute that does not exist", "missing", updateBody("traits.city", nil), http.StatusNotFound},
-		{"a missing required field", id, map[string]interface{}{"attribute_name": "traits.city"},
+		{"no updates", id, model.ProfileSchemaAttributeUpdate{}, http.StatusBadRequest},
+		{"an attribute that does not exist", "missing", updateBody("traits.city"), http.StatusNotFound},
+		{"a missing required field", id, model.ProfileSchemaAttributeUpdate{AttributeName: ptr("traits.city")},
 			http.StatusBadRequest},
-		{"an empty required field", id, updateBody("traits.city", map[string]interface{}{"merge_strategy": ""}),
-			http.StatusBadRequest},
-		{"a value type that is not allowed", id, updateBody("traits.city",
-			map[string]interface{}{"value_type": "blob"}),
-			http.StatusBadRequest},
-		{"a mutability that is not allowed", id, updateBody("traits.city",
-			map[string]interface{}{"mutability": "never"}),
-			http.StatusBadRequest},
-		{"multi_valued that is not a boolean", id, updateBody("traits.city",
-			map[string]interface{}{"multi_valued": "yes"}),
-			http.StatusBadRequest},
-		{"a name outside the scope format", id, updateBody("city", nil), http.StatusBadRequest},
+		{"an empty required field", id, updateBody("traits.city", func(u *model.ProfileSchemaAttributeUpdate) {
+			u.MergeStrategy = ptr("")
+		}), http.StatusBadRequest},
+		{"a value type that is not allowed", id, updateBody("traits.city", func(u *model.ProfileSchemaAttributeUpdate) {
+			u.ValueType = ptr("blob")
+		}), http.StatusBadRequest},
+		{"a mutability that is not allowed", id, updateBody("traits.city", func(u *model.ProfileSchemaAttributeUpdate) {
+			u.Mutability = ptr("never")
+		}), http.StatusBadRequest},
+		{"a name outside the scope format", id, updateBody("city"), http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := env.svc.UpdateProfileSchemaAttributeByID(env.ctx, env.orgID, tc.id, tc.updates, constants.Traits)
+			err := env.svc.UpdateProfileSchemaAttributeByID(env.ctx, env.orgID, tc.id, tc.update, constants.Traits)
 
 			_ = requireClientErr(t, err, tc.status)
 		})
@@ -101,7 +105,7 @@ func TestUpdatingAttributeIsRefusedInASubOrganization(t *testing.T) {
 		VALUES ('sub-org', 'sub', $1, 'ACTIVE')`, env.orgID)
 	require.NoError(t, err)
 
-	err = env.svc.UpdateProfileSchemaAttributeByID(env.ctx, "sub-org", "any", updateBody("traits.city", nil),
+	err = env.svc.UpdateProfileSchemaAttributeByID(env.ctx, "sub-org", "any", updateBody("traits.city"),
 		constants.Traits)
 
 	_ = requireClientErr(t, err, http.StatusForbidden)

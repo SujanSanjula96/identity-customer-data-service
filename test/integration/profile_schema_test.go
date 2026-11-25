@@ -588,15 +588,16 @@ func Test_ProfileSchemaService(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			updates := map[string]interface{}{
-				"attribute_name": "identity_attributes.temp_field",
-				"attribute_id":   attrID,
-				"value_type":     "integer",
-				"merge_strategy": constants.MergeStrategyOverwrite,
-				"mutability":     constants.MutabilityReadWrite,
+			text := func(value string) *string { return &value }
+			update := model.ProfileSchemaAttributeUpdate{
+				AttributeName: text("identity_attributes.temp_field"),
+				ValueType:     text("integer"),
+				MergeStrategy: text(constants.MergeStrategyOverwrite),
+				Mutability:    text(constants.MutabilityReadWrite),
 			}
 
-			err = svc.UpdateProfileSchemaAttributeByID(context.Background(), SuperTenantOrg.ID, attrID, updates, "")
+			err = svc.UpdateProfileSchemaAttributeByID(context.Background(), SuperTenantOrg.ID, attrID, update,
+				constants.IdentityAttributes)
 			require.NoError(t, err, "Failed to patch profile schema attribute")
 
 			// Verify patch persisted

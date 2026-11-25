@@ -179,11 +179,6 @@ var DeleteStaleIdentityClaimsForProfileSchema = newQuery("CDS-SCH-14",
 	`DELETE FROM profile_schema WHERE org_id = $1 AND scope = 'identity_attributes'
 	 AND attribute_id NOT IN (%s)`)
 
-// UpdateProfileSchemaAttributeFields is the prefix of a partial update. The
-// caller appends the SET assignments and the WHERE clause.
-var UpdateProfileSchemaAttributeFields = newQuery("CDS-SCH-15",
-	`UPDATE profile_schema SET `)
-
 // GetUnificationRules returns every unification rule of an org.
 var GetUnificationRules = newQuery(
 	"CDS-UNR-01",

@@ -21,7 +21,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -62,7 +61,7 @@ type ProfileSchemaServiceInterface interface {
 	GetProfileSchemaAttributeByName(ctx context.Context,
 		attributeName string, orgID string) (*model.ProfileSchemaAttribute, error)
 	UpdateProfileSchemaAttributeByID(ctx context.Context,
-		orgID string, attributeID string, updates map[string]interface{}, scope string) error
+		orgID string, attributeID string, update model.ProfileSchemaAttributeUpdate, scope string) error
 	DeleteProfileSchemaAttributeByID(ctx context.Context, orgID string, attributeID string) error
 	SyncProfileSchema(ctx context.Context, orgID string) error
 	CreateSharingPolicy(ctx context.Context, initiator orgModel.Organization, scope, attributeID string,
@@ -496,14 +495,15 @@ func (s *ProfileSchemaService) GetProfileSchemaAttributesByScope(ctx context.Con
 	return schemaAttributes, nil
 }
 
-// UpdateProfileSchemaAttributeByID applies the updates to a schema attribute the organization owns. Sub
+// UpdateProfileSchemaAttributeByID applies the update to a schema attribute the organization owns. The
+// attribute must be in the scope. A field that the update does not hold keeps its stored value. Sub
 // organizations cannot update attributes.
 func (s *ProfileSchemaService) UpdateProfileSchemaAttributeByID(ctx context.Context,
-	orgID string, attributeID string, updates map[string]interface{}, scope string) error {
+	orgID string, attributeID string, update model.ProfileSchemaAttributeUpdate, scope string) error {
 	if err := suborg.RejectWrite(ctx, orgID); err != nil {
 		return err
 	}
-	if len(updates) == 0 {
+	if update == (model.ProfileSchemaAttributeUpdate{}) {
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.InvalidAttribute.Code,
 			Message:     errors2.InvalidAttribute.Message,
@@ -514,125 +514,81 @@ func (s *ProfileSchemaService) UpdateProfileSchemaAttributeByID(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	if newName, ok := updates["attribute_name"].(string); ok && newName != attribute.AttributeName {
-		if err := checkSharedNameConflict(ctx, orgID, newName, attribute.ApplicationIdentifier); err != nil {
-			return err
-		}
-	}
-	if attribute.AttributeID == "" {
+	if attribute.AttributeID == "" || attribute.Scope != scope {
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.InvalidAttribute.Code,
 			Message:     errors2.InvalidAttribute.Message,
-			Description: fmt.Sprintf("Attribute with Id '%s' does not exist", attributeID),
+			Description: fmt.Sprintf("Attribute with Id '%s' does not exist in scope '%s'", attributeID, scope),
 		}, http.StatusNotFound)
 	}
 
-	// attribute id cannot be there and also org id. attribute name only can be updated not the scope.
-	var canonicalValues []model.CanonicalValue
-	if cv, ok := updates["canonical_values"]; ok && cv != nil {
-		if cvSlice, ok := cv.([]model.CanonicalValue); ok {
-			canonicalValues = cvSlice
-		}
-	} else {
-		canonicalValues = attribute.CanonicalValues // Keep existing canonical values if not updated
+	required := []struct {
+		field string
+		value *string
+	}{
+		{"attribute_name", update.AttributeName},
+		{"value_type", update.ValueType},
+		{"merge_strategy", update.MergeStrategy},
+		{"mutability", update.Mutability},
 	}
-
-	var subAttributes []model.SubAttribute
-	if saRaw, ok := updates["sub_attributes"]; ok && saRaw != nil {
-		saSlice, ok := saRaw.([]interface{})
-		if ok {
-			for _, item := range saSlice {
-				itemMap, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				// Convert map to JSON, then to SubAttribute
-				itemBytes, err := json.Marshal(itemMap)
-				if err != nil {
-					continue
-				}
-
-				var subAttr model.SubAttribute
-				if err := json.Unmarshal(itemBytes, &subAttr); err == nil {
-					subAttributes = append(subAttributes, subAttr)
-				}
-			}
-		}
-	} else {
-		subAttributes = attribute.SubAttributes // fallback to existing
-	}
-
-	var applicationIdentifier string
-	if scope == constants.ApplicationData {
-		if appID, ok := updates["application_identifier"]; ok && appID != nil {
-			if appIDStr, ok := appID.(string); ok && appIDStr != "" {
-				applicationIdentifier = appIDStr
-			} else {
-				// If application_identifier is not provided or is empty, keep the existing one
-				applicationIdentifier = attribute.ApplicationIdentifier
-			}
-		} else {
-			// Keep the existing application identifier when the patch does not update it.
-			applicationIdentifier = attribute.ApplicationIdentifier
-		}
-	}
-
-	multiValued := false // Default to false if not provided
-	if mv, ok := updates["multi_valued"]; ok && mv != nil {
-		if mvBool, ok := mv.(bool); ok {
-			multiValued = mvBool
-		} else {
-			return errors2.NewClientError(errors2.ErrorMessage{
-				Code:        errors2.InvalidAttribute.Code,
-				Message:     "Invalid value for multi_valued",
-				Description: "multi_valued must be a boolean",
-			}, http.StatusBadRequest)
-		}
-	} else {
-		log.GetLogger().Debug(fmt.Sprintf(
-			"multi_valued not provided in patch; defaulting to false for attribute: %s", attributeID))
-	}
-
-	requiredFields := []string{"attribute_name", "value_type", "merge_strategy", "mutability"}
-	for _, field := range requiredFields {
-		v, ok := updates[field].(string)
-		if !ok || v == "" {
+	for _, r := range required {
+		if r.value == nil || *r.value == "" {
 			return errors2.NewClientError(errors2.ErrorMessage{
 				Code:        errors2.InvalidAttribute.Code,
 				Message:     errors2.InvalidAttribute.Message,
-				Description: fmt.Sprintf("Required field '%s' is missing or empty", field),
+				Description: fmt.Sprintf("Required field '%s' is missing or empty", r.field),
 			}, http.StatusBadRequest)
 		}
 	}
+	if update.ApplicationIdentifier != nil && *update.ApplicationIdentifier != "" &&
+		attribute.Scope != constants.ApplicationData {
+		return errors2.NewClientError(errors2.ErrorMessage{
+			Code:        errors2.InvalidAttribute.Code,
+			Message:     errors2.InvalidAttribute.Message,
+			Description: "application_identifier can be updated only for application_data attributes",
+		}, http.StatusBadRequest)
+	}
 
-	err, isValid := s.validateSchemaAttribute(ctx, orgID, model.ProfileSchemaAttribute{
-		OrgID:                 orgID,
-		AttributeID:           attributeID,
-		AttributeName:         updates["attribute_name"].(string),
-		ValueType:             updates["value_type"].(string),
-		MergeStrategy:         updates["merge_strategy"].(string),
-		Mutability:            updates["mutability"].(string),
-		MultiValued:           multiValued,
-		CanonicalValues:       canonicalValues,
-		SubAttributes:         subAttributes,
-		ApplicationIdentifier: applicationIdentifier,
-	})
+	updated := attribute
+	updated.AttributeName = *update.AttributeName
+	updated.ValueType = *update.ValueType
+	updated.MergeStrategy = *update.MergeStrategy
+	updated.Mutability = *update.Mutability
+	if update.DisplayName != nil {
+		updated.DisplayName = *update.DisplayName
+	}
+	if update.MultiValued != nil {
+		updated.MultiValued = *update.MultiValued
+	}
+	if update.CanonicalValues != nil {
+		updated.CanonicalValues = *update.CanonicalValues
+	}
+	if update.SubAttributes != nil {
+		updated.SubAttributes = *update.SubAttributes
+	}
+	if update.ApplicationIdentifier != nil && *update.ApplicationIdentifier != "" {
+		updated.ApplicationIdentifier = *update.ApplicationIdentifier
+	}
+
+	if updated.AttributeName != attribute.AttributeName {
+		err := checkSharedNameConflict(ctx, orgID, updated.AttributeName, attribute.ApplicationIdentifier)
+		if err != nil {
+			return err
+		}
+	}
+	err, isValid := s.validateSchemaAttribute(ctx, orgID, updated)
 	if !isValid {
 		if err != nil {
 			return err
 		}
-		// If validation fails, return a bad request error
 		return errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.InvalidAttribute.Code,
 			Message:     errors2.InvalidAttribute.Message,
 			Description: "Invalid updates provided for the profile schema attribute",
 		}, http.StatusBadRequest)
 	}
-	if err := psstr.PatchProfileSchemaAttributeByID(ctx, orgID, attributeID, updates); err != nil {
-		return err
-	}
-	return nil
+	return psstr.PatchProfileSchemaAttributesForScope(ctx, orgID, attribute.Scope,
+		[]model.ProfileSchemaAttribute{updated})
 }
 
 // DeleteProfileSchemaAttributeByID deletes a profile schema attribute by its ID.
