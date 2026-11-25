@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/test/setup"
@@ -166,8 +167,13 @@ func TestOrganizationRoutes(t *testing.T) {
 	// The service installs the sub organization resolvers of the tenant dispatcher.
 	resolver, isSubOrg := utils.SubOrgResolver, utils.IsSubOrgHandle
 	t.Cleanup(func() { utils.SubOrgResolver, utils.IsSubOrgHandle = resolver, isSubOrg })
+	// It also installs the primary organization resolver of the sub organization token endpoint.
+	primaryOf := client.PrimaryOrgHandleOf
+	t.Cleanup(func() { client.PrimaryOrgHandleOf = primaryOf })
+	client.PrimaryOrgHandleOf = nil
 	mux := http.NewServeMux()
 	NewOrganizationService(mux)
+	assert.NotNil(t, client.PrimaryOrgHandleOf)
 
 	requireRoutesRequireAuthentication(t, tenantRouter(mux.ServeHTTP), []route{
 		{http.MethodPost, "/organizations/event-sync"},

@@ -207,10 +207,35 @@ func orgEndpoint(host, orgHandle, path string) (string, error) {
 	return u.String(), nil
 }
 
+// PrimaryOrgHandleOf returns the handle of the primary (root) organization of the sub organization
+// with the org ID. The bool is false when CDS does not know the organization. The organization
+// service sets it when organization management is enabled.
+var PrimaryOrgHandleOf func(ctx context.Context, orgID string) (string, bool)
+
+// primaryOrgHandleOf returns the handle of the primary organization of the sub organization, or the
+// super tenant when CDS does not know the organization.
+func primaryOrgHandleOf(orgID string) string {
+	if PrimaryOrgHandleOf != nil {
+		// The token calls carry no context of their own.
+		if handle, ok := PrimaryOrgHandleOf(context.Background(), orgID); ok {
+			return handle
+		}
+	}
+	log.GetLogger().Debug(fmt.Sprintf("The primary organization of the organization %s is not known. Using the "+
+		"super tenant.", orgID))
+	return constants.DefaultTenant
+}
+
 func (c *IdentityClient) buildTokenEndpoint(orgID, tokenEndpoint string) (string, error) {
 	if _, err := uuid.Parse(orgID); err == nil {
-		// Sub-org token endpoint lives under carbon.super: /t/carbon.super/o/{uuid}/oauth2/token
-		return orgEndpoint(c.BaseURL, orgID, "/t/carbon.super/o/"+orgID+tokenEndpoint)
+		// The token endpoint of a sub organization is under its primary organization:
+		// /t/{primary_handle}/o/{org_id}/oauth2/token.
+		primaryHandle := primaryOrgHandleOf(orgID)
+		if !utils.IsValidOrgHandle(primaryHandle) {
+			return "", fmt.Errorf("invalid primary organization handle %q for organization %q", primaryHandle,
+				orgID)
+		}
+		return orgEndpoint(c.BaseURL, orgID, "/t/"+primaryHandle+"/o/"+orgID+tokenEndpoint)
 	}
 	return orgEndpoint(c.BaseURL, orgID, "/t/"+orgID+tokenEndpoint)
 }

@@ -19,11 +19,13 @@
 package services
 
 import (
+	"context"
 	"net/http"
 
 	orgHandler "github.com/wso2/identity-customer-data-service/internal/organization/handler"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/audit"
+	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
@@ -45,6 +47,11 @@ func NewOrganizationService(mux *http.ServeMux) *OrganizationService {
 	// Sub organization paths are /t/{primary_handle}/o/{org_id}/...
 	utils.SubOrgResolver = orgService.SubOrgHandleOf
 	utils.IsSubOrgHandle = orgService.IsSubOrgHandle
+	// The token endpoint of a sub organization is /t/{primary_handle}/o/{org_id}/oauth2/token.
+	client.PrimaryOrgHandleOf = func(ctx context.Context, orgID string) (string, bool) {
+		primary, ok := orgService.PrimaryOf(ctx, orgID)
+		return primary.Handle, ok && primary.ID != orgID
+	}
 
 	const base = constants.APIBasePath + "/v1"
 	s.mux.HandleFunc("POST "+base+"/organizations/event-sync",

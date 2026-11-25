@@ -18,6 +18,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -139,14 +140,86 @@ func TestFetchTokenUsesTheSystemAppGrantWhenEnabled(t *testing.T) {
 	assert.Equal(t, "acme", is.tokenRequests[0].Get("organizationHandle"))
 }
 
-func TestFetchTokenForASubOrganizationUsesTheSuperTenantPath(t *testing.T) {
+// withPrimaryOrgs makes PrimaryOrgHandleOf return the primary handle of each sub organization in
+// primaries, and report every other organization as unknown.
+func withPrimaryOrgs(t *testing.T, primaries map[string]string) {
+	t.Helper()
+	previous := PrimaryOrgHandleOf
+	PrimaryOrgHandleOf = func(_ context.Context, orgID string) (string, bool) {
+		handle, ok := primaries[orgID]
+		return handle, ok
+	}
+	t.Cleanup(func() { PrimaryOrgHandleOf = previous })
+}
+
+func TestFetchTokenForASubOrganizationUsesThePathOfItsPrimaryOrganization(t *testing.T) {
+	t.Run("a primary organization that is a tenant", func(t *testing.T) {
+		is, c := newIdentityServer(t, false)
+		subOrg := uuid.New().String()
+		withPrimaryOrgs(t, map[string]string{subOrg: "acme.com"})
+
+		_, err := c.FetchToken(subOrg)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/t/acme.com/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	})
+	t.Run("the super tenant", func(t *testing.T) {
+		is, c := newIdentityServer(t, false)
+		subOrg := uuid.New().String()
+		withPrimaryOrgs(t, map[string]string{subOrg: "carbon.super"})
+
+		_, err := c.FetchToken(subOrg)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/t/carbon.super/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	})
+}
+
+func TestFetchTokenForAnUnknownSubOrganizationUsesTheSuperTenantPath(t *testing.T) {
+	t.Run("no resolver", func(t *testing.T) {
+		is, c := newIdentityServer(t, false)
+		previous := PrimaryOrgHandleOf
+		PrimaryOrgHandleOf = nil
+		t.Cleanup(func() { PrimaryOrgHandleOf = previous })
+		subOrg := uuid.New().String()
+
+		_, err := c.FetchToken(subOrg)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/t/carbon.super/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	})
+	t.Run("an organization that is not stored", func(t *testing.T) {
+		is, c := newIdentityServer(t, false)
+		withPrimaryOrgs(t, nil)
+		subOrg := uuid.New().String()
+
+		_, err := c.FetchToken(subOrg)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/t/carbon.super/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	})
+}
+
+func TestVerifyClientCredentialsOfASubOrganizationUsesThePathOfItsPrimaryOrganization(t *testing.T) {
 	is, c := newIdentityServer(t, false)
 	subOrg := uuid.New().String()
+	withPrimaryOrgs(t, map[string]string{subOrg: "acme.com"})
+
+	_, err := c.VerifyClientCredentials(subOrg, "sub-client", "sub-secret")
+
+	require.NoError(t, err)
+	assert.Equal(t, "/t/acme.com/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	assert.Equal(t, "sub-client", is.tokenUsers[0])
+}
+
+func TestFetchTokenRefusesAPrimaryOrganizationHandleThatIsNotAPathSegment(t *testing.T) {
+	_, c := newIdentityServer(t, false)
+	subOrg := uuid.New().String()
+	withPrimaryOrgs(t, map[string]string{subOrg: "../evil"})
 
 	_, err := c.FetchToken(subOrg)
 
-	require.NoError(t, err)
-	assert.Equal(t, "/t/carbon.super/o/"+subOrg+"/oauth2/token", is.tokenPaths[0])
+	assert.Error(t, err)
 }
 
 func TestFetchTokenFailures(t *testing.T) {
