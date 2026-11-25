@@ -459,6 +459,15 @@ func FetchApplicationDataWithAppID(ctx context.Context, profileID string, appID 
 
 // UpdateProfile updates the profile
 func UpdateProfile(ctx context.Context, orgID string, profile model.Profile) error {
+	return updateProfile(ctx, orgID, profile, false)
+}
+
+// LinkProfile updates the profile as UpdateProfile does, and fails if a different user has the profile.
+func LinkProfile(ctx context.Context, orgID string, profile model.Profile) error {
+	return updateProfile(ctx, orgID, profile, true)
+}
+
+func updateProfile(ctx context.Context, orgID string, profile model.Profile, link bool) error {
 	// An organization that CDS does not know gets an empty key, which matches no row.
 
 	dbClient, err := provider.NewDBProvider().GetDBClient()
@@ -490,6 +499,9 @@ func UpdateProfile(ctx context.Context, orgID string, profile model.Profile) err
 	}
 
 	query := scripts.UpdateProfile
+	if link {
+		query = scripts.LinkProfile
+	}
 
 	_, err = dbClient.ExecuteQueryContext(ctx, query,
 		profile.UserID,
@@ -510,6 +522,21 @@ func UpdateProfile(ctx context.Context, orgID string, profile model.Profile) err
 			Description: errorMsg,
 		}, err)
 		return serverError
+	}
+	if link {
+		// The database client does not return the count of changed rows.
+		stored, err := GetProfileWithOptions(ctx, profile.ProfileID, orgID, GetProfileOptions{})
+		if err != nil {
+			return err
+		}
+		if stored == nil || stored.UserID != profile.UserID {
+			logger.Debug(fmt.Sprintf("Profile: %s is already linked to a different user.", profile.ProfileID))
+			return errors2.NewClientError(errors2.ErrorMessage{
+				Code:        errors2.ProfileAlreadyLinked.Code,
+				Message:     errors2.ProfileAlreadyLinked.Message,
+				Description: errors2.ProfileAlreadyLinked.Description,
+			}, http.StatusConflict)
+		}
 	}
 
 	query = scripts.UpsertProfileReference

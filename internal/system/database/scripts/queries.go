@@ -293,6 +293,19 @@ var UpdateProfile = newQuery("CDS-PRF-07",
 			updated_at = $6
 		 WHERE profile_id = $7 AND org_id = $8;`)
 
+// LinkProfile is UpdateProfile that changes the profile only if it has no user or the user $1.
+var LinkProfile = newQuery("CDS-PRF-27",
+	`
+		UPDATE profiles SET
+			user_id = $1,
+			list_profile = $2,
+			delete_profile = $3,
+			traits = $4,
+			identity_attributes = $5,
+			updated_at = $6
+		 WHERE profile_id = $7 AND org_id = $8
+		   AND (user_id IS NULL OR user_id = '' OR user_id = $1);`)
+
 // UpsertProfileReference updates the reference row of a profile. Despite the name, it does not insert a missing row.
 var UpsertProfileReference = newQuery("CDS-PRF-08",
 	`

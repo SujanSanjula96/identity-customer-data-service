@@ -64,6 +64,8 @@ type ProfilesServiceInterface interface {
 		profile profileModel.ProfileRequest, orgID string) (*profileModel.ProfileResponse, error)
 	UpdateProfile(ctx context.Context,
 		profileID string, orgID string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
+	LinkProfile(ctx context.Context,
+		profileID string, orgID string, update profileModel.ProfileRequest) (*profileModel.ProfileResponse, error)
 	GetProfile(ctx context.Context, profileID string, orgID string) (*profileModel.ProfileResponse, error)
 	FindProfileByUserID(ctx context.Context, userID string, orgID string) (*profileModel.ProfileResponse, error)
 	GetAllProfilesWithFilterCursor(
@@ -831,10 +833,34 @@ func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 	return ps.updateProfile(ctx, profileID, orgID, profile, updatedProfile)
 }
 
+// LinkProfile updates a profile as UpdateProfile does, and fails if a different user has the profile.
+func (ps *ProfilesService) LinkProfile(ctx context.Context,
+	profileID string, orgID string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
+	profile, err := profileStore.GetProfile(ctx, profileID, orgID)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error fetching profile for link: %s", profileID)
+		log.GetLogger().Debug(errMsg, log.Error(err))
+		serverError := errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.UpdateProfile.Code,
+			Message:     errors2.UpdateProfile.Message,
+			Description: errMsg,
+		}, err)
+		return nil, serverError
+	}
+	return ps.saveProfile(ctx, profileID, orgID, profile, updatedProfile, profileStore.LinkProfile)
+}
+
 // updateProfile updates a profile that the caller has read already, so that a caller which needs
 // the stored profile itself, as PatchProfile does, reads it once rather than twice.
 func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, orgID string,
 	profile *profileModel.Profile, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
+	return ps.saveProfile(ctx, profileID, orgID, profile, updatedProfile, profileStore.UpdateProfile)
+}
+
+func (ps *ProfilesService) saveProfile(ctx context.Context, profileID string, orgID string,
+	profile *profileModel.Profile, updatedProfile profileModel.ProfileRequest,
+	write func(ctx context.Context, orgID string, profile profileModel.Profile) error,
+) (*profileModel.ProfileResponse, error) {
 	logger := log.GetLogger()
 	if profile == nil {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
@@ -918,7 +944,10 @@ func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, 
 		}
 	}
 
-	if err := profileStore.UpdateProfile(ctx, orgID, profileToUpDate); err != nil {
+	if err := write(ctx, orgID, profileToUpDate); err != nil {
+		if utils.HasClientErrorCode(err, errors2.ProfileAlreadyLinked.Code) {
+			return nil, err
+		}
 		logger.Error(fmt.Sprintf("Error updating profile: %s", profileToUpDate.ProfileID), log.Error(err))
 		return nil, err
 	}

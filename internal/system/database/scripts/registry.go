@@ -53,6 +53,7 @@ func AllQueries() map[string]model.DBQuery {
 		"GetAppDataByProfileID":                  GetAppDataByProfileID,
 		"GetAppDataByAppID":                      GetAppDataByAppID,
 		"UpdateProfile":                          UpdateProfile,
+		"LinkProfile":                            LinkProfile,
 		"UpsertProfileReference":                 UpsertProfileReference,
 		"UpdateProfileReference":                 UpdateProfileReference,
 		"GetProfilesByOrgID":                     GetProfilesByOrgID,

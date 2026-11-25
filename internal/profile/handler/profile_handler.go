@@ -871,7 +871,7 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 		ApplicationData:    profileService.WideAppDataMap(existingProfile.ApplicationData),
 	}
 
-	_, err = profilesService.UpdateProfile(ctx, profileID, org.ID, profileRequest)
+	_, err = profilesService.LinkProfile(ctx, profileID, org.ID, profileRequest)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -1010,7 +1010,16 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 
 				// Save updated profile
 				audit.SetTargetID(ctx, auditTargetOf(existingProfile))
-				_, err = profilesService.UpdateProfile(ctx, existingProfile.ProfileID, org.ID, profileRequest)
+				_, err = profilesService.LinkProfile(ctx, existingProfile.ProfileID, org.ID, profileRequest)
+				if utils.HasClientErrorCode(err, errors2.ProfileAlreadyLinked.Code) {
+					logger.Warn(fmt.Sprintf("Profile: %s is already linked to a different user. Not linking it "+
+						"to the new user: %s.", existingProfile.ProfileID, profileSync.UserID))
+					if err := createProfileForUserIfMissing(ctx, profilesService, profileSync.UserID, org.ID,
+						identityClaims); err != nil {
+						utils.HandleError(writer, err)
+					}
+					return
+				}
 				if err != nil {
 					utils.HandleError(writer, err)
 					return
@@ -1180,8 +1189,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 						ApplicationData:    profileService.WideAppDataMap(anonymousProfile.ApplicationData),
 					}
 					audit.SetTargetID(ctx, auditTargetOf(anonymousProfile))
-					_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileID, org.ID, profileRequest)
-					if err != nil {
+					_, err = profilesService.LinkProfile(ctx, anonymousProfile.ProfileID, org.ID, profileRequest)
+					if err != nil && !isLinkedByAnotherRequest(err, anonymousProfile.ProfileID, profileSync.UserID) {
 						utils.HandleError(writer, err)
 						return
 					}
@@ -1203,8 +1212,8 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 				}
 
 				audit.SetTargetID(ctx, auditTargetOf(anonymousProfile))
-				_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileID, org.ID, profileRequest)
-				if err != nil {
+				_, err = profilesService.LinkProfile(ctx, anonymousProfile.ProfileID, org.ID, profileRequest)
+				if err != nil && !isLinkedByAnotherRequest(err, anonymousProfile.ProfileID, profileSync.UserID) {
 					utils.HandleError(writer, err)
 					return
 				}
@@ -1441,6 +1450,16 @@ func auditTargetOf(profile *model.ProfileResponse) string {
 
 func isLinkedToAnotherUser(profile *model.ProfileResponse, userID string) bool {
 	return profile != nil && profile.UserID != "" && profile.UserID != userID
+}
+
+// isLinkedByAnotherRequest reports whether a link failed because a different user has the profile.
+func isLinkedByAnotherRequest(err error, profileID, userID string) bool {
+	if !utils.HasClientErrorCode(err, errors2.ProfileAlreadyLinked.Code) {
+		return false
+	}
+	log.GetLogger().Warn(fmt.Sprintf("Profile: %s is already linked to a different user. Not linking it "+
+		"to the user: %s.", profileID, userID))
+	return true
 }
 
 // createProfileForUserIfMissing creates a profile for the user from the identity claims, if the user has no
