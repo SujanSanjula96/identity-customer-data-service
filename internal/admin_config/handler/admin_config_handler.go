@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/wso2/identity-customer-data-service/internal/admin_config/provider"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
@@ -65,20 +64,7 @@ func (h *AdminConfigHandler) GetAdminConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp := model.AdminConfigAPI{
-		CDSEnabled:                 config.CDSEnabled,
-		SystemApplications:         config.SystemApplications,
-		AutoMergeEnabled:           config.AutoMergeEnabled,
-		AutoMergeThreshold:         config.AutoMergeThreshold,
-		ManualReviewThreshold:      config.ManualReviewThreshold,
-		DeterministicMatchDecisive: config.DeterministicMatchDecisive,
-		CORSAllowedOrigins:         config.CORSAllowedOrigins,
-		TemporaryProfileRetentionDays: effectiveSetting(config.TemporaryProfileRetentionDays,
-			constants.DefaultTemporaryProfileRetentionDays),
-		TemporaryProfileCleanupIntervalDays: effectiveSetting(config.TemporaryProfileCleanupIntervalDays,
-			constants.DefaultTemporaryProfileCleanupIntervalDays),
-	}
-	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
+	utils.RespondJSON(w, http.StatusOK, toAdminConfigAPI(config), constants.AdminConfigResource)
 }
 
 // effectiveSetting returns the stored setting, or its default when none is set.
@@ -93,7 +79,7 @@ func effectiveSetting(stored, defaultValue int) int {
 func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if err := authnAdminConfigUpdate(r); err != nil {
+	if err := security.AuthnAndAuthz(r, "admin_config:update"); err != nil {
 		utils.HandleError(w, err)
 		return
 	}
@@ -193,28 +179,72 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	resp := model.AdminConfigAPI{
-		CDSEnabled:                 configToUpdate.CDSEnabled,
-		SystemApplications:         configToUpdate.SystemApplications,
-		AutoMergeEnabled:           configToUpdate.AutoMergeEnabled,
-		AutoMergeThreshold:         configToUpdate.AutoMergeThreshold,
-		ManualReviewThreshold:      configToUpdate.ManualReviewThreshold,
-		DeterministicMatchDecisive: configToUpdate.DeterministicMatchDecisive,
-		CORSAllowedOrigins:         configToUpdate.CORSAllowedOrigins,
-		TemporaryProfileRetentionDays: effectiveSetting(configToUpdate.TemporaryProfileRetentionDays,
-			constants.DefaultTemporaryProfileRetentionDays),
-		TemporaryProfileCleanupIntervalDays: effectiveSetting(configToUpdate.TemporaryProfileCleanupIntervalDays,
-			constants.DefaultTemporaryProfileCleanupIntervalDays),
-	}
-	utils.RespondJSON(w, http.StatusOK, resp, constants.AdminConfigResource)
+	utils.RespondJSON(w, http.StatusOK, toAdminConfigAPI(configToUpdate), constants.AdminConfigResource)
 }
 
-// authnAdminConfigUpdate accepts an OAuth token with the admin_config:update permission, or the admin credentials
-// with Basic auth. Identity Server uses the admin credentials to send the tenant CDS enable config
-// (PATCH /api/server/v1/configs/cds in Identity Server).
-func authnAdminConfigUpdate(r *http.Request) error {
-	if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
-		return security.AuthnWithAdminCredentials(r)
+// SyncAdminConfig handles POST /config/sync. Identity Server sends the CDS enable config of a root
+// organization (PATCH /api/server/v1/configs/cds in Identity Server) with the admin credentials. Only
+// cds_enabled can be sent.
+func (h *AdminConfigHandler) SyncAdminConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if err := security.AuthnWithAdminCredentials(r); err != nil {
+		utils.HandleError(w, err)
+		return
 	}
-	return security.AuthnAndAuthz(r, "admin_config:update")
+	org, err := orgService.ResolveOrganization(ctx, utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	var sync model.AdminConfigSyncAPI
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&sync); err != nil {
+		utils.HandleError(w, errors.NewClientError(errors.ErrorMessage{
+			Code:        errors.UpdateConfigBadRequest.Code,
+			Message:     errors.UpdateConfigBadRequest.Message,
+			Description: utils.HandleDecodeError(err, "admin configuration"),
+		}, http.StatusBadRequest))
+		return
+	}
+	if sync.CDSEnabled == nil {
+		utils.HandleError(w, errors.NewClientError(errors.ErrorMessage{
+			Code:        errors.UpdateConfigBadRequest.Code,
+			Message:     errors.UpdateConfigBadRequest.Message,
+			Description: "cds_enabled is required.",
+		}, http.StatusBadRequest))
+		return
+	}
+
+	adminConfigService := provider.NewAdminConfigProvider().GetAdminConfigService()
+	config, err := adminConfigService.GetAdminConfig(ctx, org.ID)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	config.OrgID = org.ID
+	config.CDSEnabled = *sync.CDSEnabled
+	if err := adminConfigService.UpdateAdminConfig(ctx, &config, org); err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, toAdminConfigAPI(config), constants.AdminConfigResource)
+}
+
+// toAdminConfigAPI returns the API representation of a stored configuration.
+func toAdminConfigAPI(config model.AdminConfig) model.AdminConfigAPI {
+	return model.AdminConfigAPI{
+		CDSEnabled:                 config.CDSEnabled,
+		SystemApplications:         config.SystemApplications,
+		AutoMergeEnabled:           config.AutoMergeEnabled,
+		AutoMergeThreshold:         config.AutoMergeThreshold,
+		ManualReviewThreshold:      config.ManualReviewThreshold,
+		DeterministicMatchDecisive: config.DeterministicMatchDecisive,
+		CORSAllowedOrigins:         config.CORSAllowedOrigins,
+		TemporaryProfileRetentionDays: effectiveSetting(config.TemporaryProfileRetentionDays,
+			constants.DefaultTemporaryProfileRetentionDays),
+		TemporaryProfileCleanupIntervalDays: effectiveSetting(config.TemporaryProfileCleanupIntervalDays,
+			constants.DefaultTemporaryProfileCleanupIntervalDays),
+	}
 }

@@ -171,14 +171,47 @@ func TestUpdateAdminConfigRefusals(t *testing.T) {
 	}
 }
 
-func TestUpdateAdminConfigAcceptsTheAdminCredentials(t *testing.T) {
+func TestUpdateAdminConfigDoesNotTakeTheAdminCredentials(t *testing.T) {
 	env := newAdminHandlerEnv(t)
 
 	recorder := env.call(t, env.h.UpdateAdminConfig, http.MethodPatch, basic(adminUser, adminPassword),
 		`{"system_applications":["app-1"]}`)
 
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code, recorder.Body.String())
+	got := decodeConfig(t, env.call(t, env.h.GetAdminConfig, http.MethodGet, env.bearer(), ""))
+	assert.Empty(t, got.SystemApplications)
+}
+
+func TestSyncAdminConfigChangesOnlyCDSEnabled(t *testing.T) {
+	env := newAdminHandlerEnv(t)
+	first := env.call(t, env.h.UpdateAdminConfig, http.MethodPatch, env.bearer(),
+		`{"system_applications":["app-1"],"auto_merge_enabled":false}`)
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+
+	recorder := env.call(t, env.h.SyncAdminConfig, http.MethodPost, basic(adminUser, adminPassword),
+		`{"cds_enabled":false}`)
+
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	assert.Equal(t, []string{"app-1"}, decodeConfig(t, recorder).SystemApplications)
+	got := decodeConfig(t, env.call(t, env.h.GetAdminConfig, http.MethodGet, env.bearer(), ""))
+	assert.False(t, got.CDSEnabled)
+	assert.Equal(t, []string{"app-1"}, got.SystemApplications, "a sync keeps the other settings")
+	assert.False(t, got.AutoMergeEnabled, "a sync keeps the other settings")
+}
+
+func TestSyncAdminConfigRefusals(t *testing.T) {
+	env := newAdminHandlerEnv(t)
+	tests := map[string]string{
+		"malformed JSON":            `{"cds_enabled":`,
+		"no cds_enabled":            `{}`,
+		"another configuration key": `{"cds_enabled":false,"system_applications":["app-1"]}`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			recorder := env.call(t, env.h.SyncAdminConfig, http.MethodPost, basic(adminUser, adminPassword), body)
+
+			assert.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		})
+	}
 }
 
 func TestAdminConfigAuthentication(t *testing.T) {
@@ -199,9 +232,14 @@ func TestAdminConfigAuthentication(t *testing.T) {
 		{"patch without a token", env.h.UpdateAdminConfig, http.MethodPatch, "", http.StatusUnauthorized},
 		{"patch with the wrong scope", env.h.UpdateAdminConfig, http.MethodPatch, "Bearer " + env.auth.OtherToken,
 			http.StatusForbidden},
-		{"patch with the wrong password", env.h.UpdateAdminConfig, http.MethodPatch, basic(adminUser, "nope"),
+		{"patch does not take the admin credentials", env.h.UpdateAdminConfig, http.MethodPatch,
+			basic(adminUser, adminPassword), http.StatusUnauthorized},
+		{"sync without credentials", env.h.SyncAdminConfig, http.MethodPost, "", http.StatusUnauthorized},
+		{"sync does not take a token", env.h.SyncAdminConfig, http.MethodPost, env.bearer(),
 			http.StatusUnauthorized},
-		{"patch with the wrong user", env.h.UpdateAdminConfig, http.MethodPatch, basic("other", adminPassword),
+		{"sync with the wrong password", env.h.SyncAdminConfig, http.MethodPost, basic(adminUser, "nope"),
+			http.StatusUnauthorized},
+		{"sync with the wrong user", env.h.SyncAdminConfig, http.MethodPost, basic("other", adminPassword),
 			http.StatusUnauthorized},
 	}
 	for _, tc := range tests {

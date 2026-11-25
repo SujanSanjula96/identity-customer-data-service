@@ -224,6 +224,7 @@ Consent, configuration, identity resolution, and organizations:
 | `consent_category.update` | `PUT /consent-categories/{categoryId}` | |
 | `consent_category.delete` | `DELETE /consent-categories/{categoryId}` | |
 | `admin_config.update` | `PATCH /config` | |
+| `admin_config.sync` | `POST /config/sync` | |
 | `review_task.resolve` | `POST /identity-resolution/review-tasks/{taskId}/resolve` | `decision` |
 | `organization.sync` | `POST /organizations/event-sync` (target: `org_id` of the body) | `sync_event` |
 | `organization_tree.sync` | `POST /organizations/sync` | |
