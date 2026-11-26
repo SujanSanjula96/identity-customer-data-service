@@ -35,8 +35,10 @@ it is in use.
 
 Replace it on both sides:
 
-1. Here: `server.crt` and `server.key` with a certificate issued for the host
-   in `server_url`, the name the Identity Server and the Console reach CDD on.
+1. Here: `server.crt` and `server.key` with a certificate issued for the hosts
+   the Identity Server and the Console reach CDD on: those in its
+   `[customer_data_service]` `server_url` and `sync_url`. A sync port reached
+   on an internal name can present a key pair of its own (`sync.server_cert`).
 2. Here: `trust_store.pem` with the certificate the Identity Server presents,
    or the CA that issued it.
 3. On the Identity Server: import the new `server.crt`, or its CA, into

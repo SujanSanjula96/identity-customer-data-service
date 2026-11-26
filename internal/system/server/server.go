@@ -238,9 +238,8 @@ func Run(cdsHome string) {
 			}
 		}
 		syncServer = newHTTPServer(cdsConfig.SyncAddress(), logStreams.wrap(security.SyncListener(syncMux)), syncTLS)
-	} else if cdsConfig.Sync.Addr.Port != 0 {
-		logger.Info(fmt.Sprintf("sync.addr is the address of addr, so the sync endpoints are served on %s, "+
-			"beside the public APIs.", serverAddr))
+	} else {
+		logger.Info(syncModeGuidance(*cdsConfig))
 	}
 
 	// Listen for OS shutdown signals
@@ -259,6 +258,7 @@ func Run(cdsHome string) {
 		go func() {
 			logger.Info(fmt.Sprintf("HTTPS sync server listening on %s, client certificate required: %t",
 				syncServer.Addr, cdsConfig.Sync.RequireClientCert))
+			logger.Info(syncModeGuidance(*cdsConfig))
 			if err := syncServer.ListenAndServeTLS(syncCertPath, syncKeyPath); err != nil &&
 				err != http.ErrServerClosed {
 				logger.Error("Failed to start the HTTPS sync server.", log.Error(err))

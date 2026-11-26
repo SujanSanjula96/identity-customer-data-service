@@ -116,8 +116,9 @@ func TestWithoutASyncListenerEveryRouteIsOnTheMux(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status(mux, http.MethodGet, tenantBase+"/profiles"))
 }
 
-// An identity server whose server_url still names the public port gets 404 on every sync. That is said once
-// in the log, with the sync port to point it at, and only for requests with the admin credentials.
+// An identity server that sends its syncs to the public port (no sync_url, or one naming the public port) gets
+// 404 on every sync. That is said once in the log, with the key and the sync port to point it at, and only for
+// requests with the admin credentials.
 func TestSyncRequestOnThePublicPortIsLoggedOnce(t *testing.T) {
 	public, _ := splitMuxes(t)
 	logPath := filepath.Join(t.TempDir(), "app.log")
@@ -147,5 +148,6 @@ func TestSyncRequestOnThePublicPortIsLoggedOnce(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, send(true))
 	assert.Equal(t, http.StatusNotFound, send(true))
 	assert.Equal(t, 1, strings.Count(readLog(), "sync request to the public port"))
+	assert.Contains(t, readLog(), "Point [customer_data_service] sync_url of the identity server at the sync port")
 	assert.Contains(t, readLog(), ":8901")
 }

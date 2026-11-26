@@ -111,6 +111,35 @@ func TestValidateSync(t *testing.T) {
 	}
 }
 
+// The start-up log says which keys of the identity server name which port: sync_url the sync port and
+// server_url addr with a sync listener of its own, server_url alone without one.
+func TestSyncModeGuidance(t *testing.T) {
+	addr := config.AddrConfig{Host: "127.0.0.1", Port: 8900}
+	for name, tc := range map[string]struct {
+		sync config.SyncConfig
+		want string
+	}{
+		"no sync block": {
+			want: "Sync endpoints on addr, 127.0.0.1:8900. Identity server: set server_url to it, leave " +
+				"sync_url unset.",
+		},
+		"sync.addr equal to addr": {
+			sync: separate(8900),
+			want: "sync.addr is addr, 127.0.0.1:8900: sync endpoints served beside the public APIs. Identity " +
+				"server: set server_url to it, leave sync_url unset.",
+		},
+		"a sync listener of its own": {
+			sync: separate(8901),
+			want: "Identity server: set sync_url to the sync port, 127.0.0.1:8901, and server_url to addr, " +
+				"127.0.0.1:8900.",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, syncModeGuidance(config.Config{Addr: addr, Sync: tc.sync}))
+		})
+	}
+}
+
 func TestSyncKeyPair(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{TLS: config.TLSConfig{CDSPublicCert: "server.crt", CDSPrivateKey: "server.key"}}

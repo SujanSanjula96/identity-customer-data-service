@@ -119,15 +119,15 @@ func (sm *ServiceManager) RegisterServices() error {
 var syncRequestOnPublicPort sync.Once
 
 // warnSyncRequestOnPublicPort says, once, that the identity server sends its syncs to the public port: an
-// identity server whose server_url was not moved to the sync port. Only requests with the admin
-// credentials count, so that a scan of the public port does not raise it.
+// identity server with no [customer_data_service] sync_url, or one that names the public port. Only
+// requests with the admin credentials count, so that a scan of the public port does not raise it.
 func warnSyncRequestOnPublicPort(r *http.Request) {
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
 		return
 	}
 	syncRequestOnPublicPort.Do(func() {
 		log.GetLogger().Warn(fmt.Sprintf("The identity server sent a sync request to the public port, which no "+
-			"longer serves the sync endpoints. Point [customer_data_service] server_url of the identity server "+
+			"longer serves the sync endpoints. Point [customer_data_service] sync_url of the identity server "+
 			"at the sync port, %s.", config.GetCDSRuntime().Config.SyncAddress()))
 	})
 }

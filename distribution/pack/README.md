@@ -39,10 +39,15 @@ Extracting this pack is the installation; there is nothing to run first.
    ```toml
    [customer_data_service]
    enable = true
-   server_url = "https://localhost:8900"
+   server_url = "https://localhost:8900"   # the public port: the Console
+   sync_url = "https://localhost:8901"     # the sync port: the Identity Server's syncs
    admin_username = "admin"
    admin_password = "<AUTH_SERVER_ADMIN_PASSWORD in secrets.env>"
    ```
+
+   `sync_url` names the sync port (`sync.addr` in `repository/conf/deployment.yaml`).
+   Without a `sync` block there, CDD serves the syncs on 8900: leave `sync_url`
+   out, and the Identity Server sends them to `server_url`.
 
 4. **Enable CDD for an organization** from the Identity Server Console.
 

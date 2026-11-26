@@ -23,8 +23,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/wso2/identity-customer-data-service/internal/system/certs"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
@@ -86,6 +88,22 @@ func validateSync(cfg config.Config) error {
 			"served on addr, with tls.server_cert")
 	}
 	return nil
+}
+
+// syncModeGuidance says where the sync endpoints are served and how the identity server has to be set for
+// that: [customer_data_service] sync_url at the sync port and server_url at addr with a sync listener of its
+// own, or server_url alone at addr without one.
+func syncModeGuidance(cfg config.Config) string {
+	addr := net.JoinHostPort(cfg.Addr.Host, strconv.Itoa(cfg.Addr.Port))
+	if cfg.SyncSeparate() {
+		return fmt.Sprintf("Identity server: set sync_url to the sync port, %s, and server_url to addr, %s.",
+			cfg.SyncAddress(), addr)
+	}
+	served := fmt.Sprintf("Sync endpoints on addr, %s.", addr)
+	if cfg.Sync.Addr.Port != 0 {
+		served = fmt.Sprintf("sync.addr is addr, %s: sync endpoints served beside the public APIs.", addr)
+	}
+	return served + " Identity server: set server_url to it, leave sync_url unset."
 }
 
 // syncKeyPair is the key pair the sync listener presents: sync.server_cert and sync.server_key, or

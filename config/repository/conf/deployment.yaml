@@ -45,6 +45,7 @@ addr:
 
 # The endpoints only the Identity Server calls, on a port of their own that is never exposed with the
 # public APIs. Without sync.addr they are served on addr. See the security README.
+# The Identity Server sends them to [customer_data_service] sync_url: point it at sync.addr.
 sync:
   addr:
     host: 127.0.0.1
