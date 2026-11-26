@@ -81,7 +81,7 @@ Unification worker detects two profiles with same userId
             master profile updated with merged data
             temp profile marked as child (merged_to set)
                 │
-                │  (SESSION_TERMINATE event)
+                │  (SESSION_TERMINATE or SESSION_EXPIRE event)
                 ▼
             cookie deactivated (is_active = false)
             cookie cleanup worker removes inactive records at its next run (every 24h by default)
@@ -94,7 +94,7 @@ Unification worker detects two profiles with same userId
 The `profile_cookies` table maps a `cookie_id` (the value of the `cds_profile` browser cookie) to a `profile_id`. The `is_active` flag tracks whether the session is live.
 
 - Cookie is **created** when an anonymous profile is first issued
-- Cookie is **deactivated** on `SESSION_TERMINATE`
+- Cookie is **deactivated** on `SESSION_TERMINATE` (logout) and `SESSION_EXPIRE` (session timed out)
 - Inactive cookie records are **batch-deleted** by the cookie cleanup worker every 24 hours
 
 ## Retention of temporary profiles

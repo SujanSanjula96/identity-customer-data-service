@@ -24,7 +24,7 @@ subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE
 
 [[event_handler]]
 name = "cds.authentication.listener"
-subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
+subscriptions = ["SESSION_TERMINATE", "SESSION_EXPIRE", "AUTHENTICATION_SUCCESS"]
 
 [[event_handler]]
 name = "cds.organization.event.handler"

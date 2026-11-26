@@ -228,8 +228,8 @@ paths:
       responses:
         '200':
           description: |
-            The event was processed. `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE` and an event
-            that CDS ignores return `{"status": "updated"}`. The profile events (`POST_ADD_USER`,
+            The event was processed. `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE`,
+            `SESSION_EXPIRE` and an event that CDS ignores return `{"status": "updated"}`. The profile events (`POST_ADD_USER`,
             `POST_DELETE_USER_WITH_ID` and the two claim events) return an empty body.
           content:
             application/json:
@@ -2178,9 +2178,10 @@ components:
           description: |
             Identity server event name. The events that CDS acts on are `POST_ADD_USER`,
             `POST_DELETE_USER_WITH_ID`, `POST_SET_USER_CLAIM_VALUE_WITH_ID`,
-            `POST_SET_USER_CLAIM_VALUES_WITH_ID`, `AUTHENTICATION_SUCCESS` and
-            `SESSION_TERMINATE`. `AUTHENTICATION_SUCCESS` needs `userId` and attaches the user to
-            the anonymous profile of `profileCookie`. `SESSION_TERMINATE` deactivates that cookie.
+            `POST_SET_USER_CLAIM_VALUES_WITH_ID`, `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE`
+            and `SESSION_EXPIRE`. `AUTHENTICATION_SUCCESS` needs `userId` and attaches the user to
+            the anonymous profile of `profileCookie`. `SESSION_TERMINATE` and `SESSION_EXPIRE`
+            deactivate that cookie when it belongs to the profile of `userId`.
             Any other event is accepted and ignored.
         userId:
           type: string

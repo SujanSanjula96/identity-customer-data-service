@@ -58,7 +58,7 @@ Fired when one or more claims are updated for a user in IS.
 
 ### `SESSION_TERMINATE`
 
-Fired when a user session ends (logout or expiry).
+Fired when a user logs out, or when a session of the user is terminated.
 
 1. Looks up the permanent profile by `userId`
 2. Resolves the cookie record by `profileCookie`
@@ -66,6 +66,20 @@ Fired when a user session ends (logout or expiry).
 4. Deactivates the cookie (`is_active = false`)
 
 The cookie cleanup worker removes deactivated cookie records in batches after 24 hours.
+
+---
+
+### `SESSION_EXPIRE`
+
+Fired when a browser comes back to IS with a session that has timed out (idle timeout or
+remember-me timeout). IS does not send it at the moment the session times out: it detects the
+expired session on the next authentication request from that browser, before the user signs in
+again. The `profileCookie` is the `cds_profile` cookie that the browser sends with that request.
+
+CDD handles it the same way as `SESSION_TERMINATE`: it deactivates the cookie when the cookie
+belongs to the profile of `userId`. If the user then signs in, `AUTHENTICATION_SUCCESS` does not
+link the deactivated cookie, and the browser gets a new anonymous profile. That profile is
+linked to the user at the user's next sign-in from that browser.
 
 ---
 

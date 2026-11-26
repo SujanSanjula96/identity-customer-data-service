@@ -73,13 +73,12 @@ var mssqlStatements = map[string]string{
 		LEFT JOIN profile_reference pr ON p.profile_id = pr.profile_id
 		WHERE p.profile_id IN (%s) AND p.delete_profile = 0`,
 
-	"CDS-IDR-05": `MERGE blocking_keys WITH (HOLDLOCK) AS t
-		USING (SELECT DISTINCT profile_id, org_id, attribute_name, key_value
-			FROM (VALUES %s) AS v (profile_id, org_id, attribute_name, key_value)) AS s
-			ON t.org_id = s.org_id AND t.attribute_name = s.attribute_name AND t.key_value = s.key_value
-			AND t.profile_id = s.profile_id
-		WHEN NOT MATCHED THEN INSERT (profile_id, org_id, attribute_name, key_value)
-			VALUES (s.profile_id, s.org_id, s.attribute_name, s.key_value);`,
+	"CDS-IDR-05": `INSERT INTO blocking_keys (profile_id, org_id, attribute_name, key_value)
+		SELECT DISTINCT v.profile_id, v.org_id, v.attribute_name, v.key_value
+		FROM (VALUES %s) AS v (profile_id, org_id, attribute_name, key_value)
+		WHERE NOT EXISTS (SELECT 1 FROM blocking_keys t
+			WHERE t.org_id = v.org_id AND t.attribute_name = v.attribute_name
+			AND t.key_value = v.key_value AND t.profile_id = v.profile_id);`,
 
 	"CDS-IDR-06": `SELECT DISTINCT TOP ($%[3]d) profile_id FROM blocking_keys
 		WHERE org_id = $1 AND attribute_name = $2 AND key_value IN (%[1]s)

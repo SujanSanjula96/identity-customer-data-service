@@ -180,6 +180,7 @@ const (
 	UpdateUserClaimsEvent     = "POST_SET_USER_CLAIM_VALUES_WITH_ID"
 	AuthenticationSuccess     = "AUTHENTICATION_SUCCESS"
 	SessionTermination        = "SESSION_TERMINATE"
+	SessionExpiry             = "SESSION_EXPIRE"
 )
 
 // AllowedValueTypes is the set of valid attribute value types.

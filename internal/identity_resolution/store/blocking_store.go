@@ -77,7 +77,11 @@ func UpsertBlockingKeys(ctx context.Context, profileID, orgID string, keys []mod
 	}
 
 	for _, insert := range buildBlockingKeyInserts(dbClient.DBType(), profileID, orgID, keys) {
-		if _, err = tx.ExecContext(ctx, insert.query, insert.args...); err != nil {
+		err = execBlockingKeyInsert(func() error {
+			_, err := tx.ExecContext(ctx, insert.query, insert.args...)
+			return err
+		})
+		if err != nil {
 			logger.Error("BlockingStore: failed to insert blocking keys", log.Error(err))
 			if rbErr := tx.Rollback(); rbErr != nil {
 				logger.Error("BlockingStore: failed to rollback transaction", log.Error(rbErr))
@@ -178,7 +182,11 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgID string, keys []mod
 	defer func() { _ = dbClient.Close() }()
 
 	for _, insert := range buildBlockingKeyInserts(dbClient.DBType(), profileID, orgID, keys) {
-		if _, err = dbClient.ExecuteQueryContext(ctx, insert.query, insert.args...); err != nil {
+		err = execBlockingKeyInsert(func() error {
+			_, err := dbClient.ExecuteQueryContext(ctx, insert.query, insert.args...)
+			return err
+		})
+		if err != nil {
 			logger.Error("BlockingStore: failed to insert blocking keys", log.Error(err))
 			return errors2.NewServerError(errors2.ErrorMessage{
 				Code:        errors2.IRBlockingKeysFailed.Code,
@@ -189,6 +197,24 @@ func InsertBlockingKeys(ctx context.Context, profileID, orgID string, keys []mod
 	}
 
 	return nil
+}
+
+// blockingKeyInsertAttempts is how many times an insert of blocking keys runs in all while SQL Server
+// rejects it on a duplicate key.
+const blockingKeyInsertAttempts = 3
+
+// execBlockingKeyInsert runs an insert of blocking keys, and runs it again when SQL Server rejects a
+// row that another statement inserted between this one's check for it and its insert. The row is
+// stored by then, so the insert skips it when it runs again and stores the others of the statement,
+// which the rejection discarded with it.
+func execBlockingKeyInsert(exec func() error) error {
+	var err error
+	for range blockingKeyInsertAttempts {
+		if err = exec(); !database.IsDuplicateKey(err) {
+			return err
+		}
+	}
+	return err
 }
 
 // blockingKeyInsert is one INSERT statement of a profile's blocking keys and its arguments.
@@ -278,7 +304,11 @@ func InsertBlockingKeysBatch(ctx context.Context, orgID string, perProfileKeys m
 		}
 
 		insertQuery := scripts.IRInsertBlockingKeys.Format(strings.Join(valueClauses, ", "))
-		if _, err := dbClient.ExecuteQueryContext(ctx, insertQuery, args...); err != nil {
+		err := execBlockingKeyInsert(func() error {
+			_, err := dbClient.ExecuteQueryContext(ctx, insertQuery, args...)
+			return err
+		})
+		if err != nil {
 			logger.Error(fmt.Sprintf(
 				"BlockingStore: batch insert failed for org '%s' at rows %d-%d of %d",
 				orgID, start, end, len(rows)), log.Error(err))

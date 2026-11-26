@@ -1218,8 +1218,10 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			logger.Debug("No profile cookie provided for user id: " + profileSync.UserID)
 		}
 	}
-	if profileSync.Event == constants.SessionTermination {
-		logger.Info("Event received session termination for user: " + profileSync.UserID)
+	// A session that ended by logout or by timing out leaves the cookie of the browser behind. Deactivate it, so
+	// that what happens next in that browser is not added to the profile of this user.
+	if profileSync.Event == constants.SessionTermination || profileSync.Event == constants.SessionExpiry {
+		logger.Info("Event received " + profileSync.Event + " for user: " + profileSync.UserID)
 		if profileSync.UserID != "" {
 			if strings.TrimSpace(profileSync.ProfileCookie) == "" {
 				logger.Debug("No profile cookie provided for session termination. Skipping cookie deactivation.")

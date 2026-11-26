@@ -239,34 +239,51 @@ func TestAuthenticationSuccessKeepsAnAlreadyLinkedProfile(t *testing.T) {
 	assert.Equal(t, linked.ProfileID, env.findUser(t, "u-1").ProfileID)
 }
 
-func TestSessionTerminationDeactivatesTheCookieOfTheUser(t *testing.T) {
+func TestSessionEndDeactivatesTheCookieOfTheUser(t *testing.T) {
+	for _, event := range []string{constants.SessionTermination, constants.SessionExpiry} {
+		t.Run(event, func(t *testing.T) {
+			env := newSyncEnv(t)
+			profile := env.createUserProfile(t, "u-1", "Colombo")
+			other := env.createUserProfile(t, "u-2", "Kandy")
+			own := env.createCookie(t, profile.ProfileID, true)
+			foreign := env.createCookie(t, other.ProfileID, true)
+			end := func(userID, cookie string) *httptest.ResponseRecorder {
+				extra := map[string]interface{}{}
+				if cookie != "" {
+					extra["profileCookie"] = cookie
+				}
+				return env.sync(t, adminAuthorization(), env.event(event, userID, extra))
+			}
+
+			// None of these may touch a cookie that is not the user's.
+			assert.Equal(t, http.StatusOK, end("u-1", foreign).Code)
+			assert.True(t, env.cookieActive(t, foreign), "the cookie of another profile stays active")
+			assert.Equal(t, http.StatusOK, end("u-1", "").Code)
+			assert.Equal(t, http.StatusOK, end("u-1", "unknown-cookie").Code)
+			assert.True(t, env.cookieActive(t, own))
+
+			assert.Equal(t, http.StatusOK, end("u-1", own).Code)
+			assert.False(t, env.cookieActive(t, own), "the user's own cookie is deactivated")
+		})
+	}
+}
+
+func TestAnotherUserDoesNotGetTheProfileOfAnExpiredSession(t *testing.T) {
 	env := newSyncEnv(t)
-	profile := env.createUserProfile(t, "u-1", "Colombo")
-	other := env.createUserProfile(t, "u-2", "Kandy")
-	own := env.createCookie(t, profile.ProfileID, true)
-	foreign := env.createCookie(t, other.ProfileID, true)
-	terminate := func(userID, cookie string) *httptest.ResponseRecorder {
-		extra := map[string]interface{}{}
-		if cookie != "" {
-			extra["profileCookie"] = cookie
-		}
-		return env.sync(t, adminAuthorization(), env.event(constants.SessionTermination, userID, extra))
-	}
-	active := func(cookie string) bool {
-		got, err := env.svc.GetProfileCookieByID(env.ctx, cookie, env.orgID)
-		require.NoError(t, err)
-		return got.IsActive
-	}
+	first := env.createUserProfile(t, "u-1", "Colombo")
+	cookieID := env.createCookie(t, first.ProfileID, true)
 
-	// None of these may touch a cookie that is not the user's.
-	assert.Equal(t, http.StatusOK, terminate("u-1", foreign).Code)
-	assert.True(t, active(foreign), "the cookie of another profile stays active")
-	assert.Equal(t, http.StatusOK, terminate("u-1", "").Code)
-	assert.Equal(t, http.StatusOK, terminate("u-1", "unknown-cookie").Code)
-	assert.True(t, active(own))
+	// The session of u-1 timed out, and u-2 logs in from the same browser.
+	expire := env.sync(t, adminAuthorization(), env.event(constants.SessionExpiry, "u-1",
+		map[string]interface{}{"profileCookie": cookieID}))
+	require.Equal(t, http.StatusOK, expire.Code, expire.Body.String())
+	login := env.sync(t, adminAuthorization(), env.event(constants.AuthenticationSuccess, "u-2",
+		map[string]interface{}{"profileCookie": cookieID}))
+	require.Equal(t, http.StatusOK, login.Code, login.Body.String())
 
-	assert.Equal(t, http.StatusOK, terminate("u-1", own).Code)
-	assert.False(t, active(own), "the user's own cookie is deactivated")
+	assert.False(t, env.cookieActive(t, cookieID), "the cookie stays deactivated")
+	env.assertStillOwnedBy(t, first, "u-1", "Colombo")
+	assert.Nil(t, env.findUser(t, "u-2"), "u-2 is not given the profile of u-1")
 }
 
 func TestSyncIgnoresAnEventItDoesNotKnow(t *testing.T) {
@@ -276,6 +293,14 @@ func TestSyncIgnoresAnEventItDoesNotKnow(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Nil(t, env.findUser(t, "u-1"))
+}
+
+// cookieActive reports whether the profile cookie is active.
+func (e *profileHandlerEnv) cookieActive(t *testing.T, cookieID string) bool {
+	t.Helper()
+	got, err := e.svc.GetProfileCookieByID(e.ctx, cookieID, e.orgID)
+	require.NoError(t, err)
+	return got.IsActive
 }
 
 // mergeInto marks the child profile as merged into the master profile, as unification does.
