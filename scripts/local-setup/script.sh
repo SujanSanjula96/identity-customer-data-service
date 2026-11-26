@@ -115,7 +115,7 @@ Options:
   --is-ref REF                 product-is branch or tag to build (default: master)
   --is-rebuild                 rebuild the pack even if one was built before
   --extensions-src PATH        existing clone of the IS extensions repo
-  --extensions-jars PATH       directory containing the four extension jars
+  --extensions-jars PATH       directory containing the five extension jars
   --is-host HOST               IS hostname (default: localhost)
   --is-port PORT               IS HTTPS port (default: 9443 + offset)
   --is-offset N                IS port offset, to run beside another IS (default: 0)
@@ -497,7 +497,8 @@ preflight() {
 
   # The templates and helpers next to this script are required.
   local asset missing=""
-  for asset in templates/is-deployment.toml templates/cds-deployment.yaml \
+  for asset in templates/is-deployment.toml templates/is-event-handlers.toml \
+               templates/cds-deployment.yaml \
                templates/datasource-sqlite.yaml templates/datasource-postgres.yaml \
                templates/openssl.cnf; do
     [ -f "$SELF_DIR/$asset" ] || missing="$missing $asset"
@@ -757,7 +758,10 @@ fetch_is_pack() {
 # --------------------------------------------------------------------------- #
 # 5. IS extension bundles
 # --------------------------------------------------------------------------- #
+# config.mgt is imported by auth.handler, auth.listener and event.handler. Without
+# it those three do not resolve, and IS sends no event to CDS.
 EXT_BUNDLES="org.wso2.identity.customer.data.service.client
+org.wso2.identity.customer.data.service.config.mgt
 org.wso2.identity.customer.data.service.event.handler
 org.wso2.identity.customer.data.service.auth.listener
 org.wso2.identity.customer.data.service.auth.handler"
@@ -789,7 +793,8 @@ deploy_extensions() {
     [ -d "$jars_dir" ] || die "--extensions-jars: no such directory: $jars_dir"
   fi
 
-  local dropins="$IS_HOME/repository/components/dropins" b jar count=0
+  local dropins="$IS_HOME/repository/components/dropins" b jar count=0 expected
+  expected="$(printf '%s\n' $EXT_BUNDLES | wc -l | tr -d ' ')"
   mkdir -p "$dropins"
   for b in $EXT_BUNDLES; do
     jar="$(find "$jars_dir" -name "$b-*.jar" ! -name '*-sources.jar' ! -name '*-javadoc.jar' -type f 2>/dev/null | head -1)"
@@ -799,8 +804,8 @@ deploy_extensions() {
     count=$((count + 1))
     info "$(basename "$jar")"
   done
-  [ "$count" = "4" ] || die "expected 4 extension jars, deployed $count"
-  ok "deployed 4 bundles into repository/components/dropins"
+  [ "$count" = "$expected" ] || die "expected $expected extension jars, deployed $count"
+  ok "deployed $count bundles into repository/components/dropins"
 }
 
 # --------------------------------------------------------------------------- #
@@ -846,9 +851,39 @@ exchange_certificates() {
 cds_toml_block() {
   render "$TPL_DIR/is-deployment.toml" \
     "TOML_BEGIN=$TOML_BEGIN" "TOML_END=$TOML_END" \
+    "EVENT_HANDLERS=$(cds_event_handlers_toml)" \
     "CDS_BASE=$(toml_str "$CDS_BASE")" "IS_BASE=$(toml_str "$IS_BASE")" \
     "CDS_SYNC_USER=$(toml_str "$CDS_SYNC_USER")" \
     "CDS_SYNC_PASS=$(toml_str "$CDS_SYNC_PASS")"
+}
+
+# The event handlers the extension bundles register with IS.
+CDS_EVENT_HANDLERS="cds.identity.event.handler
+cds.claim.event.handler
+cds.authentication.listener
+cds.organization.event.handler"
+
+# True when the pack's config model already registers every cds.* handler. A
+# current pack adds them from infer.json when customer_data_service.enable is
+# true; an older pack has none of them. The packed JSON writes the quotes
+# around the handler name as ', so both forms are matched.
+pack_registers_cds_handlers() {
+  local conf="$IS_HOME/repository/resources/conf" h
+  for h in $CDS_EVENT_HANDLERS; do
+    grep -qsF -e "'$h'" -e "\\u0027$h\\u0027" "$conf/infer.json" "$conf/default.json" || return 1
+  done
+}
+
+# The [[event_handler]] blocks, only for a pack that does not register the
+# handlers itself. IS lists a handler that is declared twice under two module
+# indexes, and then sends no CDS event at all, with no error in the log.
+cds_event_handlers_toml() {
+  if pack_registers_cds_handlers; then
+    printf '%s\n' "# --- Event handlers -------------------------------------------------------- #" \
+      "# Not written: this pack registers the cds.* event handlers itself."
+  else
+    cat "$TPL_DIR/is-event-handlers.toml"
+  fi
 }
 
 patch_is_config() {
@@ -867,6 +902,11 @@ patch_is_config() {
   printf '\n' >> "$toml"
   cds_toml_block >> "$toml"
   ok "wrote the CDS section into repository/conf/deployment.toml"
+  if pack_registers_cds_handlers; then
+    ok "the pack registers the cds.* event handlers - no [[event_handler]] blocks written"
+  else
+    ok "added [[event_handler]] blocks for the cds.* event handlers"
+  fi
 
   # [server] already exists in the shipped file, so the offset goes inside it
   # rather than into a second [server] table. Another table may carry an offset
@@ -937,10 +977,26 @@ verify_extensions_loaded() {
   if [ -n "$missing" ]; then
     info "no startup log entries for:$missing (the bundles log lazily)"
   fi
-  if grep -qi "ERROR.*customer.data.service\|Unresolved constraint.*customer.data.service" "$log"; then
+  if grep -qi "ERROR.*customer.data.service\|Unresolved constraint.*customer.data.service\|Could not resolve module: org.wso2.identity.customer.data.service" "$log"; then
     warn "the log mentions errors for the CDS bundles - check $LOG_DIR/is.log"
   else
     ok "no CDS bundle resolution errors in the startup log"
+  fi
+  verify_event_handlers
+}
+
+# Each cds.* handler must appear once in the generated identity-event.properties.
+verify_event_handlers() {
+  local props="$IS_HOME/repository/conf/identity/identity-event.properties" h n bad=""
+  [ -f "$props" ] || return 0
+  for h in $CDS_EVENT_HANDLERS; do
+    n="$(grep -c "^module\.name\.[0-9]*=$h\$" "$props" || :)"
+    [ "$n" = "1" ] || bad="$bad $h($n)"
+  done
+  if [ -n "$bad" ]; then
+    warn "identity-event.properties does not list each CDS handler once:$bad - IS will send no CDS events"
+  else
+    ok "identity-event.properties lists each CDS event handler once"
   fi
 }
 

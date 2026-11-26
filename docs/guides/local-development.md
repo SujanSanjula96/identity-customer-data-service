@@ -145,10 +145,17 @@ and `--pg-container`.
 
 ## What the setup configures
 
-- **The extension bundles.** The four `org.wso2.identity.customer.data.service.*`
-  jars in `repository/components/dropins`, with the `[[event_handler]]`
-  subscriptions they need: `AbstractEventHandler.canHandle()` returns false
-  without a module config, so a deployed bundle receives no events.
+- **The extension bundles.** The five `org.wso2.identity.customer.data.service.*`
+  jars in `repository/components/dropins`: `client`, `config.mgt`,
+  `event.handler`, `auth.listener` and `auth.handler`. The last three import
+  `config.mgt` and do not resolve without it.
+- **The `[[event_handler]]` subscriptions**, only for a pack that does not
+  register the `cds.*` handlers itself. `AbstractEventHandler.canHandle()`
+  returns false without a module config, so a deployed bundle receives no
+  events. IS 7.4.0-SNAPSHOT packs built from 17 November 2026 add the handlers
+  when `[customer_data_service] enable = true`. A second copy of each handler
+  stops all CDS events without an error, so the script checks the pack's
+  `infer.json` first.
 - **The CDD API resources and their scopes**, seeded through `deployment.toml`.
   IS reserves the `internal_` prefix and rejects it over REST, so the
   `internal_cds_*` scopes cannot be created through the management API.
@@ -236,9 +243,11 @@ fixes it.
 **`GET /profile-schema` returns 400.** CDD could not reach the IS claim APIs,
 usually the trust store or the credentials CDD calls IS with. `logs/cds.log` has the error.
 
-**A user in IS never appears in CDD.** Check that the four bundles are in
+**A user in IS never appears in CDD.** Check that the five bundles are in
 `repository/components/dropins` and that `logs/is.log` shows the CDD handlers
-registering; an unresolved dropin is otherwise silent.
+registering; an unresolved dropin is otherwise silent. Also check that
+`repository/conf/identity/identity-event.properties` lists each `cds.*` handler
+once: `up` warns when it does not.
 
 **The build fails.** `logs/is-build.log` has the Maven output.
 

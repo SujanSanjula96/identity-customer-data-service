@@ -1,0 +1,21 @@
+# --- Event handlers -------------------------------------------------------- #
+# Without these subscriptions AbstractEventHandler.canHandle() returns false and
+# the deployed bundles never receive an event.
+# Written only for a pack that does not register the cds.* handlers itself. A
+# current pack adds them from infer.json when customer_data_service.enable is
+# true, and a second copy of each handler stops every CDS event without an error.
+[[event_handler]]
+name = "cds.identity.event.handler"
+subscriptions = ["POST_ADD_USER", "POST_SET_USER_CLAIM_VALUE_WITH_ID", "POST_SET_USER_CLAIM_VALUES_WITH_ID", "POST_DELETE_USER_WITH_ID"]
+
+[[event_handler]]
+name = "cds.claim.event.handler"
+subscriptions = ["POST_LOCAL_CLAIM_ADD", "POST_UPDATE_LOCAL_CLAIM", "POST_DELETE_LOCAL_CLAIM", "POST_ADD_EXTERNAL_CLAIM", "POST_UPDATE_EXTERNAL_CLAIM", "POST_DELETE_EXTERNAL_CLAIM"]
+
+[[event_handler]]
+name = "cds.authentication.listener"
+subscriptions = ["SESSION_TERMINATE", "AUTHENTICATION_SUCCESS"]
+
+[[event_handler]]
+name = "cds.organization.event.handler"
+subscriptions = ["POST_ADD_ORGANIZATION", "POST_UPDATE_ORGANIZATION", "POST_PATCH_ORGANIZATION", "POST_DELETE_ORGANIZATION"]
