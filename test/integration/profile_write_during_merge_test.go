@@ -55,7 +55,7 @@ func Test_PatchDuringMerge_KeepsBothChanges(t *testing.T) {
 
 		mergeErr, writeErr := raceWriteWithMerge(ctx, orgID, master, merged, func() error {
 			_, err := profileService.GetProfilesService().PatchProfile(ctx, master.ProfileID, orgID,
-				map[string]interface{}{"traits": map[string]interface{}{"color": "red"}})
+				profileModel.ProfilePatchRequest{Traits: map[string]interface{}{"color": "red"}})
 			return err
 		})
 		if mergeErr != nil || writeErr != nil {

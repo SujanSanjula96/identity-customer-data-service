@@ -184,7 +184,7 @@ func Test_OrgScope_ProfileStore(t *testing.T) {
 		})
 		assertClientError(t, err, http.StatusNotFound, errors2.ProfileNotFound.Code)
 		_, err = profiles.PatchProfile(ctx, owner.ProfileID, otherOrg.ID,
-			map[string]interface{}{"traits": map[string]interface{}{"interests": "changed"}})
+			profileModel.ProfilePatchRequest{Traits: map[string]interface{}{"interests": "changed"}})
 		assertClientError(t, err, http.StatusNotFound, errors2.ProfileNotFound.Code)
 		_, err = profiles.GetProfileConsents(ctx, owner.ProfileID, otherOrg.ID)
 		assertClientError(t, err, http.StatusNotFound, errors2.ProfileNotFound.Code)

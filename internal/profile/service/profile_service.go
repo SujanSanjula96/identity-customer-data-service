@@ -79,7 +79,7 @@ type ProfilesServiceInterface interface {
 	UpdateProfileConsents(ctx context.Context,
 		profileID string, orgID string, consents []profileModel.ConsentRecord) error
 	PatchProfile(ctx context.Context,
-		profileID string, orgID string, data map[string]interface{}) (*profileModel.ProfileResponse, error)
+		profileID string, orgID string, patch profileModel.ProfilePatchRequest) (*profileModel.ProfileResponse, error)
 	GetProfileCookieByProfileID(ctx context.Context, profileID string) (*profileModel.ProfileCookie, error)
 	GetProfileCookieByID(ctx context.Context, cookie string, orgID string) (*profileModel.ProfileCookie, error)
 	CreateProfileCookie(ctx context.Context, profileID string) (*profileModel.ProfileCookie, error)
@@ -1686,24 +1686,15 @@ func (ps *ProfilesService) FindProfileByUserID(ctx context.Context,
 
 // PatchProfile applies a partial update to a profile, or to its master when it has been merged.
 func (ps *ProfilesService) PatchProfile(ctx context.Context,
-	profileID string, orgID string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
+	profileID string, orgID string, patch profileModel.ProfilePatchRequest) (*profileModel.ProfileResponse, error) {
 	return ps.writeProfile(ctx, profileID, orgID,
 		func(target *profileModel.Profile) (profileModel.ProfileRequest, error) {
-			if target.UserID != "" && patchesIdentityAttributes(patch) {
+			// An empty object changes nothing, so it is accepted.
+			if target.UserID != "" && len(patch.IdentityAttributes) > 0 {
 				return profileModel.ProfileRequest{}, identityAttributesReadOnlyError()
 			}
 			return applyPatch(profileID, target, patch)
 		})
-}
-
-// patchesIdentityAttributes reports whether a patch changes identity attributes. An empty object changes nothing.
-func patchesIdentityAttributes(patch map[string]interface{}) bool {
-	value, ok := patch["identity_attributes"]
-	if !ok {
-		return false
-	}
-	attrs, isMap := value.(map[string]interface{})
-	return !isMap || len(attrs) > 0
 }
 
 // WithoutAttributesOf returns the attributes of an anonymous profile without those that a profile of the user
@@ -1759,7 +1750,7 @@ func identityAttributesReadOnlyError() error {
 
 // applyPatch applies a patch to a copy of the profile it is written to, and returns the whole profile
 // to write.
-func applyPatch(profileID string, target *profileModel.Profile, patch map[string]interface{}) (
+func applyPatch(profileID string, target *profileModel.Profile, patch profileModel.ProfilePatchRequest) (
 	profileModel.ProfileRequest, error) {
 	// Convert the full profile to map to allow patching.
 	// Marshal the profile but override application_data with the map representation
@@ -1771,7 +1762,7 @@ func applyPatch(profileID string, target *profileModel.Profile, patch map[string
 	merged["application_data"] = ConvertAppDataToMap(target.ApplicationData)
 
 	// Handle deep merge for nested objects first
-	if traitsPatch, ok := patch["traits"].(map[string]interface{}); ok {
+	if traitsPatch := patch.Traits; traitsPatch != nil {
 		if existingTraits, ok := merged["traits"].(map[string]interface{}); ok {
 			merged["traits"] = DeepMerge(existingTraits, traitsPatch)
 		} else {
@@ -1779,7 +1770,7 @@ func applyPatch(profileID string, target *profileModel.Profile, patch map[string
 		}
 	}
 
-	if identityPatch, ok := patch["identity_attributes"].(map[string]interface{}); ok {
+	if identityPatch := patch.IdentityAttributes; identityPatch != nil {
 		if existingIdentity, ok := merged["identity_attributes"].(map[string]interface{}); ok {
 			merged["identity_attributes"] = DeepMerge(existingIdentity, identityPatch)
 		} else {
@@ -1787,7 +1778,7 @@ func applyPatch(profileID string, target *profileModel.Profile, patch map[string
 		}
 	}
 
-	if appDataPatch, ok := patch["application_data"].(map[string]interface{}); ok {
+	if appDataPatch := patch.ApplicationData; appDataPatch != nil {
 		if existingAppData, ok := merged["application_data"].(map[string]interface{}); ok {
 			merged["application_data"] = DeepMerge(existingAppData, appDataPatch)
 		} else {
@@ -1795,13 +1786,6 @@ func applyPatch(profileID string, target *profileModel.Profile, patch map[string
 		}
 	}
 
-	// Now apply top-level scalar fields. The user ID cannot be changed through a patch, so the stored one is kept.
-	for k, v := range patch {
-		if k == "traits" || k == "identity_attributes" || k == "application_data" || k == "user_id" {
-			continue
-		}
-		merged[k] = v
-	}
 	// Convert merged data back to ProfileRequest
 	mergedBytes, _ := json.Marshal(merged)
 	var updatedProfileReq profileModel.ProfileRequest
@@ -1816,6 +1800,8 @@ func applyPatch(profileID string, target *profileModel.Profile, patch map[string
 		}, err)
 		return profileModel.ProfileRequest{}, serverError
 	}
+	// The user ID cannot be changed through a patch, so the stored one is kept.
+	updatedProfileReq.UserID = target.UserID
 
 	return updatedProfileReq, nil
 }

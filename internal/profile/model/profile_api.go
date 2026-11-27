@@ -79,6 +79,14 @@ func (r ProfileCreateRequest) ToProfileRequest() ProfileRequest {
 	}
 }
 
+// ProfilePatchRequest is the request body of PATCH /profiles/{profileId}. Each field is deep merged into the
+// stored value. It has no user ID: only a link or the identity server sync sets it.
+type ProfilePatchRequest struct {
+	IdentityAttributes map[string]any `json:"identity_attributes,omitempty"`
+	Traits             map[string]any `json:"traits,omitempty"`
+	ApplicationData    map[string]any `json:"application_data,omitempty"`
+}
+
 // ProfileRequest is the service input for creating or updating a profile. Only internal callers, such as the
 // identity server sync and authentication events, set UserID.
 type ProfileRequest struct {

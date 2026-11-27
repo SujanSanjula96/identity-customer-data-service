@@ -763,21 +763,14 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var patchData map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&patchData); err != nil {
+	var patchData model.ProfilePatchRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&patchData); err != nil {
 		clientError := errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.UpdateProfile.Code,
 			Message:     errors2.UpdateProfile.Message,
 			Description: utils.HandleDecodeError(err, "profile"),
-		}, http.StatusBadRequest)
-		utils.HandleError(w, clientError)
-		return
-	}
-	if _, ok := patchData["user_id"]; ok {
-		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.UpdateProfile.Code,
-			Message:     errors2.UpdateProfile.Message,
-			Description: "user_id cannot be updated.",
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
 		return
@@ -790,8 +783,8 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	// applyPatch merges only an application_data object, so only one can write the data of an
 	// application.
-	if appDataPatch, ok := patchData["application_data"].(map[string]interface{}); ok {
-		if err := checkApplicationDataWrite(caller, appDataPatch); err != nil {
+	if patchData.ApplicationData != nil {
+		if err := checkApplicationDataWrite(caller, patchData.ApplicationData); err != nil {
 			utils.HandleError(w, err)
 			return
 		}

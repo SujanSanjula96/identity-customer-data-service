@@ -368,7 +368,8 @@ paths:
         Partially updates a profile.
         `identity_attributes`, `traits` and `application_data` in the body are deep merged
         into the existing values. If the profile has been merged into another profile, the
-        patch is applied to that profile's data.
+        patch is applied to that profile's data. Fields that are not part of the request
+        schema, `user_id` included, are rejected with a 400.
 
         The identity provider is the source of truth for the `identity_attributes` of a profile
         linked to a user, so a patch that changes them on such a profile is rejected with
