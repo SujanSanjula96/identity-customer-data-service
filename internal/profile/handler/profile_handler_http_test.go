@@ -399,6 +399,22 @@ func TestPatchProfile(t *testing.T) {
 	assert.Empty(t, unchanged.UserID, "a rejected patch does not set the user ID")
 	assert.Equal(t, "Kandy", unchanged.Traits["city"], "a rejected patch changes nothing")
 
+	// A field that is not in ProfilePatchRequest is refused, in any spelling.
+	for _, body := range []string{
+		`{"USER_ID":"u-1","traits":{"city":"Galle"}}`,
+		`{"u\u017fer_id":"u-1","traits":{"city":"Galle"}}`,
+		"{\"u\u017fer_id\":\"u-1\",\"traits\":{\"city\":\"Galle\"}}",
+		`{"profile_id":"other","traits":{"city":"Galle"}}`,
+	} {
+		refused := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "", body,
+			profileIDOf(created.ProfileID))
+		assert.Equal(t, http.StatusBadRequest, refused.Code, "%s: %s", body, refused.Body.String())
+		unchanged, err := env.svc.GetProfile(env.ctx, created.ProfileID, env.orgID)
+		require.NoError(t, err)
+		assert.Empty(t, unchanged.UserID, "%s: a rejected patch does not set the user ID", body)
+		assert.Equal(t, "Kandy", unchanged.Traits["city"], "%s: a rejected patch changes nothing", body)
+	}
+
 	invalid := env.call(t, env.h.PatchProfile, http.MethodPatch, env.auth.ValidToken, "",
 		`{"traits":{"age":"old"}}`, profileIDOf(created.ProfileID))
 	assert.Equal(t, http.StatusBadRequest, invalid.Code)

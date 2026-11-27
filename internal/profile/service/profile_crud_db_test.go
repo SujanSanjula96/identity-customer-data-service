@@ -319,8 +319,8 @@ func TestPatchProfileMergesIntoTheExistingData(t *testing.T) {
 		Traits:             map[string]interface{}{"city": "Colombo", "tier": "gold"},
 	})
 
-	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
-		"traits": map[string]interface{}{"city": "Kandy"},
+	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		Traits: map[string]interface{}{"city": "Kandy"},
 	})
 
 	require.NoError(t, err)
@@ -330,7 +330,7 @@ func TestPatchProfileMergesIntoTheExistingData(t *testing.T) {
 	assert.Equal(t, "u-1", patched.UserID)
 }
 
-func TestPatchProfileIgnoresTheUserId(t *testing.T) {
+func TestPatchProfileKeepsTheUserId(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.create(t, profileModel.ProfileRequest{
 		UserID: "u-1",
@@ -338,18 +338,16 @@ func TestPatchProfileIgnoresTheUserId(t *testing.T) {
 	})
 	anonymous := env.createWithCity(t, "Colombo")
 
-	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
-		"user_id": "u-9",
-		"traits":  map[string]interface{}{"city": "Kandy"},
+	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		Traits: map[string]interface{}{"city": "Kandy"},
 	})
 	require.NoError(t, err)
-	patchedAnonymous, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID, map[string]interface{}{
-		"user_id": "u-9",
-	})
+	patchedAnonymous, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID,
+		profileModel.ProfilePatchRequest{Traits: map[string]interface{}{"city": "Kandy"}})
 	require.NoError(t, err)
 
-	assert.Equal(t, "u-1", patched.UserID, "a patch cannot change the user ID")
-	assert.Empty(t, patchedAnonymous.UserID, "a patch cannot set the user ID")
+	assert.Equal(t, "u-1", patched.UserID, "a patch keeps the user ID")
+	assert.Empty(t, patchedAnonymous.UserID, "a patch does not set a user ID")
 	assert.Equal(t, "Kandy", patched.Traits["city"])
 }
 
@@ -357,8 +355,8 @@ func TestPatchProfilePatchesTheIdentityAttributesOfAnAnonymousProfile(t *testing
 	env := newProfileEnv(t)
 	anonymous := env.createWithCity(t, "Colombo")
 
-	patched, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID, map[string]interface{}{
-		"identity_attributes": map[string]interface{}{"email": "new@b.c"},
+	patched, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		IdentityAttributes: map[string]interface{}{"email": "new@b.c"},
 	})
 
 	require.NoError(t, err)
@@ -375,18 +373,18 @@ func TestPatchProfileRefusesTheIdentityAttributesOfALinkedProfile(t *testing.T) 
 	env.addChild(t, linked.ProfileID, "child-1")
 
 	for _, profileID := range []string{linked.ProfileID, "child-1"} {
-		_, err := env.svc.PatchProfile(env.ctx, profileID, env.orgID, map[string]interface{}{
-			"identity_attributes": map[string]interface{}{"email": "new@b.c"},
-			"traits":              map[string]interface{}{"city": "Kandy"},
+		_, err := env.svc.PatchProfile(env.ctx, profileID, env.orgID, profileModel.ProfilePatchRequest{
+			IdentityAttributes: map[string]interface{}{"email": "new@b.c"},
+			Traits:             map[string]interface{}{"city": "Kandy"},
 		})
 		clientError := requireStatus(t, err, http.StatusBadRequest)
 		assert.Equal(t, errors2.IdentityAttributesReadOnly.Code, clientError.ErrorMessage.Code)
 	}
 
 	// An empty object changes nothing, so it is accepted.
-	patched, err := env.svc.PatchProfile(env.ctx, linked.ProfileID, env.orgID, map[string]interface{}{
-		"identity_attributes": map[string]interface{}{},
-		"traits":              map[string]interface{}{"city": "Galle"},
+	patched, err := env.svc.PatchProfile(env.ctx, linked.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		IdentityAttributes: map[string]interface{}{},
+		Traits:             map[string]interface{}{"city": "Galle"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Galle", patched.Traits["city"])
@@ -397,16 +395,16 @@ func TestPatchProfileRefusals(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.createWithCity(t, "Colombo")
 
-	_, err := env.svc.PatchProfile(env.ctx, "missing", env.orgID, map[string]interface{}{})
+	_, err := env.svc.PatchProfile(env.ctx, "missing", env.orgID, profileModel.ProfilePatchRequest{})
 	_ = requireStatus(t, err, http.StatusNotFound)
 
-	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
-		"traits": map[string]interface{}{"age": "old"},
+	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		Traits: map[string]interface{}{"age": "old"},
 	})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 
-	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
-		"traits": map[string]interface{}{"nope": "x"},
+	_, err = env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, profileModel.ProfilePatchRequest{
+		Traits: map[string]interface{}{"nope": "x"},
 	})
 	_ = requireStatus(t, err, http.StatusBadRequest)
 }
@@ -418,8 +416,8 @@ func TestPatchingAMergedProfilePatchesItsMasterData(t *testing.T) {
 	})
 	env.addChild(t, master.ProfileID, "child-1")
 
-	_, err := env.svc.PatchProfile(env.ctx, "child-1", env.orgID, map[string]interface{}{
-		"traits": map[string]interface{}{"city": "Galle"},
+	_, err := env.svc.PatchProfile(env.ctx, "child-1", env.orgID, profileModel.ProfilePatchRequest{
+		Traits: map[string]interface{}{"city": "Galle"},
 	})
 
 	require.NoError(t, err)
