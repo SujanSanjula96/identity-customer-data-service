@@ -733,12 +733,9 @@ paths:
       summary: Update a schema attribute
       description: |
         Despite the method, this is a **partial
-        update**: a field that is not in the body keeps its stored value. `attribute_name`,
-        `value_type`, `merge_strategy` and `mutability` are required. The body can have only the
-        fields below, with their types. Any other field or type returns a 400 and the attribute
-        does not change. `application_identifier` can change only for `application_data`.
+        update**: only the fields in the body change. Fields that are not part of the request
+        schema are rejected with a 400.
 
-        The attribute must be in the scope of the path, or the call returns a 404.
         Not allowed for `identity_attributes`, which returns a 400.
 
         <br><b>Scope required:</b> `profile_schema:update`
