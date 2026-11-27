@@ -62,6 +62,10 @@ var mssqlStatements = map[string]string{
 		WHEN NOT MATCHED THEN INSERT (category_id, scope, attribute_name, attribute_id, application_identifier)
 			VALUES ($1, $2, $3, $4, $5);`,
 
+	"CDS-IDR-01": `DELETE t FROM blocking_keys AS t
+		WITH (FORCESEEK (idx_blocking_keys_org_id_profile (org_id, profile_id)), ROWLOCK)
+		WHERE t.org_id = $1 AND t.profile_id = $2`,
+
 	"CDS-IDR-03": `SELECT TOP ($3) profile_id, user_id, traits, identity_attributes
 		FROM profiles
 		WHERE org_id = $1 AND delete_profile = 0 AND profile_id > $2
@@ -74,11 +78,7 @@ var mssqlStatements = map[string]string{
 		WHERE p.profile_id IN (%s) AND p.delete_profile = 0`,
 
 	"CDS-IDR-05": `INSERT INTO blocking_keys (profile_id, org_id, attribute_name, key_value)
-		SELECT DISTINCT v.profile_id, v.org_id, v.attribute_name, v.key_value
-		FROM (VALUES %s) AS v (profile_id, org_id, attribute_name, key_value)
-		WHERE NOT EXISTS (SELECT 1 FROM blocking_keys t
-			WHERE t.org_id = v.org_id AND t.attribute_name = v.attribute_name
-			AND t.key_value = v.key_value AND t.profile_id = v.profile_id);`,
+		VALUES %s`,
 
 	"CDS-IDR-06": `SELECT DISTINCT TOP ($%[3]d) profile_id FROM blocking_keys
 		WHERE org_id = $1 AND attribute_name = $2 AND key_value IN (%[1]s)
