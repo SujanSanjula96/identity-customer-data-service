@@ -35,10 +35,20 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 )
 
-// AuthnWithAdminCredentials performs authentication using admin credentials from the request.
+// AuthnWithAdminCredentials performs authentication using admin credentials from the request. With a sync
+// listener of its own, the credentials are accepted on that listener only, so they are worth nothing on the
+// public one.
 func AuthnWithAdminCredentials(r *http.Request) error {
 	authHeader := r.Header.Get("Authorization")
 	logger := log.GetLogger()
+	if config.GetCDSRuntime().Config.SyncSeparate() && !OnSyncListener(r) {
+		logger.Debug("Admin credentials on the public listener while the sync endpoints have their own")
+		return errors.NewClientError(errors.ErrorMessage{
+			Code:        errors.Unauthorized.Code,
+			Message:     errors.Unauthorized.Message,
+			Description: "The admin credentials are accepted on the sync port only",
+		}, http.StatusUnauthorized)
+	}
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Basic ") {
 		logger.Debug("Missing or invalid Authorization header")
 		return errors.NewClientError(errors.ErrorMessage{

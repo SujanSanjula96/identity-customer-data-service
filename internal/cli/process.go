@@ -53,6 +53,11 @@ func runStart(args []string) error {
 		return fmt.Errorf("something is already listening on %s, so CDD cannot start there.\n"+
 			"Stop it, or change addr in %s", cfg.localBase(), configFile)
 	}
+	if cfg.syncAddressInUse() {
+		return fmt.Errorf("something is already listening on %s, so CDD cannot serve the sync endpoints there.\n"+
+			"Stop it, or change sync.addr in %s",
+			cfg.syncAddress(), configFile)
+	}
 
 	if *debug {
 		// Set before the secrets are applied, so the file cannot override a
@@ -72,6 +77,11 @@ func runStart(args []string) error {
 		warnf("CDD is using the default certificate the pack ships with. Its private key is in every " +
 			"Identity Server 7.3.0 download: replace it before this deployment carries real traffic. " +
 			"See repository/resources/security/README.md.")
+	}
+	if trustsDefaultCertificate(cfg.clientTrustStore(cdsHome)) {
+		warnf("CDD accepts the default certificate the pack ships with as a client certificate on its sync " +
+			"port. Its private key is in every Identity Server 7.3.0 download: replace sync.client_trust_store " +
+			"with the certificate the Identity Server presents. See repository/resources/security/README.md.")
 	}
 
 	stepf("Starting CDD at %s", cfg.localBase())

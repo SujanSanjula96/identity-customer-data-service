@@ -38,6 +38,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
@@ -209,6 +210,47 @@ func TestAdminConfigAuthentication(t *testing.T) {
 			recorder := env.call(t, tc.handler, tc.method, tc.authorization, `{}`)
 
 			assert.Equal(t, tc.status, recorder.Code)
+		})
+	}
+}
+
+// With a sync listener, the admin configuration update takes the admin credentials on the sync listener only,
+// and nothing else there: the Console's token belongs on the public listener.
+func TestAdminConfigUpdateAuthenticationByListener(t *testing.T) {
+	require.NoError(t, log.Init("ERROR"))
+	config.OverrideCDSRuntime(config.Config{
+		AuthServer: config.AuthServerConfig{AdminUsername: adminUser, AdminPassword: adminPassword},
+		Sync:       config.SyncConfig{Addr: config.AddrConfig{Port: 8901}},
+	})
+
+	for name, tc := range map[string]struct {
+		syncListener  bool
+		authorization string
+		allowed       bool
+	}{
+		"the admin credentials on the sync listener": {
+			syncListener: true, authorization: basic(adminUser, adminPassword), allowed: true,
+		},
+		"the admin credentials on the public listener": {authorization: basic(adminUser, adminPassword)},
+		"a token on the sync listener":                 {syncListener: true, authorization: "Bearer a-token"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			handler := http.Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				err = authnAdminConfigUpdate(r)
+			}))
+			if tc.syncListener {
+				handler = security.SyncListener(handler)
+			}
+			request := httptest.NewRequest(http.MethodPatch, "/t/acme/cds/api/v1/config", nil)
+			request.Header.Set("Authorization", tc.authorization)
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+
+			if tc.allowed {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
 		})
 	}
 }

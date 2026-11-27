@@ -211,9 +211,10 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 
 // authnAdminConfigUpdate accepts an OAuth token with the admin_config:update permission, or the admin credentials
 // with Basic auth. Identity Server uses the admin credentials to send the tenant CDS enable config
-// (PATCH /api/server/v1/configs/cds in Identity Server).
+// (PATCH /api/server/v1/configs/cds in Identity Server). The sync listener takes the admin credentials only,
+// and AuthnWithAdminCredentials takes them on no other listener when there is a sync listener.
 func authnAdminConfigUpdate(r *http.Request) error {
-	if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") {
+	if strings.HasPrefix(r.Header.Get("Authorization"), "Basic ") || security.OnSyncListener(r) {
 		return security.AuthnWithAdminCredentials(r)
 	}
 	return security.AuthnAndAuthz(r, "admin_config:update")

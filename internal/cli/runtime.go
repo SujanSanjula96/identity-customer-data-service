@@ -42,6 +42,14 @@ type runtimeConfig struct {
 		Host string `yaml:"host"`
 		Port int    `yaml:"port"`
 	} `yaml:"addr"`
+	Sync struct {
+		Addr struct {
+			Host string `yaml:"host"`
+			Port int    `yaml:"port"`
+		} `yaml:"addr"`
+		RequireClientCert bool   `yaml:"require_client_cert"`
+		ClientTrustStore  string `yaml:"client_trust_store"`
+	} `yaml:"sync"`
 	ServerURL string `yaml:"server_url"`
 	TLS       struct {
 		CertDir    string `yaml:"cert_dir"`
@@ -70,6 +78,9 @@ func readRuntimeConfig(cdsHome string) (*runtimeConfig, error) {
 	if cfg.Addr.Host == "" {
 		cfg.Addr.Host = loopback
 	}
+	if cfg.Sync.Addr.Host == "" {
+		cfg.Sync.Addr.Host = cfg.Addr.Host
+	}
 	return &cfg, nil
 }
 
@@ -81,6 +92,15 @@ func (c *runtimeConfig) serverCertificate(cdsHome string) string {
 		name = "server.crt"
 	}
 	return filepath.Join(c.certDir(cdsHome), name)
+}
+
+// clientTrustStore is the path of the client certificates the sync port
+// accepts, or "" when it requires none.
+func (c *runtimeConfig) clientTrustStore(cdsHome string) string {
+	if !c.syncSeparate() || !c.Sync.RequireClientCert || c.Sync.ClientTrustStore == "" {
+		return ""
+	}
+	return filepath.Join(c.certDir(cdsHome), c.Sync.ClientTrustStore)
 }
 
 // certDir resolves tls.cert_dir as the runtime does: relative to the CDD home,
@@ -116,11 +136,32 @@ func (c *runtimeConfig) localBase() string {
 // while whatever already holds the port answers the readiness probe, and the
 // start looks like it worked.
 func (c *runtimeConfig) addressInUse() bool {
-	host := c.Addr.Host
+	return listening(c.Addr.Host, c.Addr.Port)
+}
+
+// syncAddressInUse reports whether something is already listening where CDD
+// is configured to serve the sync endpoints on a port of their own.
+func (c *runtimeConfig) syncAddressInUse() bool {
+	return c.syncSeparate() && listening(c.Sync.Addr.Host, c.Sync.Addr.Port)
+}
+
+// syncSeparate reports whether the sync endpoints have a port of their own, as
+// the runtime decides it: sync.addr names a port, and an address other than
+// addr.
+func (c *runtimeConfig) syncSeparate() bool {
+	return c.Sync.Addr.Port != 0 && (c.Sync.Addr.Host != c.Addr.Host || c.Sync.Addr.Port != c.Addr.Port)
+}
+
+// syncAddress is where CDD is configured to serve the sync endpoints.
+func (c *runtimeConfig) syncAddress() string {
+	return net.JoinHostPort(c.Sync.Addr.Host, strconv.Itoa(c.Sync.Addr.Port))
+}
+
+func listening(host string, port int) bool {
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = loopback
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(c.Addr.Port)), 2*time.Second)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), 2*time.Second)
 	if err != nil {
 		return false
 	}

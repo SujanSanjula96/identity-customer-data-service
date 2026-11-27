@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	idpModel "github.com/wso2/identity-customer-data-service/internal/identity_provider/model"
@@ -43,6 +44,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/profile_schema/model"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 
+	"github.com/wso2/identity-customer-data-service/internal/system/certs"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
@@ -95,6 +97,21 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 	}
 }
 
+// serverCertsNotForClients holds the server certificates already reported as not allowing TLS client
+// authentication, since the outbound client is built for every identity client.
+var serverCertsNotForClients sync.Map
+
+// warnServerCertNotForClients says, once for each certificate, that tls.mtls_enabled presents no client
+// certificate because the server certificate does not allow TLS client authentication.
+func warnServerCertNotForClients(path string) {
+	if _, warned := serverCertsNotForClients.LoadOrStore(path, true); warned {
+		return
+	}
+	log.GetLogger().Warn(fmt.Sprintf("tls.server_cert %s does not allow TLS client authentication, so CDD "+
+		"presents no client certificate when it calls the identity server, which does not require one. "+
+		"tls.mtls_enabled has no effect with this certificate.", path))
+}
+
 // Builds an HTTP client with TLS/mTLS configuration for outbound requests.
 // Validates the server using CA, and optionally presents a client certificate if mTLS is enabled.
 func newOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
@@ -127,7 +144,9 @@ func newOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
 		}
 	}
 
-	// Client cert/key for mTLS (optional)
+	// Client cert/key for mTLS (optional). The server key pair is presented only when it allows TLS client
+	// authentication: a certificate a public CA issued is for TLS server authentication only, and the
+	// identity server ends the handshake on one, although it does not require a client certificate.
 	var certificates []tls.Certificate
 	if tlsCfg.MTLSEnabled {
 		cdsPublicCrt := filepath.Join(certDir, tlsCfg.CDSPublicCert)
@@ -136,7 +155,11 @@ func newOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load cert/key (%s, %s): %w", cdsPublicCrt, cdsPrivatekey, err)
 		}
-		certificates = []tls.Certificate{pair}
+		if certs.AllowsClientAuth(pair.Leaf) {
+			certificates = []tls.Certificate{pair}
+		} else {
+			warnServerCertNotForClients(cdsPublicCrt)
+		}
 	}
 
 	tcfg := &tls.Config{
