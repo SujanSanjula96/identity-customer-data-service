@@ -19,6 +19,8 @@
 package scripts
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -79,5 +81,58 @@ func Test_MSSQLStatementsFormatLikeTheirPostgresText(t *testing.T) {
 		if got, want := formatArgumentCount(text), formatArgumentCount(query.Query); got != want {
 			t.Errorf("%s: the MSSQL text takes %d arguments, the PostgreSQL text %d", query.ID, got, want)
 		}
+	}
+}
+
+// readMSSQLSchema returns dbscripts/mssql.sql, the schema operators apply, with its whitespace collapsed.
+func readMSSQLSchema(t *testing.T) string {
+	t.Helper()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "dbscripts", "mssql.sql"))
+	if err != nil {
+		t.Fatalf("read the SQL Server schema: %v", err)
+	}
+	return regexp.MustCompile(`\s+`).ReplaceAllString(string(schema), " ")
+}
+
+// SQL Server rejects a statement whose hint names an index the table does not have, so every index
+// a listed statement forces a seek on must exist in the schema, with the columns the hint seeks on as
+// the leading columns of its key.
+func Test_MSSQLSeekHintsNameIndexesOfTheSchema(t *testing.T) {
+	schema := readMSSQLSchema(t)
+	space := regexp.MustCompile(`\s+`)
+	hint := regexp.MustCompile(`FORCESEEK \((\w+) \(([^)]*)\)\)`)
+	for id, text := range mssqlStatements {
+		for _, match := range hint.FindAllStringSubmatch(space.ReplaceAllString(text, " "), -1) {
+			index, columns := match[1], match[2]
+			key := regexp.MustCompile(`(?:CONSTRAINT|INDEX) ` + index + `\b[^(]*\(` +
+				regexp.QuoteMeta(columns) + `[,)]`)
+			if !key.MatchString(schema) {
+				t.Errorf("%s: dbscripts/mssql.sql has no index %s whose key starts with (%s)", id, index, columns)
+			}
+		}
+	}
+}
+
+// The insert of blocking keys stores them without looking for them first, so it may only run again
+// while the primary key drops the keys that are stored instead of failing the statement.
+func Test_MSSQLBlockingKeyInsertSkipsStoredKeysThroughThePrimaryKey(t *testing.T) {
+	insert := IRInsertBlockingKeys.GetQuery(database.TypeMSSQL)
+	if strings.Contains(insert, "MERGE") || strings.Contains(insert, "EXISTS") {
+		t.Errorf("the insert reads blocking_keys before it stores the keys:\n%s", insert)
+	}
+	pk := regexp.MustCompile(`CONSTRAINT pk_blocking_keys PRIMARY KEY NONCLUSTERED \([^)]*\) ` +
+		`WITH \(IGNORE_DUP_KEY = ON\)`)
+	if !pk.MatchString(readMSSQLSchema(t)) {
+		t.Error("dbscripts/mssql.sql does not create pk_blocking_keys WITH (IGNORE_DUP_KEY = ON)")
+	}
+}
+
+// The re-index of a profile deletes its keys by a seek that reaches no other profile's rows, or two
+// profiles that share a key deadlock each other.
+func Test_MSSQLBlockingKeyDeleteSeeksTheProfilesOwnRows(t *testing.T) {
+	query := DeleteBlockingKeysSQL.GetQuery(database.TypeMSSQL)
+	if !strings.Contains(query, "FORCESEEK (idx_blocking_keys_org_id_profile (org_id, profile_id))") ||
+		!strings.Contains(query, "ROWLOCK") {
+		t.Errorf("the delete does not seek idx_blocking_keys_org_id_profile with row locks:\n%s", query)
 	}
 }

@@ -227,9 +227,6 @@ CREATE TABLE dbo.resource_sharing_policy_target
 );
 END;
 
--- The largest table in the system. The absent surrogate key and the primary key's
--- column order were settled by measurement: read "How the index is stored" in
--- docs/concepts/how-unification-works.md before changing either.
 IF OBJECT_ID(N'dbo.blocking_keys', N'U') IS NULL
 BEGIN
 CREATE TABLE dbo.blocking_keys
@@ -238,10 +235,9 @@ CREATE TABLE dbo.blocking_keys
     attribute_name NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL, -- Rule property name (e.g., "identity_attributes.emailaddress")
     key_value      NVARCHAR(512) COLLATE Latin1_General_100_BIN2 NOT NULL, -- Normalized blocking key; 512 because it holds a whole value, not an id
     org_id         NVARCHAR(36) COLLATE Latin1_General_100_BIN2 NOT NULL,
-    -- Column order matches the candidate lookup: equality, equality, then IN.
     CONSTRAINT pk_blocking_keys PRIMARY KEY NONCLUSTERED (org_id, attribute_name, key_value, profile_id)
+        WITH (IGNORE_DUP_KEY = ON)
 );
--- Serves the per-profile delete during re-indexing, which has no key_value to prune on.
 CREATE INDEX idx_blocking_keys_org_id_profile ON dbo.blocking_keys (org_id, profile_id);
 END;
 
