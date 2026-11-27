@@ -52,8 +52,6 @@ func CompleteStatement(name, statement string) string {
 		return statement + QueryPlaceholders(13)
 	case "InsertProfileSchemaAttributesForScope":
 		return statement + QueryPlaceholders(12)
-	case "UpdateProfileSchemaAttributeFields":
-		return statement + "attribute_name = $1 WHERE org_id = $2 AND attribute_id = $3"
 	case "UpsertIdentityClaimsForProfileSchema":
 		return fmt.Sprintf(statement, QueryPlaceholders(13))
 	case "InsertSharePolicyTargets":

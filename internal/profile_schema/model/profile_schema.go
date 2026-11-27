@@ -46,6 +46,20 @@ type ProfileSchemaAttribute struct {
 	OwnerOrgID string `json:"-" bson:"-"`                // The owner org of a shared attribute, for the owner check
 }
 
+// ProfileSchemaAttributeUpdate is the body of an attribute update. It holds only the fields that a client
+// can change. A nil field keeps its stored value.
+type ProfileSchemaAttributeUpdate struct {
+	AttributeName         *string           `json:"attribute_name"`
+	DisplayName           *string           `json:"display_name"`
+	ValueType             *string           `json:"value_type"`
+	MergeStrategy         *string           `json:"merge_strategy"`
+	Mutability            *string           `json:"mutability"`
+	MultiValued           *bool             `json:"multi_valued"`
+	CanonicalValues       *[]CanonicalValue `json:"canonical_values"`
+	SubAttributes         *[]SubAttribute   `json:"sub_attributes"`
+	ApplicationIdentifier *string           `json:"application_identifier"`
+}
+
 // SubAttribute is a reference to an attribute nested in an object-type attribute.
 type SubAttribute struct {
 	AttributeID   string `json:"attribute_id" bson:"attribute_id" binding:"required"`

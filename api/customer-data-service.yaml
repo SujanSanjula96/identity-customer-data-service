@@ -740,8 +740,8 @@ paths:
       summary: Update a schema attribute
       description: |
         Despite the method, this is a **partial
-        update**: only the fields in the body change. The body is any JSON object of attribute
-        fields.
+        update**: only the fields in the body change. Fields that are not part of the request
+        schema are rejected with a 400.
 
         Not allowed for `identity_attributes`, which returns a 400.
 
@@ -753,10 +753,48 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
+              additionalProperties: false
               description: The attribute fields to change.
+              required: [attribute_name, value_type, merge_strategy, mutability]
+              properties:
+                attribute_name:
+                  type: string
+                display_name:
+                  type: string
+                value_type:
+                  type: string
+                merge_strategy:
+                  type: string
+                mutability:
+                  type: string
+                multi_valued:
+                  type: boolean
+                canonical_values:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      value:
+                        type: string
+                      label:
+                        type: string
+                sub_attributes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      attribute_id:
+                        type: string
+                      attribute_name:
+                        type: string
+                application_identifier:
+                  type: string
               example:
+                attribute_name: traits.city
                 display_name: Preferred city
+                value_type: string
+                merge_strategy: overwrite
+                mutability: readWrite
       responses:
         '200':
           description: The attribute after the update.
@@ -766,8 +804,9 @@ paths:
                 $ref: '#/components/schemas/ProfileSchemaAttribute'
         '400':
           description: |
-            Bad Request. The body is not valid (this response can have a plain text body), the
-            scope is `identity_attributes` or not a valid scope, or CDS is not enabled.
+            Bad Request. The body is not valid, has a field that cannot be updated or a value of
+            the wrong type, the scope is `identity_attributes` or not a valid scope, or CDS is not
+            enabled.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
