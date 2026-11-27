@@ -56,8 +56,6 @@ import (
 var managementAPIScope = strings.Join([]string{
 	"internal_application_mgt_view",
 	"internal_claim_meta_view",
-	"internal_user_mgt_list",
-	"internal_user_mgt_view",
 	"internal_organization_view",
 }, constants.SpaceSeparator)
 
@@ -198,7 +196,7 @@ func (c *IdentityClient) FetchToken(orgHandle string) (string, error) {
 	return c.fetchClientCredentialsToken(orgHandle, authCfg, scope)
 }
 
-// orgAPIPathPrefix returns the IS URL segment used for API calls (claims, apps, SCIM).
+// orgAPIPathPrefix returns the IS URL segment used for API calls (claims, apps).
 // Sub-org UUIDs use /o — the org context is carried by the token, no UUID in path.
 // Regular tenant handles use /t/{handle}.
 func (c *IdentityClient) orgAPIPathPrefix(orgHandle string) string {
@@ -1155,69 +1153,4 @@ func ifThenElse(cond bool, a, b string) string {
 		return a
 	}
 	return b
-}
-
-// GetSCIMUser fetches a SCIM user by ID
-func (c *IdentityClient) GetSCIMUser(orgID, userID string) (map[string]interface{}, error) {
-	endpoint, err := orgEndpoint(c.BaseURL, orgID, c.orgAPIPathPrefix(orgID)+"/scim2/Users/"+url.PathEscape(userID))
-	if err != nil {
-		return nil, err
-	}
-	req, _ := http.NewRequest("GET", endpoint, nil)
-	token, err := c.FetchToken(orgID)
-	logger := log.GetLogger()
-	if err != nil {
-		logger.Debug(fmt.Sprintf("Failed to get token for fetching the SCIM user:%s of the organization:%s",
-			userID, orgID), log.Error(err))
-		return nil, err
-	}
-	authCfg := config.GetCDSRuntime().Config.AuthServer
-	if authCfg.IsSystemAppGrantEnabled {
-		req.Header.Set("Authorization", constants.SystemAppHeader+constants.SpaceSeparator+token)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to fetch SCIM user:%s of the organization:%s", userID, orgID)
-		logger.Debug(errMsg, log.Error(err))
-		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.GetSCIMUserFailed.Code,
-			Message:     errors2.GetSCIMUserFailed.Message,
-			Description: errMsg,
-		}, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var user map[string]interface{}
-	body, _ := io.ReadAll(resp.Body)
-	if err := json.Unmarshal(body, &user); err != nil {
-		errMsg := fmt.Sprintf("Failed to parse SCIM user response for user:%s of the organization:%s", userID, orgID)
-		logger.Debug(errMsg, log.Error(err))
-		return nil, errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.GetSCIMUserFailed.Code,
-			Message:     errors2.GetSCIMUserFailed.Message,
-			Description: errMsg,
-		}, err)
-	}
-
-	return flattenSCIMClaims(user), nil
-}
-
-func flattenSCIMClaims(user map[string]interface{}) map[string]interface{} {
-	flat := make(map[string]interface{})
-
-	for key, val := range user {
-		switch v := val.(type) {
-		case map[string]interface{}:
-			for subKey, subVal := range v {
-				flat[key+"."+subKey] = subVal
-			}
-		default:
-			flat[key] = val
-		}
-	}
-
-	return flat
 }
