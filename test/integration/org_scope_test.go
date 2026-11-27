@@ -520,24 +520,26 @@ func orgScopeAllScopes(t *testing.T) string {
 func orgScopeToken(t *testing.T, org, subject, scopes string) string {
 	t.Helper()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	return setup.SignJWT(t, jwt.MapClaims{
 		constants.OrgHandleClaim: org,
 		"sub":                    subject,
 		"aud":                    "iam-cds",
 		"exp":                    time.Now().Add(time.Hour).Unix(),
 		"scope":                  scopes,
 	})
-	signed, err := token.SignedString([]byte("org-scope-test-key"))
-	require.NoError(t, err)
-	return signed
 }
 
-// setUpOrgScopeAuth points the runtime at a stub introspection endpoint that reports
-// every token as active, and sets the admin credentials for profile sync.
+// setUpOrgScopeAuth points the runtime at a stub identity server that publishes the JWKS of the
+// test signing key and reports every token as active, and sets the admin credentials for
+// profile sync.
 func setUpOrgScopeAuth(t *testing.T) func() {
 	t.Helper()
 
 	introspection := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if setup.IsJWKSRequest(r) {
+			setup.ServeJWKS(t, w)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			constants.ActiveClaim:   true,

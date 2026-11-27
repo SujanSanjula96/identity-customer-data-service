@@ -71,6 +71,17 @@ type TokenIntrospector interface {
 	IntrospectToken(ctx context.Context, token, orgHandle, primaryHandle string) (map[string]interface{}, error)
 }
 
+// SigningKeyPublisher is implemented by the adapter of an identity provider that publishes the
+// keys its JWTs are signed with, as a JWKS. CDS checks the signature of every JWT with those keys,
+// which it caches. For any other adapter, CDS relies on introspection alone.
+type SigningKeyPublisher interface {
+	// JWKSEndpoint returns the URL of the JWKS that holds the keys of the tokens of the primary
+	// organization primaryHandle.
+	JWKSEndpoint(primaryHandle string) (string, error)
+	// FetchJWKS returns the JWKS document at endpoint, a URL that JWKSEndpoint returned.
+	FetchJWKS(endpoint string) ([]byte, error)
+}
+
 var (
 	adapterMu sync.RWMutex
 	adapter   Adapter

@@ -10,7 +10,7 @@ A **profile** is the central entity in CDD. It represents a single person's coll
 |---|---|
 | `profile_id` | System-generated UUID. Immutable. |
 | `user_id` | The user's ID from Identity Server. Empty on anonymous profiles. Write-once once set. |
-| `identity_attributes` | Attributes sourced from the identity system (e.g. email, phone, name). Keyed by attribute name. |
+| `identity_attributes` | Attributes sourced from the identity system (e.g. email, phone, name). Keyed by attribute name. On a permanent profile the identity provider is the source of truth: clients cannot change them. |
 | `traits` | Behavioural or preference data (e.g. preferred language, segment tags). |
 | `application_data` | Per-application data, keyed by application identifier. |
 | `meta.created_at` | When the profile was created. Read-only. |
@@ -55,6 +55,7 @@ Profiles are either **temporary** (anonymous) or **permanent** (identified).
 - Has a `user_id` — set when the user logs in or is created in IS
 - Acts as the master record for that identity
 - May have one or more temporary profiles merged into it over time
+- The identity provider is the source of truth for its `identity_attributes`. A `PATCH` that changes them is rejected with `CDS-11018`. When an anonymous profile joins it, the anonymous identity attributes only fill those it has no value for.
 
 ---
 
@@ -81,7 +82,7 @@ Unification worker detects two profiles with same userId
             master profile updated with merged data
             temp profile marked as child (merged_to set)
                 │
-                │  (SESSION_TERMINATE event)
+                │  (SESSION_TERMINATE or SESSION_EXPIRE event)
                 ▼
             cookie deactivated (is_active = false)
             cookie cleanup worker removes inactive records at its next run (every 24h by default)
@@ -94,8 +95,43 @@ Unification worker detects two profiles with same userId
 The `profile_cookies` table maps a `cookie_id` (the value of the `cds_profile` browser cookie) to a `profile_id`. The `is_active` flag tracks whether the session is live.
 
 - Cookie is **created** when an anonymous profile is first issued
-- Cookie is **deactivated** on `SESSION_TERMINATE`
+- Cookie is **deactivated** on `SESSION_TERMINATE` (logout) and `SESSION_EXPIRE` (session timed out)
 - Inactive cookie records are **batch-deleted** by the cookie cleanup worker every 24 hours
+
+### The browser cookie
+
+CDD sets the `cds_profile` cookie in its response to `POST /profiles` when it creates an anonymous profile:
+
+```
+Set-Cookie: cds_profile=<cookie_id>; Path=/; Domain=<auth_server.cookieDomain>; HttpOnly; Secure; SameSite=Lax
+```
+
+| Attribute | Value | What it means |
+|---|---|---|
+| `Domain` | `auth_server.cookieDomain` in `deployment.yaml` | The browser sends the cookie to this domain and its subdomains. It has to cover the host of CDD, which sets and reads the cookie, and the host of the Identity Server, which reads it at sign-in, sign-out and session expiry and passes it to CDD. With CDD at `cdd.example.com` and the Identity Server at `is.example.com`, set it to `example.com`. |
+| `Path` | `/` | The cookie is sent on every path. |
+| `HttpOnly` | set | Scripts on the page cannot read, change or delete the cookie. |
+| `Secure` | set | The browser sends the cookie only over HTTPS. |
+| `SameSite` | `Lax` | The browser sends the cookie on requests from a page of the same site and on top-level navigations, not on other requests from a page of another site. Run the application, CDD and the Identity Server under one site, such as `shop.example.com`, `cdd.example.com` and `is.example.com`. |
+| `Max-Age` / `Expires` | not set | A session cookie: the browser removes it when the browser session ends. |
+
+A deactivated cookie stays in the browser. CDD deactivates only its own record and does not send a `Set-Cookie`. A deactivated cookie no longer identifies a profile: the next `POST /profiles` from that browser creates a new anonymous profile with a new cookie, and `AUTHENTICATION_SUCCESS` does not link it to the user.
+
+### Applications that force sign-in
+
+When an application forces sign-in with OIDC `prompt=login`, the Identity Server does not look up the previous session, so it sends no [`SESSION_EXPIRE`](../guides/is-sync.md#session_expire) for a timed-out session. The cookie stays active and linked to the previous user. If another person signs in on that browser, CDD does not link the cookie to them, and the next page visit still gets the previous user's profile. OIDC `max_age=0` and SAML `ForceAuthn` also force sign-in.
+
+Such an application clears the cookie itself when the session of a signed-in user ends, before it sends the browser to sign in again. It does not clear the cookie of a visitor who has not signed in, because that cookie links the visitor's anonymous profile at sign-in.
+
+The back end of the application clears it with:
+
+```
+Set-Cookie: cds_profile=; Domain=example.com; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax
+```
+
+- The back end has to run on a host under the cookie domain and answer over HTTPS, because the cookie is `Secure`.
+- `Domain` and `Path` have to match the cookie's. Without `Domain`, the header removes a different cookie and `cds_profile` stays.
+- Scripts cannot clear it, because the cookie is `HttpOnly`. A single-page application with no back end under the cookie domain cannot clear it.
 
 ## Retention of temporary profiles
 

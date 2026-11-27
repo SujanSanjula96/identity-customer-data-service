@@ -75,6 +75,7 @@ func (e *profileHandlerEnv) createCookie(t *testing.T, profileID string, active 
 
 func TestInitProfileReturnsTheProfileOfAnActiveCookie(t *testing.T) {
 	env := newProfileHandlerEnv(t)
+	env.markConsoleSystemApp(t)
 	existing := env.createProfile(t, "Colombo")
 	cookieID := env.createCookie(t, existing.ProfileID, true)
 
@@ -86,6 +87,11 @@ func TestInitProfileReturnsTheProfileOfAnActiveCookie(t *testing.T) {
 	assert.Equal(t, existing.ProfileID, got.ProfileID, "no new profile is created")
 	assert.Equal(t, "Colombo", got.Traits["city"])
 	assert.Equal(t, cookieID, got.AnonymousTracker)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1, "the cookie is set again")
+	assert.Equal(t, constants.ProfileCookie, cookies[0].Name)
+	assert.Equal(t, cookieID, cookies[0].Value)
+	assertProfileCookieAttributes(t, cookies[0])
 }
 
 func TestInitProfileCreatesANewProfileWhenTheCookieIsInactive(t *testing.T) {

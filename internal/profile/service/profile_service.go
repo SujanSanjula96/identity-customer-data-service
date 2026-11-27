@@ -22,6 +22,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -51,6 +52,7 @@ import (
 	schemaService "github.com/wso2/identity-customer-data-service/internal/profile_schema/service"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
 	"github.com/wso2/identity-customer-data-service/internal/system/constants"
+	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	UnificationModel "github.com/wso2/identity-customer-data-service/internal/unification_rules/model"
 )
@@ -813,150 +815,231 @@ func isValidType(value interface{}, expected string, multiValued bool) bool {
 	}
 }
 
-// UpdateProfile creates or updates a profile
+// UpdateProfile replaces the data of a profile, or of its master when it has been merged.
 func (ps *ProfilesService) UpdateProfile(ctx context.Context,
 	profileID string, orgID string, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
-	profile, err := profileStore.GetProfile(ctx, profileID, orgID)
-	logger := log.GetLogger()
-	if err != nil {
-		errMsg := fmt.Sprintf("Error fetching profile for updatedProfile: %s", profileID)
-		logger.Debug(errMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
-			Code:        errors2.UpdateProfile.Code,
-			Message:     errors2.UpdateProfile.Message,
-			Description: errMsg,
-		}, err)
-		return nil, serverError
-	}
-	return ps.updateProfile(ctx, profileID, orgID, profile, updatedProfile)
+	return ps.writeProfile(ctx, profileID, orgID,
+		func(*profileModel.Profile) (profileModel.ProfileRequest, error) {
+			return updatedProfile, nil
+		})
 }
 
-// updateProfile updates a profile that the caller has read already, so that a caller which needs
-// the stored profile itself, as PatchProfile does, reads it once rather than twice.
-func (ps *ProfilesService) updateProfile(ctx context.Context, profileID string, orgID string,
-	profile *profileModel.Profile, updatedProfile profileModel.ProfileRequest) (*profileModel.ProfileResponse, error) {
-	logger := log.GetLogger()
-	if profile == nil {
-		clientError := errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.ProfileNotFound.Code,
-			Message:     errors2.ProfileNotFound.Message,
-			Description: errors2.ProfileNotFound.Description,
-		}, http.StatusNotFound)
-		return nil, clientError
-	}
+// profileWriteAttempts is how many times a profile write runs in all.
+const profileWriteAttempts = 3
 
-	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, orgID)
+// buildProfileRequest returns the whole profile to write.
+type buildProfileRequest func(target *profileModel.Profile) (profileModel.ProfileRequest, error)
+
+// writeProfile writes a profile that a PUT or a PATCH changes. A merged profile is written to its
+// master, which holds the profile's data.
+func (ps *ProfilesService) writeProfile(ctx context.Context, profileID string, orgID string,
+	build buildProfileRequest) (*profileModel.ProfileResponse, error) {
+	logger := log.GetLogger()
+
+	// Read before the lock is taken, so that the lock is held only for the write.
+	schema, err := loadProfileSchemaForUpdate(ctx, profileID, orgID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert map[string]interface{} → model.ProfileSchema
-	var schema model.ProfileSchema
-	schemaBytes, _ := json.Marshal(rawSchema) // serialize
-	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-		errMsg := fmt.Sprintf(
-			"Invalid schema format for profile: %s while validating for profile update.",
-			profile.ProfileID,
-		)
+	var stored, written profileModel.Profile
+	for attempt := 1; ; attempt++ {
+		stored, written, err = writeUnderLock(ctx, profileID, orgID, schema, build)
+		if err == nil || attempt == profileWriteAttempts || !isRetryableWriteError(err) {
+			break
+		}
+		logger.Debug(fmt.Sprintf("Writing profile %s again, attempt %d", profileID, attempt+1), log.Error(err))
+		time.Sleep(time.Duration(attempt) * 50 * time.Millisecond)
+	}
+	if err != nil {
+		var clientError *errors2.ClientError
+		var serverError *errors2.ServerError
+		if errors.As(err, &clientError) || errors.As(err, &serverError) {
+			return nil, err
+		}
+		errMsg := fmt.Sprintf("Error updating profile: %s", profileID)
 		logger.Debug(errMsg, log.Error(err))
-		serverError := errors2.NewServerError(errors2.ErrorMessage{
+		return nil, errors2.NewServerError(errors2.ErrorMessage{
 			Code:        errors2.UpdateProfile.Code,
 			Message:     errors2.UpdateProfile.Message,
 			Description: errMsg,
 		}, err)
-		return nil, serverError
 	}
 
-	err = ValidateProfileAgainstSchema(updatedProfile, *profile, schema, true)
-	if err != nil {
-		return nil, err
-	}
-
-	var profileToUpDate profileModel.Profile
-	updatedTime := time.Now().UTC()
-	appData, err := ConvertAppData(updatedProfile.ApplicationData)
-	if err != nil {
-		return nil, err
-	}
-	if profile.ProfileStatus.IsReferenceProfile {
-		// convert profile request to model
-		profileToUpDate = profileModel.Profile{
-			ProfileID:          profileID,
-			OrgID:              profile.OrgID,
-			UserID:             updatedProfile.UserID,
-			ApplicationData:    appData,
-			Traits:             updatedProfile.Traits,
-			IdentityAttributes: updatedProfile.IdentityAttributes,
-			UpdatedAt:          updatedTime,
-			CreatedAt:          profile.CreatedAt,
-			ProfileStatus:      profile.ProfileStatus,
-		}
-	} else {
-		// If it is a child profile, we need to update the master profile
-		masterProfile, err := profileStore.GetProfile(ctx, profile.ProfileStatus.ReferenceProfileID, orgID)
-		if err != nil {
-			errMsg := fmt.Sprintf("Error fetching master profile for updatedProfile: %s", profile.ProfileID)
-			logger.Debug(errMsg, log.Error(err))
-			serverError := errors2.NewServerError(errors2.ErrorMessage{
-				Code:        errors2.UpdateProfile.Code,
-				Message:     errors2.UpdateProfile.Message,
-				Description: errMsg,
-			}, err)
-			return nil, serverError
-		}
-
-		profileToUpDate = profileModel.Profile{
-			ProfileID:          masterProfile.ProfileID,
-			OrgID:              masterProfile.OrgID,
-			UserID:             updatedProfile.UserID,
-			ApplicationData:    appData,
-			Traits:             updatedProfile.Traits,
-			IdentityAttributes: updatedProfile.IdentityAttributes,
-			UpdatedAt:          updatedTime,
-			CreatedAt:          masterProfile.CreatedAt,
-			ProfileStatus:      masterProfile.ProfileStatus,
-		}
-	}
-
-	if err := profileStore.UpdateProfile(ctx, orgID, profileToUpDate); err != nil {
-		logger.Error(fmt.Sprintf("Error updating profile: %s", profileToUpDate.ProfileID), log.Error(err))
-		return nil, err
-	}
-
-	profileFetched, errWait := ps.GetProfile(ctx, profile.ProfileID, orgID)
+	profileFetched, errWait := ps.GetProfile(ctx, profileID, orgID)
 	if errWait != nil || profileFetched == nil {
 		return nil, errWait
 	}
 
-	config := UnificationModel.DefaultConfig()
-	queue := &workers.ProfileWorkerQueue{}
-	if config.ProfileUnificationTrigger.TriggerType == constants.SyncProfileOnUpdate {
-		// Only enqueue if the profile has at least one attribute matching an active unification rule.
-		activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgID)
-		if rulesErr != nil {
-			logger.Warn("UpdateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
-			profileToUpDate.OrgID = orgID
-			queue.Enqueue(profileToUpDate)
-		} else {
-			before := flattenProfileAttrs(*profile)
-			after := flattenProfileAttrs(profileToUpDate)
-			matchedValuesChanged := ruleValuesChanged(before, after, activeRules)
-
-			// Rejections are deliberately not cleared here. One records a human deciding
-			// two profiles are different people, which does not stop being true because
-			// an attribute changed — and discarding it on a value change put the same
-			// dismissed pair back in front of the administrator whenever anything moved.
-			// The evidence stored with the rejection is compared against each fresh
-			// evaluation instead, so only a materially stronger match reopens it.
-
-			if shouldResolveAfterUpdate(*profile, profileToUpDate, matchedValuesChanged, activeRules) {
-				profileToUpDate.OrgID = orgID
-				queue.Enqueue(profileToUpDate)
-			}
-		}
-	}
+	// Queued only now that the write is committed. A worker that took the profile earlier would
+	// read it as it was before the write, or wait for the lock this write held.
+	enqueueAfterUpdate(ctx, orgID, stored, written)
 	logger.Info("Successfully updated profile: " + profileFetched.ProfileID)
 	return profileFetched, nil
+}
+
+// isRetryableWriteError reports whether a profile write can succeed when it runs again: a merge
+// moved the profile to another master, or removed the profile it was to be written to, after the
+// write looked it up, or the database failed the write on a transient error.
+func isRetryableWriteError(err error) bool {
+	return errors.Is(err, profileStore.ErrProfileMerged) ||
+		errors.Is(err, profileStore.ErrProfileReferenceNotFound) ||
+		database.IsTransient(err)
+}
+
+// writeUnderLock writes a profile in one transaction, under the reference lock of the profile it is
+// written to. It returns the profile as it was stored and the profile it wrote.
+func writeUnderLock(ctx context.Context, profileID string, orgID string, schema model.ProfileSchema,
+	build buildProfileRequest) (stored profileModel.Profile, written profileModel.Profile, err error) {
+	// This read only finds which profile to lock, and runs before the transaction. On MySQL, whose
+	// transactions are REPEATABLE READ, the first plain read of a transaction fixes the snapshot its
+	// later plain reads see. Read inside the transaction before the lock, it would hide a merge that
+	// commits while the write waits for the lock, and the write would put back the copy without it.
+	found, err := profileStore.GetProfileWithOptions(ctx, profileID, orgID,
+		profileStore.GetProfileOptions{IncludeApplicationData: false})
+	if err != nil {
+		return stored, written, err
+	}
+	if found == nil {
+		return stored, written, profileNotFoundError()
+	}
+	targetID := writeTargetID(found)
+
+	err = profileStore.RunInTransaction(ctx, func(txCtx context.Context) error {
+		// The lock is the first statement of the transaction, so every read after it sees what
+		// the merges that held the lock before it committed.
+		if err := lockWriteTarget(txCtx, orgID, found, targetID); err != nil {
+			return err
+		}
+
+		// Read again under the lock. A merge that committed meanwhile changed what is stored, and
+		// may have moved this profile to another master.
+		current, err := profileStore.GetProfile(txCtx, profileID, orgID)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return profileNotFoundError()
+		}
+		if writeTargetID(current) != targetID {
+			return fmt.Errorf("profile %s now belongs to another master: %w", profileID,
+				profileStore.ErrProfileMerged)
+		}
+		target := current
+		if targetID != profileID {
+			target, err = profileStore.GetProfile(txCtx, targetID, orgID)
+			if err != nil {
+				return err
+			}
+			if target == nil {
+				return fmt.Errorf("master %s of profile %s: %w", targetID, profileID,
+					profileStore.ErrProfileReferenceNotFound)
+			}
+		}
+
+		request, err := build(target)
+		if err != nil {
+			return err
+		}
+		if err := ValidateProfileAgainstSchema(request, *current, schema, true); err != nil {
+			return err
+		}
+		appData, err := ConvertAppData(request.ApplicationData)
+		if err != nil {
+			return err
+		}
+		toWrite := profileModel.Profile{
+			ProfileID:          target.ProfileID,
+			OrgID:              target.OrgID,
+			UserID:             request.UserID,
+			ApplicationData:    appData,
+			Traits:             request.Traits,
+			IdentityAttributes: request.IdentityAttributes,
+			UpdatedAt:          time.Now().UTC(),
+			CreatedAt:          target.CreatedAt,
+			ProfileStatus:      target.ProfileStatus,
+		}
+		if err := profileStore.UpdateProfile(txCtx, orgID, toWrite); err != nil {
+			log.GetLogger().Error(fmt.Sprintf("Error updating profile: %s", toWrite.ProfileID), log.Error(err))
+			return err
+		}
+		stored, written = *current, toWrite
+		return nil
+	})
+	return stored, written, err
+}
+
+// writeTargetID returns the profile that a write of the profile goes to: its master when it has
+// been merged, and the profile itself otherwise.
+func writeTargetID(profile *profileModel.Profile) string {
+	if profile.ProfileStatus != nil && !profile.ProfileStatus.IsReferenceProfile &&
+		profile.ProfileStatus.ReferenceProfileID != "" {
+		return profile.ProfileStatus.ReferenceProfileID
+	}
+	return profile.ProfileID
+}
+
+// lockWriteTarget locks the reference row of the profile a write goes to, in the transaction of ctx.
+func lockWriteTarget(ctx context.Context, orgID string, found *profileModel.Profile, targetID string) error {
+	if found.ProfileStatus != nil && !found.ProfileStatus.IsReferenceProfile &&
+		found.ProfileStatus.ReferenceProfileID == "" {
+		return profileStore.LockProfileReferences(ctx, orgID, targetID)
+	}
+	return profileStore.LockReferenceProfiles(ctx, orgID, targetID)
+}
+
+// loadProfileSchemaForUpdate loads the profile schema of the organization to validate a write.
+func loadProfileSchemaForUpdate(ctx context.Context, profileID string, orgID string) (model.ProfileSchema, error) {
+	var schema model.ProfileSchema
+	rawSchema, err := schemaService.GetProfileSchemaService().GetProfileSchema(ctx, orgID)
+	if err != nil {
+		return schema, err
+	}
+	schemaBytes, _ := json.Marshal(rawSchema)
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		errMsg := fmt.Sprintf("Invalid schema format for profile: %s while validating for profile update.",
+			profileID)
+		log.GetLogger().Debug(errMsg, log.Error(err))
+		return schema, errors2.NewServerError(errors2.ErrorMessage{
+			Code:        errors2.UpdateProfile.Code,
+			Message:     errors2.UpdateProfile.Message,
+			Description: errMsg,
+		}, err)
+	}
+	return schema, nil
+}
+
+// enqueueAfterUpdate queues a written profile for unification when the write changed what the
+// active unification rules match on.
+func enqueueAfterUpdate(ctx context.Context, orgID string, stored, written profileModel.Profile) {
+	config := UnificationModel.DefaultConfig()
+	if config.ProfileUnificationTrigger.TriggerType != constants.SyncProfileOnUpdate {
+		return
+	}
+	logger := log.GetLogger()
+	queue := &workers.ProfileWorkerQueue{}
+	written.OrgID = orgID
+	// Only enqueue if the profile has at least one attribute matching an active unification rule.
+	activeRules, rulesErr := urService.GetUnificationRuleService().GetUnificationRules(ctx, orgID)
+	if rulesErr != nil {
+		logger.Warn("UpdateProfile: failed to load unification rules, enqueueing anyway", log.Error(rulesErr))
+		queue.Enqueue(written)
+		return
+	}
+	before := flattenProfileAttrs(stored)
+	after := flattenProfileAttrs(written)
+	matchedValuesChanged := ruleValuesChanged(before, after, activeRules)
+
+	// Rejections are deliberately not cleared here. One records a human deciding
+	// two profiles are different people, which does not stop being true because
+	// an attribute changed — and discarding it on a value change put the same
+	// dismissed pair back in front of the administrator whenever anything moved.
+	// The evidence stored with the rejection is compared against each fresh
+	// evaluation instead, so only a materially stronger match reopens it.
+
+	if shouldResolveAfterUpdate(stored, written, matchedValuesChanged, activeRules) {
+		queue.Enqueue(written)
+	}
 }
 
 // ProfileUnificationQueue is an interface for the profile unification queue.
@@ -1601,53 +1684,91 @@ func (ps *ProfilesService) FindProfileByUserID(ctx context.Context,
 	return profileResponse, nil
 }
 
-// PatchProfile applies a partial update to an existing profile
+// PatchProfile applies a partial update to a profile, or to its master when it has been merged.
 func (ps *ProfilesService) PatchProfile(ctx context.Context,
 	profileID string, orgID string, patch map[string]interface{}) (*profileModel.ProfileResponse, error) {
-	existingProfile, err := profileStore.GetProfile(ctx, profileID, orgID)
-	if err != nil {
-		return nil, err
-	}
-	if existingProfile == nil {
-		return nil, errors2.NewClientError(errors2.ErrorMessage{
-			Code:        errors2.ProfileNotFound.Code,
-			Message:     errors2.ProfileNotFound.Message,
-			Description: fmt.Sprintf("Profile %s not found", profileID),
-		}, http.StatusNotFound)
-	}
-
-	// For a child profile (merged into a master), the patch must be applied to the
-	// master's current data. Using the child's raw stored document as the base would
-	// cause UpdateProfile to overwrite the master with incomplete data, losing all
-	// accumulated merged data that only exists on the master.
-	profileForBase := existingProfile
-	if existingProfile.ProfileStatus != nil && !existingProfile.ProfileStatus.IsReferenceProfile &&
-		existingProfile.ProfileStatus.ReferenceProfileID != "" {
-		masterProfile, err := profileStore.GetProfile(ctx, existingProfile.ProfileStatus.ReferenceProfileID, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if masterProfile != nil {
-			masterProfile.ApplicationData, err = profileStore.FetchApplicationData(ctx, masterProfile.ProfileID)
-			if err != nil {
-				return nil, err
+	return ps.writeProfile(ctx, profileID, orgID,
+		func(target *profileModel.Profile) (profileModel.ProfileRequest, error) {
+			if target.UserID != "" && patchesIdentityAttributes(patch) {
+				return profileModel.ProfileRequest{}, identityAttributesReadOnlyError()
 			}
-			profileForBase = masterProfile
-		} else {
-			logger := log.GetLogger()
-			logger.Warn(fmt.Sprintf("Master profile %s not found for child profile %s. Using the child profile",
-				existingProfile.ProfileStatus.ReferenceProfileID, profileID))
+			return applyPatch(profileID, target, patch)
+		})
+}
+
+// patchesIdentityAttributes reports whether a patch changes identity attributes. An empty object changes nothing.
+func patchesIdentityAttributes(patch map[string]interface{}) bool {
+	value, ok := patch["identity_attributes"]
+	if !ok {
+		return false
+	}
+	attrs, isMap := value.(map[string]interface{})
+	return !isMap || len(attrs) > 0
+}
+
+// WithoutAttributesOf returns the attributes of an anonymous profile without those that a profile of the user
+// already has a value for, nested ones included. The identity provider is the source of truth for the identity
+// attributes of a profile linked to a user, so when an anonymous profile joins it, the anonymous values only fill
+// the attributes it has no value for.
+func WithoutAttributesOf(anonymous, linked map[string]interface{}) map[string]interface{} {
+	if anonymous == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(anonymous))
+	for k, anonymousVal := range anonymous {
+		linkedVal, exists := linked[k]
+		if !exists || isEmptyAttributeValue(linkedVal) {
+			result[k] = anonymousVal
+			continue
+		}
+		anonymousMap, okA := anonymousVal.(map[string]interface{})
+		linkedMap, okL := linkedVal.(map[string]interface{})
+		if okA && okL {
+			if remaining := WithoutAttributesOf(anonymousMap, linkedMap); len(remaining) > 0 {
+				result[k] = remaining
+			}
 		}
 	}
+	return result
+}
 
+// isEmptyAttributeValue reports whether an attribute has no value.
+func isEmptyAttributeValue(v interface{}) bool {
+	switch val := v.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(val) == ""
+	case []interface{}:
+		return len(val) == 0
+	case map[string]interface{}:
+		return len(val) == 0
+	}
+	return false
+}
+
+// identityAttributesReadOnlyError is returned when a client changes the identity attributes of a profile linked
+// to a user. The identity provider is the source of truth for them, and sends them through the profile sync.
+func identityAttributesReadOnlyError() error {
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.IdentityAttributesReadOnly.Code,
+		Message:     errors2.IdentityAttributesReadOnly.Message,
+		Description: errors2.IdentityAttributesReadOnly.Description,
+	}, http.StatusBadRequest)
+}
+
+// applyPatch applies a patch to a copy of the profile it is written to, and returns the whole profile
+// to write.
+func applyPatch(profileID string, target *profileModel.Profile, patch map[string]interface{}) (
+	profileModel.ProfileRequest, error) {
 	// Convert the full profile to map to allow patching.
 	// Marshal the profile but override application_data with the map representation
 	// (the stored format is []ApplicationData — a JSON array — which cannot be unmarshalled
 	// back into ProfileRequest.ApplicationData map[string]interface{}).
-	fullData, _ := json.Marshal(profileForBase)
+	fullData, _ := json.Marshal(target)
 	var merged map[string]interface{}
 	_ = json.Unmarshal(fullData, &merged)
-	merged["application_data"] = ConvertAppDataToMap(profileForBase.ApplicationData)
+	merged["application_data"] = ConvertAppDataToMap(target.ApplicationData)
 
 	// Handle deep merge for nested objects first
 	if traitsPatch, ok := patch["traits"].(map[string]interface{}); ok {
@@ -1693,11 +1814,10 @@ func (ps *ProfilesService) PatchProfile(ctx context.Context,
 			Message:     errors2.UpdateProfile.Message,
 			Description: errMsg,
 		}, err)
-		return nil, serverError
+		return profileModel.ProfileRequest{}, serverError
 	}
 
-	// Reuse the PUT logic to update the profile, with the profile read above.
-	return ps.updateProfile(ctx, profileID, orgID, existingProfile, updatedProfileReq)
+	return updatedProfileReq, nil
 }
 
 // GetProfileCookieByProfileID returns the cookie of a profile, or a not-found client error if it has none.

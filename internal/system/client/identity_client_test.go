@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -567,4 +568,38 @@ func TestSmallHelpers(t *testing.T) {
 	assert.Equal(t, "b", ifThenElse(false, "a", "b"))
 	assert.Equal(t, map[string]interface{}{"a.b": 1, "c": 2, "d": []int{1}},
 		flattenSCIMClaims(map[string]interface{}{"a": map[string]interface{}{"b": 1}, "c": 2, "d": []int{1}}))
+}
+
+func TestFetchJWKS(t *testing.T) {
+	is, c := newIdentityServer(t, false)
+	is.handle("/t/acme/oauth2/jwks", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"keys": []interface{}{}})
+	})
+
+	endpoint, err := c.JWKSEndpoint("acme", "/oauth2/jwks")
+	require.NoError(t, err)
+	body, err := c.FetchJWKS(endpoint)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"keys":[]}`, string(body))
+}
+
+func TestFetchJWKSGivesUpAfterTheTimeout(t *testing.T) {
+	is, c := newIdentityServer(t, false)
+	is.handle("/t/acme/oauth2/jwks", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	})
+	defer func(previous time.Duration) { jwksFetchTimeout = previous }(jwksFetchTimeout)
+	jwksFetchTimeout = 100 * time.Millisecond
+
+	endpoint, err := c.JWKSEndpoint("acme", "/oauth2/jwks")
+	require.NoError(t, err)
+	started := time.Now()
+	_, err = c.FetchJWKS(endpoint)
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(started), 2*time.Second)
 }

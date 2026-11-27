@@ -19,30 +19,13 @@
 package cli
 
 import (
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"os"
 	"path/filepath"
+
+	"github.com/wso2/identity-customer-data-service/internal/system/certs"
 )
-
-// defaultCertificateFingerprints are the SHA-256 fingerprints of the key pairs
-// a pack can ship with: Identity Server 7.3.0's default wso2carbon pair, which
-// distribution/default-cert.sh installs and pins. Changing one without the
-// other leaves the runtime unable to tell a default certificate from a real
-// one.
-var defaultCertificateFingerprints = map[[sha256.Size]byte]bool{
-	mustFingerprint("2BA361A032FFD4B34F7DF066DE72B61C5E836A09F7A7BD7105EB87B4094D9712"): true,
-}
-
-func mustFingerprint(hexDigest string) [sha256.Size]byte {
-	var fingerprint [sha256.Size]byte
-	if _, err := hex.Decode(fingerprint[:], []byte(hexDigest)); err != nil {
-		panic(err)
-	}
-	return fingerprint
-}
 
 // usingDefaultCertificate reports whether the certificate at path is the one
 // the pack shipped with.
@@ -60,8 +43,32 @@ func usingDefaultCertificate(path string) bool {
 	if block == nil {
 		return false
 	}
-	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+	return isDefaultCertificate(block)
+}
+
+// trustsDefaultCertificate reports whether the PEM bundle at path holds the
+// certificate the pack shipped with. In the client trust store it means that
+// anyone holding the public default key can call the sync endpoints.
+func trustsDefaultCertificate(path string) bool {
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
 		return false
 	}
-	return defaultCertificateFingerprints[sha256.Sum256(block.Bytes)]
+	for block, rest := pem.Decode(raw); block != nil; block, rest = pem.Decode(rest) {
+		if isDefaultCertificate(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDefaultCertificate(block *pem.Block) bool {
+	if block.Type != "CERTIFICATE" {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	return certs.IsDefault(cert)
 }

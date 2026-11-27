@@ -20,9 +20,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
+	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	consentModel "github.com/wso2/identity-customer-data-service/internal/consent/model"
 	"github.com/wso2/identity-customer-data-service/internal/consent/provider"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
@@ -54,6 +56,10 @@ func (h *ConsentCategoryHandler) GetAllConsentCategories(w http.ResponseWriter, 
 		utils.HandleError(w, err)
 		return
 	}
+	if !isCDSEnabled(ctx, org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
 	categories, err := service.GetAllConsentCategories(ctx, org.ID)
 	if err != nil {
@@ -78,6 +84,16 @@ func (h *ConsentCategoryHandler) AddConsentCategory(w http.ResponseWriter, r *ht
 		return
 	}
 
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
+
 	var req consentModel.ConsentCategoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
@@ -86,12 +102,6 @@ func (h *ConsentCategoryHandler) AddConsentCategory(w http.ResponseWriter, r *ht
 			Description: utils.HandleDecodeError(err, "consent category"),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
-		return
-	}
-
-	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
-	if err != nil {
-		utils.HandleError(w, err)
 		return
 	}
 	category := req.ToCategory(org.ID, "")
@@ -136,6 +146,10 @@ func (h *ConsentCategoryHandler) GetConsentCategory(w http.ResponseWriter, r *ht
 		utils.HandleError(w, err)
 		return
 	}
+	if !isCDSEnabled(ctx, org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
 	category, err := service.GetConsentCategory(ctx, categoryID, org.ID)
 	if err != nil {
@@ -168,6 +182,16 @@ func (h *ConsentCategoryHandler) UpdateConsentCategory(w http.ResponseWriter, r 
 		return
 	}
 
+	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(ctx, org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
+
 	var req consentModel.ConsentCategoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		clientError := errors.NewClientError(errors.ErrorMessage{
@@ -176,12 +200,6 @@ func (h *ConsentCategoryHandler) UpdateConsentCategory(w http.ResponseWriter, r 
 			Description: utils.HandleDecodeError(err, "consent category"),
 		}, http.StatusBadRequest)
 		utils.HandleError(w, clientError)
-		return
-	}
-
-	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
-	if err != nil {
-		utils.HandleError(w, err)
 		return
 	}
 	category := req.ToCategory(org.ID, categoryID)
@@ -222,6 +240,10 @@ func (h *ConsentCategoryHandler) DeleteConsentCategory(w http.ResponseWriter, r 
 		utils.HandleError(w, err)
 		return
 	}
+	if !isCDSEnabled(ctx, org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
 	service := provider.NewConsentCategoryProvider().GetConsentCategoryService()
 	if err := service.DeleteConsentCategory(ctx, categoryID, org.ID); err != nil {
 		utils.HandleError(w, err)
@@ -230,4 +252,18 @@ func (h *ConsentCategoryHandler) DeleteConsentCategory(w http.ResponseWriter, r 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isCDSEnabled reports whether CDS is enabled for the organization. A sub organization is enabled only when
+// the organization access of its primary organization includes it.
+func isCDSEnabled(ctx context.Context, orgID string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgID)
+}
+
+func cdsNotEnabled() error {
+	return errors.NewClientError(errors.ErrorMessage{
+		Code:        errors.CDSNotEnabled.Code,
+		Message:     errors.CDSNotEnabled.Message,
+		Description: errors.CDSNotEnabled.Description,
+	}, http.StatusBadRequest)
 }

@@ -104,8 +104,8 @@ func ValidateConfig(cfg config.Config, supported bool) error {
 }
 
 // CheckStore reports whether the table that holds the credentials can be read.
-// It is called at start once a key is set, so that a PostgreSQL database
-// without the migration fails there, rather than at every token fetch.
+// It is called at start once a key is set, so that a database without the
+// table fails there, rather than at every token fetch.
 func CheckStore(ctx context.Context) error {
 	dbClient, err := provider.NewDBProvider().GetDBClient()
 	if err != nil {
@@ -114,8 +114,8 @@ func CheckStore(ctx context.Context) error {
 	defer func() { _ = dbClient.Close() }()
 
 	if _, err := dbClient.ExecuteQueryContext(ctx, scripts.CheckOrgServiceCredentials); err != nil {
-		return fmt.Errorf("the org_service_credentials table cannot be read; on PostgreSQL, run "+
-			"dbscripts/migrations/003-service-credentials-postgres.sql: %w", err)
+		return fmt.Errorf("the org_service_credentials table cannot be read; create it with the "+
+			"database script in repository/dbscripts/: %w", err)
 	}
 	return nil
 }

@@ -104,28 +104,15 @@ func (ph *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filterParams := parseApplicationDataParams(r)
-	callerAppIdentifier, isSystemApp, err := resolveCaller(ctx, r, org.ID)
+	caller, err := resolveCallerApp(ctx, r, org.ID)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
 	}
-
-	profile.ApplicationData = profileService.FilterApplicationData(
-		profile.ApplicationData,
-		callerAppIdentifier,
-		isSystemApp,
-		filterParams,
-	)
-
-	if !isSystemApp {
-		consentIDs := parseCommaSeparatedOrRepeated(r.URL.Query()["consentCategoryId"])
-		filtered, filterErr := profileService.FilterProfileByConsent(ctx, *profile, profileID, org.ID, consentIDs)
-		if filterErr != nil {
-			utils.HandleError(w, filterErr)
-			return
-		}
-		profile = &filtered
+	profile, err = filterProfileForCaller(ctx, r, org.ID, caller, profile)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -568,10 +555,20 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller, err := resolveCallerApp(ctx, r, org.ID)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	if err := checkApplicationDataWrite(caller, profile.ApplicationData); err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+
 	// Check if a valid cookie exists
 	profileCookie, err := r.Cookie(constants.ProfileCookie)
 	if err == nil && profileCookie.Value != "" {
-		if ph.handleExistingCookie(w, r, org.ID, profileCookie.Value) {
+		if ph.handleExistingCookie(w, r, org.ID, caller, profileCookie.Value) {
 			return
 		}
 	}
@@ -591,7 +588,7 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Create and set a new cookie
-	setProfileCookie(w, cookie.CookieID, r)
+	setProfileCookie(w, cookie.CookieID)
 
 	profileResponse.AnonymousTracker = cookie.CookieID
 
@@ -601,7 +598,7 @@ func (ph *ProfileHandler) InitProfile(w http.ResponseWriter, r *http.Request) {
 
 // Handles existing cookie logic, returns true if response was already written
 func (ph *ProfileHandler) handleExistingCookie(w http.ResponseWriter, r *http.Request, orgID string,
-	cookieVal string) bool {
+	caller callerApp, cookieVal string) bool {
 	ctx := r.Context()
 
 	profilesProvider := provider.NewProfilesProvider()
@@ -621,22 +618,29 @@ func (ph *ProfileHandler) handleExistingCookie(w http.ResponseWriter, r *http.Re
 		utils.HandleError(w, err)
 		return true
 	}
+	// The profile of a cookie can be merged into a profile that holds the data of other
+	// applications, so the caller gets only what it may read, as with GetProfile.
+	profileResponse, err = filterProfileForCaller(ctx, r, orgID, caller, profileResponse)
+	if err != nil {
+		utils.HandleError(w, err)
+		return true
+	}
 
-	setProfileCookie(w, cookieObj.CookieID, r)
+	setProfileCookie(w, cookieObj.CookieID)
 	profileResponse.AnonymousTracker = cookieObj.CookieID
 	utils.RespondJSON(w, http.StatusOK, profileResponse, constants.ProfileResource)
 	return true
 }
 
-func setProfileCookie(w http.ResponseWriter, cookieID string, r *http.Request) {
+func setProfileCookie(w http.ResponseWriter, cookieID string) {
 	cookie := &http.Cookie{
 		Name:     constants.ProfileCookie,
 		Value:    cookieID,
 		Path:     "/",
 		Domain:   resolveDomain(),
 		HttpOnly: true,
-		Secure:   !strings.HasPrefix(r.Host, "localhost"),
-		SameSite: http.SameSiteNoneMode,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)
 }
@@ -689,6 +693,16 @@ func (ph *ProfileHandler) UpdateProfile(writer http.ResponseWriter, request *htt
 		return
 	}
 
+	caller, err := resolveCallerApp(ctx, request, org.ID)
+	if err != nil {
+		utils.HandleError(writer, err)
+		return
+	}
+	if err := checkApplicationDataWrite(caller, profile.ApplicationData); err != nil {
+		utils.HandleError(writer, err)
+		return
+	}
+
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 
@@ -708,6 +722,12 @@ func (ph *ProfileHandler) UpdateProfile(writer http.ResponseWriter, request *htt
 			Description: errMsg,
 		}, err)
 		utils.HandleError(writer, serverError)
+		return
+	}
+	profileResponse, err = filterProfileForCaller(ctx, request, org.ID, caller, profileResponse)
+	if err != nil {
+		utils.HandleError(writer, err)
+		return
 	}
 	utils.RespondJSON(writer, http.StatusOK, profileResponse, constants.ProfileResource)
 }
@@ -763,10 +783,29 @@ func (ph *ProfileHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller, err := resolveCallerApp(ctx, r, org.ID)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	// applyPatch merges only an application_data object, so only one can write the data of an
+	// application.
+	if appDataPatch, ok := patchData["application_data"].(map[string]interface{}); ok {
+		if err := checkApplicationDataWrite(caller, appDataPatch); err != nil {
+			utils.HandleError(w, err)
+			return
+		}
+	}
+
 	profilesProvider := provider.NewProfilesProvider()
 	profilesService := profilesProvider.GetProfilesService()
 	// The service reads the profile back after the update, so its answer is the response.
 	profileResponse, err := profilesService.PatchProfile(ctx, profileID, org.ID, patchData)
+	if err != nil {
+		utils.HandleError(w, err)
+		return
+	}
+	profileResponse, err = filterProfileForCaller(ctx, r, org.ID, caller, profileResponse)
 	if err != nil {
 		utils.HandleError(w, err)
 		return
@@ -864,9 +903,20 @@ func (ph *ProfileHandler) LinkProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When the user already has a profile, the anonymous identity attributes only fill those it has no value for.
+	identityAttributes := existingProfile.IdentityAttributes
+	userProfile, err := profilesService.FindProfileByUserID(ctx, userID, org.ID)
+	if err != nil && !utils.HasClientErrorCode(err, errors2.ProfileNotFound.Code) {
+		utils.HandleError(w, err)
+		return
+	}
+	if err == nil && userProfile != nil {
+		identityAttributes = profileService.WithoutAttributesOf(identityAttributes, userProfile.IdentityAttributes)
+	}
+
 	profileRequest := model.ProfileRequest{
 		UserID:             userID,
-		IdentityAttributes: existingProfile.IdentityAttributes,
+		IdentityAttributes: identityAttributes,
 		Traits:             existingProfile.Traits,
 		ApplicationData:    profileService.WideAppDataMap(existingProfile.ApplicationData),
 	}
@@ -1173,11 +1223,13 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 						"Stitching temporary profile %s with the permanent profile %s",
 						anonymousProfile.ProfileID, existingUserProfile.ProfileID))
 
+					// The anonymous identity attributes only fill those the permanent profile has no value for.
 					profileRequest := model.ProfileRequest{
-						UserID:             profileSync.UserID,
-						IdentityAttributes: anonymousProfile.IdentityAttributes,
-						Traits:             anonymousProfile.Traits,
-						ApplicationData:    profileService.WideAppDataMap(anonymousProfile.ApplicationData),
+						UserID: profileSync.UserID,
+						IdentityAttributes: profileService.WithoutAttributesOf(anonymousProfile.IdentityAttributes,
+							existingUserProfile.IdentityAttributes),
+						Traits:          anonymousProfile.Traits,
+						ApplicationData: profileService.WideAppDataMap(anonymousProfile.ApplicationData),
 					}
 					audit.SetTargetID(ctx, auditTargetOf(anonymousProfile))
 					_, err = profilesService.UpdateProfile(ctx, anonymousProfile.ProfileID, org.ID, profileRequest)
@@ -1218,8 +1270,10 @@ func (ph *ProfileHandler) SyncProfile(writer http.ResponseWriter, request *http.
 			logger.Debug("No profile cookie provided for user id: " + profileSync.UserID)
 		}
 	}
-	if profileSync.Event == constants.SessionTermination {
-		logger.Info("Event received session termination for user: " + profileSync.UserID)
+	// A session that ended by logout or by timing out leaves the cookie of the browser behind. Deactivate it, so
+	// that what happens next in that browser is not added to the profile of this user.
+	if profileSync.Event == constants.SessionTermination || profileSync.Event == constants.SessionExpiry {
+		logger.Info("Event received " + profileSync.Event + " for user: " + profileSync.UserID)
 		if profileSync.UserID != "" {
 			if strings.TrimSpace(profileSync.ProfileCookie) == "" {
 				logger.Debug("No profile cookie provided for session termination. Skipping cookie deactivation.")
@@ -1528,6 +1582,68 @@ func resolveCaller(ctx context.Context, r *http.Request, orgID string) (string, 
 		callerAppIdentifier = resolved
 	}
 	return callerAppIdentifier, isCallerSystemApplication(ctx, orgID, callerAppIdentifier), nil
+}
+
+// callerApp is the application that makes a request, and whether it is a system application of
+// the organization.
+type callerApp struct {
+	appIdentifier string
+	isSystemApp   bool
+}
+
+// resolveCallerApp returns the application that makes the request. A handler resolves it once,
+// and uses it both to check what the request writes and to filter what the response returns.
+func resolveCallerApp(ctx context.Context, r *http.Request, orgID string) (callerApp, error) {
+	appIdentifier, isSystemApp, err := resolveCaller(ctx, r, orgID)
+	if err != nil {
+		return callerApp{}, err
+	}
+	return callerApp{appIdentifier: appIdentifier, isSystemApp: isSystemApp}, nil
+}
+
+// checkApplicationDataWrite refuses a write of the application data of another application. The
+// application data of a profile is keyed by application, and an application that is not a system
+// application writes only its own, as it reads only its own. A system application writes the data
+// of any application.
+func checkApplicationDataWrite(caller callerApp, appData map[string]interface{}) error {
+	if caller.isSystemApp {
+		return nil
+	}
+	for appID := range appData {
+		if caller.appIdentifier == "" || appID != caller.appIdentifier {
+			return errors2.NewClientError(errors2.ErrorMessage{
+				Code:    errors2.FORBIDDEN.Code,
+				Message: errors2.FORBIDDEN.Message,
+				Description: fmt.Sprintf("An application can write only its own application data, not the data "+
+					"of application: %s", appID),
+			}, http.StatusForbidden)
+		}
+	}
+	return nil
+}
+
+// filterProfileForCaller limits a profile to what the calling application may read. Every
+// response that carries a stored profile goes through it, so that no endpoint returns more than
+// GetProfile does. A profile that InitProfile has just created needs none: it holds only what the
+// caller sent.
+func filterProfileForCaller(ctx context.Context, r *http.Request, orgID string, caller callerApp,
+	profile *model.ProfileResponse) (*model.ProfileResponse, error) {
+	profile.ApplicationData = profileService.FilterApplicationData(
+		profile.ApplicationData,
+		caller.appIdentifier,
+		caller.isSystemApp,
+		parseApplicationDataParams(r),
+	)
+	if caller.isSystemApp {
+		return profile, nil
+	}
+
+	consentIDs := parseCommaSeparatedOrRepeated(r.URL.Query()["consentCategoryId"])
+	filtered, err := profileService.FilterProfileByConsent(ctx, *profile, profile.ProfileID, orgID, consentIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &filtered, nil
 }
 
 func isCallerSystemApplication(ctx context.Context, orgID string, appID string) bool {

@@ -43,6 +43,16 @@ addr:
   host: 127.0.0.1
   port: 8900
 
+# The endpoints only the Identity Server calls, on a port of their own that is never exposed with the
+# public APIs. Without sync.addr they are served on addr. See the security README.
+# The Identity Server sends them to [customer_data_service] sync_url: point it at sync.addr.
+sync:
+  addr:
+    host: 127.0.0.1
+    port: 8901
+  require_client_cert: false                    # require a client certificate in the TLS handshake
+  client_trust_store: "client_trust_store.pem"  # the client certificates the sync port accepts
+
 server_url: "https://localhost:8900" # Public-facing base URL used for constructing Location headers
 
 # How CDS identifies an application, in system_applications and in application data:
@@ -76,8 +86,7 @@ idp:
 
 # Organization management: the organization tree, sub organization paths, and sharing with child
 # organizations. On in this shipped configuration: every database script and the inbuilt database
-# create the organization tables. An existing PostgreSQL database needs
-# dbscripts/migrations/002-organization-management-postgres.sql first.
+# create the organization tables.
 organization_management:
   enabled: true
 
@@ -88,6 +97,7 @@ auth_server:
   cookieDomain: "localhost"
   introspectionEndpoint: "/oauth2/introspect"
   tokenEndpoint: "/oauth2/token"
+  jwksEndpoint: "/oauth2/jwks"
   admin_username: "admin"
   admin_password: "${AUTH_SERVER_ADMIN_PASSWORD}"
   isSystemAppGrantEnabled: false
@@ -257,12 +267,11 @@ datasource:
   #   max_open_conns: 4
 
 tls:
-  mtls_enabled: true
+  mtls_enabled: false   # present server_cert as a client certificate when calling the Identity Server
   cert_dir: "/etc/certs"
-  server_cert: "server.crt" #filename
-  server_key: "server.key" #filename
-  client_cert: "client.crt"   #filename
-  trust_store: "trust_store.pem"      #filename
+  server_cert: "server.crt"
+  server_key: "server.key"
+  trust_store: "trust_store.pem"   # Identity Server certificates CDD trusts, besides the system CAs
 
 identity_resolution:
   # Allow a unification rule to carry its own match_strength and mismatch_strength rather

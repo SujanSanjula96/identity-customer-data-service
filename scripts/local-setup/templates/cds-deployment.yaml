@@ -103,6 +103,7 @@ auth_server:
   cookieDomain: "${IS_HOST}"
   introspectionEndpoint: "/oauth2/introspect"
   tokenEndpoint: "/oauth2/token"
+  jwksEndpoint: "/oauth2/jwks"
   isSystemAppGrantEnabled: false
   client_id: "${CDS_SYS_CLIENT_ID}"
   client_secret: "${AUTH_SERVER_CLIENT_SECRET}"

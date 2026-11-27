@@ -117,6 +117,9 @@ const AudienceClaim = "aud"
 // ExpiryClaim is the token claim that holds the expiry time.
 const ExpiryClaim = "exp"
 
+// NotBeforeClaim is the token claim that holds the time before which the token is not valid.
+const NotBeforeClaim = "nbf"
+
 // FilterRegex matches the identifiers that are safe to use as filter fields and JSON keys in queries.
 const FilterRegex = `^[a-zA-Z0-9._-]+$`
 
@@ -180,6 +183,7 @@ const (
 	UpdateUserClaimsEvent     = "POST_SET_USER_CLAIM_VALUES_WITH_ID"
 	AuthenticationSuccess     = "AUTHENTICATION_SUCCESS"
 	SessionTermination        = "SESSION_TERMINATE"
+	SessionExpiry             = "SESSION_EXPIRE"
 )
 
 // AllowedValueTypes is the set of valid attribute value types.
@@ -716,3 +720,22 @@ const (
 // shutdown.grace_period_seconds is omitted. The HTTP server, every worker and
 // every broker connection share it.
 const DefaultShutdownGracePeriod = 25 * time.Second
+
+// Token validation. Every request validates its token.
+const (
+	// DefaultJWKSEndpoint is the path of the JWKS endpoint, after /t/{tenant}, when
+	// auth_server.jwksEndpoint is not set.
+	DefaultJWKSEndpoint = "/oauth2/jwks"
+	// JWKSCacheTTL is how long the keys of a JWKS endpoint are used before they are fetched
+	// again.
+	JWKSCacheTTL = time.Hour
+	// JWKSMinRefreshInterval is the least time between two fetches of a JWKS endpoint. A token
+	// whose key ID is not in the cached keys triggers a fetch, so this bounds the fetches that
+	// such tokens can cause.
+	JWKSMinRefreshInterval = time.Minute
+	// JWKSFetchTimeout bounds one fetch of a JWKS endpoint.
+	JWKSFetchTimeout = 5 * time.Second
+	// JWTClockSkew is the clock difference allowed when the not-before time of a token is
+	// checked.
+	JWTClockSkew = 30 * time.Second
+)

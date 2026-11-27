@@ -38,6 +38,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/database"
 	"github.com/wso2/identity-customer-data-service/internal/system/database/provider"
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
+	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/test/setup"
 )
 
@@ -247,6 +248,41 @@ func TestAdminConfigAuthentication(t *testing.T) {
 			recorder := env.call(t, tc.handler, tc.method, tc.authorization, `{}`)
 
 			assert.Equal(t, tc.status, recorder.Code)
+		})
+	}
+}
+
+// With a sync listener, the config sync takes the admin credentials on the sync listener only.
+func TestSyncAdminConfigAuthenticationByListener(t *testing.T) {
+	env := newAdminHandlerEnv(t)
+	conf := config.GetCDSRuntime().Config
+	conf.Sync = config.SyncConfig{Addr: config.AddrConfig{Port: 8901}}
+	config.OverrideCDSRuntime(conf)
+
+	for name, tc := range map[string]struct {
+		syncListener  bool
+		authorization string
+		status        int
+	}{
+		"the admin credentials on the sync listener": {
+			syncListener: true, authorization: basic(adminUser, adminPassword), status: http.StatusOK,
+		},
+		"the admin credentials on the public listener": {
+			authorization: basic(adminUser, adminPassword), status: http.StatusUnauthorized,
+		},
+		"a token on the sync listener": {
+			syncListener: true, authorization: env.bearer(), status: http.StatusUnauthorized,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(env.h.SyncAdminConfig)
+			if tc.syncListener {
+				handler = security.SyncListener(handler).ServeHTTP
+			}
+
+			recorder := env.call(t, handler, http.MethodPost, tc.authorization, `{"cds_enabled":false}`)
+
+			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
 		})
 	}
 }

@@ -131,7 +131,8 @@ func Test_ValidateDataSource_reportsEveryProblem(t *testing.T) {
 
 // Test_ValidateDataSource_acceptsValidNumbers checks what stays accepted. Zero
 // means "use the application default", and the PostgreSQL block is ignored on
-// the inbuilt database, which is what the Helm chart depends on.
+// the inbuilt database, which a templated configuration that always renders
+// that block depends on.
 func Test_ValidateDataSource_acceptsValidNumbers(t *testing.T) {
 	accepted := map[string]config.DataSourceConfig{
 		"every pool setting left empty, which means zero": postgresDataSource("postgres").DataSource,

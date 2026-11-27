@@ -23,6 +23,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -43,6 +44,7 @@ import (
 	"github.com/wso2/identity-customer-data-service/internal/system/log"
 	"github.com/wso2/identity-customer-data-service/internal/system/managers"
 	_ "github.com/wso2/identity-customer-data-service/internal/system/queue/activemq" // registers the ActiveMQ queue provider
+	"github.com/wso2/identity-customer-data-service/internal/system/security"
 	"github.com/wso2/identity-customer-data-service/internal/system/servicecreds"
 	"github.com/wso2/identity-customer-data-service/internal/system/utils"
 	"github.com/wso2/identity-customer-data-service/internal/system/workers"
@@ -123,6 +125,12 @@ func Run(cdsHome string) {
 		log.GetLogger().Warn(warning)
 	}
 
+	// The place of the sync listener is checked before anything runs.
+	if err := validateSync(*cdsConfig); err != nil {
+		log.GetLogger().Error("Invalid sync configuration.", log.Error(err))
+		os.Exit(1)
+	}
+
 	// Resolve the shutdown deadline at start, so a refused value stops the
 	// server before anything runs.
 	shutdownGrace, err := config.ResolveShutdownGracePeriod(cdsConfig.Shutdown)
@@ -170,7 +178,8 @@ func Run(cdsHome string) {
 	workers.StartTemporaryProfileCleanupWorker()
 
 	serverAddr := fmt.Sprintf("%s:%d", cdsConfig.Addr.Host, cdsConfig.Addr.Port)
-	mux := logStreams.wrap(newCORSMiddleware(initMultiplexer()))
+	publicMux, syncMux := initMultiplexers(cdsConfig.SyncSeparate())
+	mux := logStreams.wrap(newCORSMiddleware(publicMux))
 
 	logger := log.GetLogger()
 	logger.Info(fmt.Sprintf("CDD starting securely on: https://%s", serverAddr))
@@ -209,18 +218,28 @@ func Run(cdsHome string) {
 		os.Exit(1)
 	}
 
-	server := &http.Server{
-		Addr:    serverAddr,
-		Handler: mux,
-		// explicit TLS settings and HTTP timeouts
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ErrorLog:          newServerErrorLog(),
-		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		},
+	server := newHTTPServer(serverAddr, mux, &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	})
+
+	// The sync endpoints on a listener of their own, which only the identity server calls.
+	var syncServer *http.Server
+	syncCertPath, syncKeyPath := syncKeyPair(*cdsConfig, certDir)
+	if cdsConfig.SyncSeparate() {
+		syncTLS, err := syncTLSConfig(*cdsConfig, certDir)
+		if err != nil {
+			logger.Error("Invalid sync configuration.", log.Error(err))
+			os.Exit(1)
+		}
+		for _, file := range []string{syncCertPath, syncKeyPath} {
+			if _, err := os.Stat(file); err != nil {
+				logger.Error(fmt.Sprintf("Error accessing the key pair of the sync port at %s: %v", file, err))
+				os.Exit(1)
+			}
+		}
+		syncServer = newHTTPServer(cdsConfig.SyncAddress(), logStreams.wrap(security.SyncListener(syncMux)), syncTLS)
+	} else {
+		logger.Info(syncModeGuidance(*cdsConfig))
 	}
 
 	// Listen for OS shutdown signals
@@ -235,6 +254,18 @@ func Run(cdsHome string) {
 			os.Exit(1)
 		}
 	}()
+	if syncServer != nil {
+		go func() {
+			logger.Info(fmt.Sprintf("HTTPS sync server listening on %s, client certificate required: %t",
+				syncServer.Addr, cdsConfig.Sync.RequireClientCert))
+			logger.Info(syncModeGuidance(*cdsConfig))
+			if err := syncServer.ListenAndServeTLS(syncCertPath, syncKeyPath); err != nil &&
+				err != http.ErrServerClosed {
+				logger.Error("Failed to start the HTTPS sync server.", log.Error(err))
+				os.Exit(1)
+			}
+		}()
+	}
 
 	// Block until a signal is received
 	<-quit
@@ -250,7 +281,7 @@ func Run(cdsHome string) {
 		{name: "temporary profile cleanup", stop: workers.StopTemporaryProfileCleanupWorker},
 	}
 
-	if err := shutdown(ctx, logger, server.Shutdown, workerList, provider.CloseDB); err != nil {
+	if err := shutdown(ctx, logger, shutdownServers(server, syncServer), workerList, provider.CloseDB); err != nil {
 		logger.Error("Shutdown completed with unfinished work.", log.Error(err))
 		return
 	}
@@ -258,10 +289,16 @@ func Run(cdsHome string) {
 	logger.Info("Shutdown complete")
 }
 
-// initMultiplexer initializes the HTTP multiplexer and registers the services.
-func initMultiplexer() *http.ServeMux {
+// initMultiplexers initializes the HTTP multiplexers and registers the services: every route on the public
+// mux, or, with a separate sync listener, the sync endpoints on a sync mux of their own.
+func initMultiplexers(separateSync bool) (*http.ServeMux, *http.ServeMux) {
 	mux := http.NewServeMux()
+	var syncMux *http.ServeMux
 	serviceManager := managers.NewServiceManager(mux)
+	if separateSync {
+		syncMux = http.NewServeMux()
+		serviceManager = managers.NewSplitServiceManager(mux, syncMux)
+	}
 	logger := log.GetLogger()
 
 	// Register the services.
@@ -269,7 +306,34 @@ func initMultiplexer() *http.ServeMux {
 		logger.Error("Failed to register the services. ", log.Error(err))
 	}
 
-	return mux
+	return mux, syncMux
+}
+
+// newHTTPServer is an HTTPS server with the timeouts and the error log every listener of CDD uses.
+func newHTTPServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.Server {
+	return &http.Server{
+		Addr:    addr,
+		Handler: handler,
+		// explicit TLS settings and HTTP timeouts
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ErrorLog:          newServerErrorLog(),
+		TLSConfig:         tlsConfig,
+	}
+}
+
+// shutdownServers stops the public server and the sync server, when there is one, at the same time.
+func shutdownServers(server, syncServer *http.Server) func(context.Context) error {
+	if syncServer == nil {
+		return server.Shutdown
+	}
+	return func(ctx context.Context) error {
+		syncErr := make(chan error, 1)
+		go func() { syncErr <- syncServer.Shutdown(ctx) }()
+		return errors.Join(server.Shutdown(ctx), <-syncErr)
+	}
 }
 
 // newCORSMiddleware wraps handler with the organization-aware CORS middleware. Origins are

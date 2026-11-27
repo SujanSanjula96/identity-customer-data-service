@@ -2,14 +2,14 @@
 #
 # Applies the configuration defaults that belong to an installed pack.
 #
-# One deployment.yaml serves three deployments: the container image, the Helm
-# chart, and the pack. Most of it is the same for all three, but the datasource
+# One deployment.yaml serves two deployments: the container image and the
+# pack. Most of it is the same for both, but the datasource
 # is not. A container is handed a PostgreSQL to use; a pack is extracted onto a
 # machine where nothing else has been installed, and a default pointing at a
 # database that is not there means it cannot start at all.
 #
 # So the packed copy — and only the packed copy — defaults to the inbuilt
-# database. Nothing the container or the chart reads is touched.
+# database. Nothing the container reads is touched.
 #
 # The same goes for the TLS material: a container mounts it at /etc/certs,
 # while a pack carries it in repository/resources/security, so the packed copy

@@ -35,8 +35,9 @@ import (
 // use. It resolves the settings with the same functions the pool uses, so the
 // rule cannot differ between this check and the pool.
 //
-// Only the settings that apply to the configured type are read, because the
-// Helm chart renders the PostgreSQL block whatever the type is.
+// Only the settings that apply to the configured type are read, because a
+// templated configuration, such as a Helm chart, can render the PostgreSQL
+// block whatever the type is.
 func validateNumericSettings(ds config.DataSourceConfig) error {
 	switch database.ResolveType(ds.Type) {
 	case database.TypeSQLite:

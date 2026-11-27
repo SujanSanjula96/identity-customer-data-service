@@ -161,6 +161,33 @@ func TestInitProfileCreatesAProfileAndSetsTheCookie(t *testing.T) {
 	}
 	require.NotNil(t, cookie, "the profile cookie is set")
 	assert.Equal(t, profile.AnonymousTracker, cookie.Value)
+	assertProfileCookieAttributes(t, cookie)
+}
+
+// assertProfileCookieAttributes checks the attributes that every profile cookie must have.
+func assertProfileCookieAttributes(t *testing.T, cookie *http.Cookie) {
+	t.Helper()
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite, "the profile cookie is SameSite=Lax")
+	assert.True(t, cookie.HttpOnly, "the profile cookie is HttpOnly")
+	assert.True(t, cookie.Secure, "the profile cookie is Secure")
+	assert.Equal(t, "/", cookie.Path)
+}
+
+func TestInitProfileSetsASecureCookieForALocalhostCaller(t *testing.T) {
+	env := newProfileHandlerEnv(t)
+	request := httptest.NewRequest(http.MethodPost, "/t/"+env.handle+"/cds/api/v1/profiles", strings.NewReader(`{}`))
+	request = request.WithContext(context.WithValue(request.Context(), constants.TenantContextKey, env.handle))
+	request.Host = "localhost:8900"
+	request.Header.Set("Authorization", "Bearer "+env.auth.ValidToken)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	env.h.InitProfile(recorder, request)
+
+	require.Equal(t, http.StatusCreated, recorder.Code, recorder.Body.String())
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assertProfileCookieAttributes(t, cookies[0])
 }
 
 func TestInitProfileRefusals(t *testing.T) {
@@ -326,6 +353,7 @@ func TestGetAllProfilesAppliesConsentForOtherCallers(t *testing.T) {
 
 func TestUpdateProfile(t *testing.T) {
 	env := newProfileHandlerEnv(t)
+	env.markConsoleSystemApp(t)
 	created := env.createProfile(t, "Colombo")
 
 	updated := env.call(t, env.h.UpdateProfile, http.MethodPut, env.auth.ValidToken, "",
@@ -351,6 +379,7 @@ func TestUpdateProfile(t *testing.T) {
 
 func TestPatchProfile(t *testing.T) {
 	env := newProfileHandlerEnv(t)
+	env.markConsoleSystemApp(t)
 	created, err := env.svc.CreateProfile(env.ctx, model.ProfileRequest{
 		Traits: map[string]interface{}{"city": "Colombo", "age": float64(30)}}, env.orgID)
 	require.NoError(t, err)

@@ -295,6 +295,12 @@ var (
 		Description: "The profile is already linked to a different user",
 	}
 
+	IdentityAttributesReadOnly = ErrorMessage{
+		Code:        errorPrefix + "11018",
+		Message:     "Identity attributes cannot be updated.",
+		Description: "The identity attributes of a profile linked to a user come from the identity provider",
+	}
+
 	UnificationRuleNotFound = ErrorMessage{
 		Code:    errorPrefix + "12001",
 		Message: "No unification rule found.",

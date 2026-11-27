@@ -39,7 +39,7 @@ RUN apk upgrade --no-cache
 RUN addgroup -g 10001 appgroup && \
     adduser  -D -u 10001 -G appgroup appuser
 
-# Use /app (matches your Helm volume mounts)
+# Use /app as the CDD home; deployments mount configuration and certificates under it
 WORKDIR /app
 
 # Copy binary + config

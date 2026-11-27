@@ -182,9 +182,8 @@ func (h *AdminConfigHandler) UpdateAdminConfig(w http.ResponseWriter, r *http.Re
 	utils.RespondJSON(w, http.StatusOK, toAdminConfigAPI(configToUpdate), constants.AdminConfigResource)
 }
 
-// SyncAdminConfig handles POST /config/sync. Identity Server sends the CDS enable config of a root
-// organization (PATCH /api/server/v1/configs/cds in Identity Server) with the admin credentials. Only
-// cds_enabled can be sent.
+// SyncAdminConfig handles POST /config/sync. The identity provider sends the CDS enable config of a root
+// organization with the admin credentials. Only cds_enabled can be sent, and the other settings do not change.
 func (h *AdminConfigHandler) SyncAdminConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

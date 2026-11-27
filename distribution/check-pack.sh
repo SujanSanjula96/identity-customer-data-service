@@ -26,6 +26,7 @@ repository/resources/security/README.md
 repository/resources/security/server.crt
 repository/resources/security/server.key
 repository/resources/security/trust_store.pem
+repository/resources/security/client_trust_store.pem
 updates/product.txt
 version.txt
 LICENSE.txt

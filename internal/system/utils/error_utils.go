@@ -19,6 +19,7 @@
 package utils
 
 import (
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -61,7 +62,8 @@ func HandleDecodeError(err error, resourceName string) string {
 		}
 
 		return fmt.Sprintf(
-			"Invalid type for field '%s'. Expected %s in %s request body.", ute.Field, ute.Type, resourceName,
+			"Invalid type for field '%s'. Expected %s in %s request body.", ute.Field, jsonTypeName(ute.Type),
+			resourceName,
 		)
 
 	case errors.As(err, &se):
@@ -84,4 +86,53 @@ func HasClientErrorCode(err error, code string) bool {
 		return clientErr.ErrorMessage.Code == code
 	}
 	return false
+}
+
+var textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+
+// The JSON type names that jsonTypeName returns.
+const (
+	jsonTypeString  = "a string"
+	jsonTypeNumber  = "a number"
+	jsonTypeBoolean = "a boolean"
+	jsonTypeArray   = "an array"
+	jsonTypeObject  = "an object"
+	jsonTypeOther   = "a different JSON type"
+)
+
+// jsonTypeName returns the JSON type that a request must send for a Go type, such as "a string" or
+// "an object". The client sends JSON, so the message names the JSON type and not the Go type.
+func jsonTypeName(t reflect.Type) string {
+	if t == nil {
+		return jsonTypeOther
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	// A type that reads itself from text, such as time.Time, takes a JSON string.
+	if t.Implements(textUnmarshalerType) || reflect.PointerTo(t).Implements(textUnmarshalerType) {
+		return jsonTypeString
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return jsonTypeString
+	case reflect.Bool:
+		return jsonTypeBoolean
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64:
+		return jsonTypeNumber
+	case reflect.Slice:
+		if t.Elem().Kind() == reflect.Uint8 {
+			// encoding/json reads a []byte from a base64 string.
+			return jsonTypeString
+		}
+		return jsonTypeArray
+	case reflect.Array:
+		return jsonTypeArray
+	case reflect.Map, reflect.Struct:
+		return jsonTypeObject
+	default:
+		return jsonTypeOther
+	}
 }

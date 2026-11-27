@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	irStore "github.com/wso2/identity-customer-data-service/internal/identity_resolution/store"
+	profileStore "github.com/wso2/identity-customer-data-service/internal/profile/store"
 )
 
 // referenceOf returns the status and the parent of a profile's reference row.
@@ -267,4 +268,66 @@ func TestMergeWhoseTasksCannotBeCancelledWritesNothing(t *testing.T) {
 	require.Equal(t, "REFERENCE_PROFILE", status)
 	require.Empty(t, parent)
 	require.Equal(t, "PENDING", taskStatus(t, db, "task-incoming"))
+}
+
+// identityAttributesOf returns the stored identity attributes of a profile.
+func identityAttributesOf(t *testing.T, profileID string) map[string]interface{} {
+	t.Helper()
+	p, err := profileStore.GetProfile(context.Background(), profileID, tenantOrg.ID)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	return p.IdentityAttributes
+}
+
+// TestMergeKeepsTheIdentityAttributesOfTheLinkedProfile covers an anonymous profile merged with a
+// profile linked to a user. The identity provider is the source of truth for the identity attributes
+// of the linked profile, so its values are kept even under the overwrite strategy, whichever side
+// each profile is on, and the anonymous profile only fills the attributes the linked one has no
+// value for, nested ones included.
+func TestMergeKeepsTheIdentityAttributesOfTheLinkedProfile(t *testing.T) {
+	for _, linkedIsExisting := range []bool{true, false} {
+		db := candidateWorkerDB(t)
+		_, err := db.Exec(`INSERT INTO profile_schema (attribute_id, org_id, attribute_name, display_name,
+			value_type, merge_strategy, application_identifier, mutability, scope)
+			VALUES ('attr-email', 'org-id-tenant', 'identity_attributes.email', 'email', 'string', 'overwrite',
+			'', 'readWrite', 'identity_attributes')`)
+		require.NoError(t, err)
+		linked := workerProfile(t, db, "linked", "user-1",
+			`{"email":"idp@b.c","address":{"country":"LK"},"name":""}`, 2*time.Hour)
+		anonymous := workerProfile(t, db, "anonymous", "",
+			`{"email":"anon@b.c","phone":"111","address":{"country":"IN","city":"Kandy"},"name":"Anon"}`, time.Hour)
+
+		existing, incoming := linked, anonymous
+		if !linkedIsExisting {
+			existing, incoming = anonymous, linked
+		}
+		survivor, err := MergeMatchedProfiles(context.Background(), tenantOrg.ID, existing, incoming, "test")
+
+		require.NoError(t, err)
+		require.NotNil(t, survivor)
+		require.Equal(t, "linked", survivor.ProfileID)
+		want := map[string]interface{}{
+			"email":   "idp@b.c",
+			"phone":   "111",
+			"address": map[string]interface{}{"country": "LK", "city": "Kandy"},
+			"name":    "Anon",
+		}
+		require.Equal(t, want, survivor.IdentityAttributes)
+		require.Equal(t, want, identityAttributesOf(t, "linked"))
+	}
+}
+
+// TestMergeOfTwoAnonymousProfilesMergesTheirIdentityAttributes covers two anonymous profiles,
+// which have no identity provider data, so their identity attributes merge as before.
+func TestMergeOfTwoAnonymousProfilesMergesTheirIdentityAttributes(t *testing.T) {
+	db := candidateWorkerDB(t)
+	first := workerProfile(t, db, "first", "", `{"email":"a@b.c"}`, time.Hour)
+	second := workerProfile(t, db, "second", "", `{"phone":"111"}`, 0)
+
+	survivor, err := MergeMatchedProfiles(context.Background(), tenantOrg.ID, first, second, "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, survivor)
+	require.Equal(t, "a@b.c", survivor.IdentityAttributes["email"])
+	require.Equal(t, "111", survivor.IdentityAttributes["phone"])
 }

@@ -330,7 +330,7 @@ func TestPatchProfileMergesIntoTheExistingData(t *testing.T) {
 	assert.Equal(t, "u-1", patched.UserID)
 }
 
-func TestPatchProfilePatchesIdentityAttributesAndIgnoresTheUserId(t *testing.T) {
+func TestPatchProfileIgnoresTheUserId(t *testing.T) {
 	env := newProfileEnv(t)
 	created := env.create(t, profileModel.ProfileRequest{
 		UserID: "u-1",
@@ -339,8 +339,8 @@ func TestPatchProfilePatchesIdentityAttributesAndIgnoresTheUserId(t *testing.T) 
 	anonymous := env.createWithCity(t, "Colombo")
 
 	patched, err := env.svc.PatchProfile(env.ctx, created.ProfileID, env.orgID, map[string]interface{}{
-		"user_id":             "u-9",
-		"identity_attributes": map[string]interface{}{"email": "new@b.c"},
+		"user_id": "u-9",
+		"traits":  map[string]interface{}{"city": "Kandy"},
 	})
 	require.NoError(t, err)
 	patchedAnonymous, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID, map[string]interface{}{
@@ -350,8 +350,47 @@ func TestPatchProfilePatchesIdentityAttributesAndIgnoresTheUserId(t *testing.T) 
 
 	assert.Equal(t, "u-1", patched.UserID, "a patch cannot change the user ID")
 	assert.Empty(t, patchedAnonymous.UserID, "a patch cannot set the user ID")
+	assert.Equal(t, "Kandy", patched.Traits["city"])
+}
+
+func TestPatchProfilePatchesTheIdentityAttributesOfAnAnonymousProfile(t *testing.T) {
+	env := newProfileEnv(t)
+	anonymous := env.createWithCity(t, "Colombo")
+
+	patched, err := env.svc.PatchProfile(env.ctx, anonymous.ProfileID, env.orgID, map[string]interface{}{
+		"identity_attributes": map[string]interface{}{"email": "new@b.c"},
+	})
+
+	require.NoError(t, err)
 	assert.Equal(t, "new@b.c", patched.IdentityAttributes["email"])
-	assert.Equal(t, "Colombo", patched.Traits["city"])
+}
+
+func TestPatchProfileRefusesTheIdentityAttributesOfALinkedProfile(t *testing.T) {
+	env := newProfileEnv(t)
+	linked := env.create(t, profileModel.ProfileRequest{
+		UserID:             "u-1",
+		IdentityAttributes: map[string]interface{}{"email": "idp@b.c"},
+		Traits:             map[string]interface{}{"city": "Colombo"},
+	})
+	env.addChild(t, linked.ProfileID, "child-1")
+
+	for _, profileID := range []string{linked.ProfileID, "child-1"} {
+		_, err := env.svc.PatchProfile(env.ctx, profileID, env.orgID, map[string]interface{}{
+			"identity_attributes": map[string]interface{}{"email": "new@b.c"},
+			"traits":              map[string]interface{}{"city": "Kandy"},
+		})
+		clientError := requireStatus(t, err, http.StatusBadRequest)
+		assert.Equal(t, errors2.IdentityAttributesReadOnly.Code, clientError.ErrorMessage.Code)
+	}
+
+	// An empty object changes nothing, so it is accepted.
+	patched, err := env.svc.PatchProfile(env.ctx, linked.ProfileID, env.orgID, map[string]interface{}{
+		"identity_attributes": map[string]interface{}{},
+		"traits":              map[string]interface{}{"city": "Galle"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Galle", patched.Traits["city"])
+	assert.Equal(t, "idp@b.c", patched.IdentityAttributes["email"], "the identity provider's value is kept")
 }
 
 func TestPatchProfileRefusals(t *testing.T) {

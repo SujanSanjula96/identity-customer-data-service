@@ -217,7 +217,9 @@ func Test_ProfileLink(t *testing.T) {
 		master, err := profileSvc.GetProfile(context.Background(), existing.ProfileID, org.ID)
 		require.NoError(t, err)
 		require.Equal(t, userID, master.UserID)
-		require.Contains(t, master.IdentityAttributes["email"].([]interface{}), "anon-3@wso2.com")
+		// The identity provider is the source of truth for the identity attributes of a linked profile, so the
+		// anonymous email is not carried into it.
+		require.Equal(t, []interface{}{"known@wso2.com"}, master.IdentityAttributes["email"])
 	})
 }
 

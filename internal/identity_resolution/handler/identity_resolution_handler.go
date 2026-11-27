@@ -20,11 +20,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
+	adminConfigService "github.com/wso2/identity-customer-data-service/internal/admin_config/service"
 	irModel "github.com/wso2/identity-customer-data-service/internal/identity_resolution/model"
 	"github.com/wso2/identity-customer-data-service/internal/identity_resolution/provider"
 	orgService "github.com/wso2/identity-customer-data-service/internal/organization/service"
@@ -60,6 +62,10 @@ func (h *IdentityResolutionHandler) GetReviewTasks(w http.ResponseWriter, r *htt
 	org, err := orgService.ResolveOrganization(r.Context(), utils.ExtractOrgHandleFromPath(r))
 	if err != nil {
 		utils.HandleError(w, err)
+		return
+	}
+	if !isCDSEnabled(r.Context(), org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
 		return
 	}
 
@@ -108,6 +114,10 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 		utils.HandleError(w, err)
 		return
 	}
+	if !isCDSEnabled(r.Context(), org.ID) {
+		utils.HandleError(w, cdsNotEnabled())
+		return
+	}
 	taskID := r.PathValue("taskId")
 	if taskID == "" {
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
@@ -123,7 +133,7 @@ func (h *IdentityResolutionHandler) ResolveReviewTask(w http.ResponseWriter, r *
 		utils.HandleError(w, errors2.NewClientError(errors2.ErrorMessage{
 			Code:        errors2.BadRequest.Code,
 			Message:     errors2.BadRequest.Message,
-			Description: fmt.Sprintf("Failed to parse resolve request: %v", err),
+			Description: utils.HandleDecodeError(err, "review task resolve"),
 		}, http.StatusBadRequest))
 		return
 	}
@@ -190,4 +200,18 @@ func extractResolverIdentity(r *http.Request) string {
 		return clientID
 	}
 	return ""
+}
+
+// isCDSEnabled reports whether CDS is enabled for the organization. A sub organization is enabled only when
+// the organization access of its primary organization includes it.
+func isCDSEnabled(ctx context.Context, orgID string) bool {
+	return adminConfigService.GetAdminConfigService().IsCDSEnabled(ctx, orgID)
+}
+
+func cdsNotEnabled() error {
+	return errors2.NewClientError(errors2.ErrorMessage{
+		Code:        errors2.CDSNotEnabled.Code,
+		Message:     errors2.CDSNotEnabled.Message,
+		Description: errors2.CDSNotEnabled.Description,
+	}, http.StatusBadRequest)
 }

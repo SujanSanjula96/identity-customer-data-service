@@ -67,7 +67,7 @@ type AdminConfigUpdateAPI struct {
 	TemporaryProfileCleanupIntervalDays *int `json:"temporary_profile_cleanup_interval_days,omitempty"`
 }
 
-// AdminConfigSyncAPI is the body that Identity Server sends to POST /config/sync. CDSEnabled is required.
+// AdminConfigSyncAPI is the body that the identity provider sends to POST /config/sync. CDSEnabled is required.
 type AdminConfigSyncAPI struct {
 	CDSEnabled *bool `json:"cds_enabled"`
 }

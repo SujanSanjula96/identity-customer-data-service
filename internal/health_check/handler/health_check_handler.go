@@ -24,6 +24,7 @@ import (
 	"net/http"
 
 	"github.com/wso2/identity-customer-data-service/internal/health_check/provider"
+	"github.com/wso2/identity-customer-data-service/internal/system/log"
 )
 
 // HealthHandler implements health and readiness endpoints.
@@ -40,14 +41,13 @@ func (h *HealthHandler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// HandleReadiness responds to /ready requests.
+// HandleReadiness responds to /ready requests. When the check fails, the response has only the
+// status, and the reason goes to the application log.
 func (h *HealthHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 	healthCheckService := provider.NewHealthCheckProvider().GetHealthCheckService()
 	if err := healthCheckService.CheckReadiness(r.Context()); err != nil {
-		response := map[string]string{
-			"status": "not ready",
-			"error":  err.Error(),
-		}
+		log.FromContext(r.Context()).Warn("Readiness check failed", log.Error(err))
+		response := map[string]string{"status": "not ready"}
 		writeJSONResponse(w, http.StatusServiceUnavailable, response)
 		return
 	}

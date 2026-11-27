@@ -962,12 +962,7 @@ func MergeProfiles(
 	appRuleMap := buildApplicationSchemaRuleMap(schemaRules)
 
 	merged.Traits = mergeNamespaceMap(existingProfile.Traits, incomingProfile.Traits, "traits", ruleMap)
-	merged.IdentityAttributes = mergeNamespaceMap(
-		existingProfile.IdentityAttributes,
-		incomingProfile.IdentityAttributes,
-		"identity_attributes",
-		ruleMap,
-	)
+	merged.IdentityAttributes = mergeIdentityAttributes(existingProfile, incomingProfile, ruleMap)
 	merged.ApplicationData = mergeAppData(existingProfile.ApplicationData, incomingProfile.ApplicationData, appRuleMap)
 
 	if incomingProfile.UserID != "" {
@@ -982,6 +977,49 @@ func MergeProfiles(
 	merged.UpdatedAt = time.Now().UTC()
 
 	return merged
+}
+
+// mergeIdentityAttributes merges the identity attributes of two profiles. The identity provider is the source of
+// truth for the identity attributes of a profile linked to a user, so when only one of the profiles is linked, its
+// values are kept, whatever the merge strategy, and the anonymous profile only fills the attributes it has no
+// value for.
+func mergeIdentityAttributes(existingProfile, incomingProfile profileModel.Profile,
+	ruleMap map[string]schemaModel.ProfileSchemaAttribute) map[string]interface{} {
+	existingLinked := existingProfile.UserID != ""
+	incomingLinked := incomingProfile.UserID != ""
+	if existingLinked && !incomingLinked {
+		return fillMissingAttributes(existingProfile.IdentityAttributes, incomingProfile.IdentityAttributes)
+	}
+	if incomingLinked && !existingLinked {
+		return fillMissingAttributes(incomingProfile.IdentityAttributes, existingProfile.IdentityAttributes)
+	}
+	return mergeNamespaceMap(existingProfile.IdentityAttributes, incomingProfile.IdentityAttributes,
+		"identity_attributes", ruleMap)
+}
+
+// fillMissingAttributes returns the preferred attributes, with the values of the other attributes added where the
+// preferred ones have none. Nested objects are filled the same way.
+func fillMissingAttributes(preferred, other map[string]interface{}) map[string]interface{} {
+	if preferred == nil && other == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(preferred)+len(other))
+	for k, v := range preferred {
+		result[k] = v
+	}
+	for k, otherVal := range other {
+		preferredVal, exists := result[k]
+		if !exists || isEmptyValue(preferredVal) {
+			result[k] = otherVal
+			continue
+		}
+		preferredMap, okP := toStringKeyedMap(preferredVal)
+		otherMap, okO := toStringKeyedMap(otherVal)
+		if okP && okO {
+			result[k] = fillMissingAttributes(preferredMap, otherMap)
+		}
+	}
+	return result
 }
 
 func buildSchemaRuleMap(rules []schemaModel.ProfileSchemaAttribute) map[string]schemaModel.ProfileSchemaAttribute {

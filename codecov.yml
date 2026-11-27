@@ -54,5 +54,4 @@ ignore:
   - "api/**"
   - "docs/**"
   - "dbscripts/**"
-  - "install/**"
   - "scripts/**"

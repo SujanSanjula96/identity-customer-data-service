@@ -69,6 +69,8 @@ func newConsentHandlerEnv(t *testing.T) *consentHandlerEnv {
 	env := &consentHandlerEnv{db: testDB.DB, handle: handle, orgID: setup.TestOrgID(handle), auth: auth,
 		h: NewConsentCategoryHandler()}
 	setup.TestOrg(t, handle)
+	_, err = env.db.Exec(`INSERT INTO cds_config (org_id, config, value) VALUES (?, 'cds_enabled', 'true')`, env.orgID)
+	require.NoError(t, err)
 	require.NoError(t, schemaStore.AddProfileSchemaAttributesForScope(context.Background(),
 		[]schemaModel.ProfileSchemaAttribute{{
 			AttributeID:   "attr-age",

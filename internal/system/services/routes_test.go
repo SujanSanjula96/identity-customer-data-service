@@ -146,6 +146,7 @@ func TestAdminConfigRoutes(t *testing.T) {
 	requireRoutesRequireAuthentication(t, tenantRouter(service.Route), []route{
 		{http.MethodGet, "/config"},
 		{http.MethodPatch, "/config"},
+		{http.MethodPost, "/config/sync"},
 	})
 }
 

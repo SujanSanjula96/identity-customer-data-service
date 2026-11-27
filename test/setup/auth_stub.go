@@ -45,7 +45,7 @@ const (
 	stubOtherScope = "stub_other_scope"
 )
 
-// AuthStub is an identity server that introspects tokens, so a handler's authentication and
+// AuthStub is an identity server that publishes a JWKS and introspects tokens, so a handler's authentication and
 // authorization run unmodified in a test.
 type AuthStub struct {
 	// ValidToken is active and carries the scope of the operations the stub was installed for.
@@ -59,7 +59,8 @@ type AuthStub struct {
 
 // NewJWT issues a token that the stub reports active. The token is a JWT, so a handler can read its
 // claims, for example the subject. It carries the organization claims, an expiry, the audience of CDS
-// and the scope of the stub unless claims say otherwise. The signature is not checked.
+// and the scope of the stub unless claims say otherwise. It is signed with RS256 by a key that the
+// JWKS endpoint of the stub publishes.
 func (s AuthStub) NewJWT(t testing.TB, claims map[string]interface{}) string {
 	t.Helper()
 	merged := jwt.MapClaims{
@@ -70,10 +71,7 @@ func (s AuthStub) NewJWT(t testing.TB, claims map[string]interface{}) string {
 	for name, value := range claims {
 		merged[name] = value
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, merged).SignedString([]byte("stub-signing-key"))
-	if err != nil {
-		t.Fatalf("failed to issue a token: %v", err)
-	}
+	token := SignJWT(t, merged)
 	s.jwts.Store(token, true)
 	return token
 }
@@ -86,6 +84,10 @@ func InstallAuthStub(t testing.TB, operations ...string) AuthStub {
 	stub := AuthStub{ValidToken: "stub-valid-token", OtherToken: "stub-other-token", jwts: &sync.Map{}}
 
 	introspection := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if IsJWKSRequest(r) {
+			ServeJWKS(t, w)
+			return
+		}
 		if err := r.ParseForm(); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return

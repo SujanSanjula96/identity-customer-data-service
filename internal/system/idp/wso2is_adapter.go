@@ -25,6 +25,7 @@ import (
 
 	"github.com/wso2/identity-customer-data-service/internal/system/client"
 	"github.com/wso2/identity-customer-data-service/internal/system/config"
+	"github.com/wso2/identity-customer-data-service/internal/system/constants"
 	errors2 "github.com/wso2/identity-customer-data-service/internal/system/errors"
 	"github.com/wso2/identity-customer-data-service/internal/system/servicecreds"
 )
@@ -35,10 +36,11 @@ type WSO2ISAdapter struct {
 }
 
 // WSO2 IS sends CDS the service credentials of each organization, and CDS
-// introspects tokens with them.
+// introspects tokens with them. It publishes the keys of each tenant as a JWKS.
 var (
 	_ ServiceCredentialsVerifier = (*WSO2ISAdapter)(nil)
 	_ TokenIntrospector          = (*WSO2ISAdapter)(nil)
+	_ SigningKeyPublisher        = (*WSO2ISAdapter)(nil)
 )
 
 // NewWSO2ISAdapter returns an adapter for the configured IS.
@@ -169,4 +171,20 @@ func toOrganization(org client.ISOrganization) Organization {
 		result.ParentID = org.Parent.ID
 	}
 	return result
+}
+
+// JWKSEndpoint returns the JWKS endpoint of the tenant of the primary organization, on the host
+// that introspects its tokens. A sub organization's tokens are signed with the keys of its
+// primary organization.
+func (a *WSO2ISAdapter) JWKSEndpoint(primaryHandle string) (string, error) {
+	path := config.GetCDSRuntime().Config.AuthServer.JWKSEndpoint
+	if path == "" {
+		path = constants.DefaultJWKSEndpoint
+	}
+	return a.client.JWKSEndpoint(primaryHandle, path)
+}
+
+// FetchJWKS returns the JWKS document at endpoint.
+func (a *WSO2ISAdapter) FetchJWKS(endpoint string) ([]byte, error) {
+	return a.client.FetchJWKS(endpoint)
 }

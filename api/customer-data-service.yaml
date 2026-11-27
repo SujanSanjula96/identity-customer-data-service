@@ -228,8 +228,8 @@ paths:
       responses:
         '200':
           description: |
-            The event was processed. `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE` and an event
-            that CDS ignores return `{"status": "updated"}`. The profile events (`POST_ADD_USER`,
+            The event was processed. `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE`,
+            `SESSION_EXPIRE` and an event that CDS ignores return `{"status": "updated"}`. The profile events (`POST_ADD_USER`,
             `POST_DELETE_USER_WITH_ID` and the two claim events) return an empty body.
           content:
             application/json:
@@ -257,7 +257,9 @@ paths:
       tags: [Profile]
       summary: Link an anonymous profile to a user
       description: |
-        Sets the `user_id` of an anonymous profile.
+        Sets the `user_id` of an anonymous profile. If the user already has a profile, the
+        anonymous `identity_attributes` only fill those it has no value for: the identity
+        provider is the source of truth for the identity attributes of a profile linked to a user.
         The call is idempotent: linking a profile to the user it is already linked to returns
         a 200 with no change.
 
@@ -367,6 +369,10 @@ paths:
         `identity_attributes`, `traits` and `application_data` in the body are deep merged
         into the existing values. If the profile has been merged into another profile, the
         patch is applied to that profile's data.
+
+        The identity provider is the source of truth for the `identity_attributes` of a profile
+        linked to a user, so a patch that changes them on such a profile is rejected with
+        `CDS-11018`. They can be changed only on an anonymous profile.
 
         <br><b>Scope required:</b> `profile:update`
       operationId: patchProfile
@@ -1417,6 +1423,8 @@ paths:
 
         <br><b>Scope required:</b> `admin_config:update`
       operationId: updateAdminConfig
+      security:
+        - bearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -1445,9 +1453,8 @@ paths:
       summary: Receive the CDS enable setting of the organization from the identity provider
       description: >-
         The identity provider sends the CDS enable setting of a root organization when the setting
-        changes (WSO2 IS: PATCH /api/server/v1/configs/cds). Only the identity provider calls this
-        endpoint, with the admin credentials. Only cds_enabled can be sent, and the other settings
-        do not change.
+        changes. Only the identity provider calls this endpoint, with the admin credentials. Only
+        cds_enabled can be sent, and the other settings do not change.
       operationId: syncAdminConfig
       security:
         - basicAuth: [ ]
@@ -1618,7 +1625,8 @@ paths:
                     type: string
                     example: ready
         '503':
-          description: Service Unavailable. The service is not ready.
+          description: >-
+            Service Unavailable. The service is not ready. The reason is in the application log.
           content:
             application/json:
               schema:
@@ -1627,8 +1635,6 @@ paths:
                   status:
                     type: string
                     example: not ready
-                  error:
-                    type: string
 
   /organizations/event-sync:
     post:
@@ -2203,9 +2209,10 @@ components:
           description: |
             Identity server event name. The events that CDS acts on are `POST_ADD_USER`,
             `POST_DELETE_USER_WITH_ID`, `POST_SET_USER_CLAIM_VALUE_WITH_ID`,
-            `POST_SET_USER_CLAIM_VALUES_WITH_ID`, `AUTHENTICATION_SUCCESS` and
-            `SESSION_TERMINATE`. `AUTHENTICATION_SUCCESS` needs `userId` and attaches the user to
-            the anonymous profile of `profileCookie`. `SESSION_TERMINATE` deactivates that cookie.
+            `POST_SET_USER_CLAIM_VALUES_WITH_ID`, `AUTHENTICATION_SUCCESS`, `SESSION_TERMINATE`
+            and `SESSION_EXPIRE`. `AUTHENTICATION_SUCCESS` needs `userId` and attaches the user to
+            the anonymous profile of `profileCookie`. `SESSION_TERMINATE` and `SESSION_EXPIRE`
+            deactivate that cookie when it belongs to the profile of `userId`.
             Any other event is accepted and ignored.
         userId:
           type: string

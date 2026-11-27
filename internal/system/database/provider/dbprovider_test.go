@@ -175,8 +175,8 @@ func Test_ValidateDataSource(t *testing.T) {
 			// configuration carries, so that the default has one meaning.
 			"PostgreSQL settings with no type": withoutSetting(
 				func(ds *config.DataSourceConfig) { ds.Type = "" }),
-			"the inbuilt database alongside PostgreSQL settings, which the " +
-				"Helm chart always renders": func() config.DataSourceConfig {
+			"the inbuilt database alongside PostgreSQL settings, which a " +
+				"templated configuration can always render": func() config.DataSourceConfig {
 				ds := postgres
 				ds.Type = "sqlite"
 				return ds

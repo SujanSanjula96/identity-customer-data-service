@@ -41,7 +41,7 @@ KEYSTORE_PASSWORD="wso2carbon"
 KEY_ALIAS="wso2carbon"
 
 # The fingerprint the runtime matches on. Changing it means changing
-# defaultCertificateFingerprints in internal/cli as well.
+# defaultFingerprints in internal/system/certs as well.
 CERT_SHA256="2B:A3:61:A0:32:FF:D4:B3:4F:7D:F0:66:DE:72:B6:1C:5E:83:6A:09:F7:A7:BD:71:05:EB:87:B4:09:4D:97:12"
 
 fail() { echo "default-cert: $*" >&2; exit 1; }
@@ -96,7 +96,13 @@ fingerprint=$(openssl x509 -in "$DIR/server.crt" -noout -fingerprint -sha256 | c
 # CDD calls the Identity Server too, so it trusts the same certificate.
 cp "$DIR/server.crt" "$DIR/trust_store.pem"
 
+# The Identity Server presents the same key pair as its client certificate on
+# the sync port, so CDD accepts it there once sync.require_client_cert is on.
+# A file of its own, not the trust store: it names who may call the sync port,
+# not which servers CDD calls.
+cp "$DIR/server.crt" "$DIR/client_trust_store.pem"
+
 # The key is readable by its owner alone, even inside the zip, so an extracted
 # pack does not start out world-readable.
 chmod 600 "$DIR/server.key"
-chmod 644 "$DIR/server.crt" "$DIR/trust_store.pem"
+chmod 644 "$DIR/server.crt" "$DIR/trust_store.pem" "$DIR/client_trust_store.pem"

@@ -50,7 +50,9 @@ defaults already match a default Identity Server on the same host:
 | Setting | Pack default | Change it when |
 |---|---|---|
 | `auth_server.host`, `auth_server.port` | `localhost`, `9443` | the Identity Server is elsewhere |
+| `auth_server.cookieDomain` | `localhost` | browsers reach CDD or the Identity Server by another name. It is the `Domain` of the `cds_profile` cookie and has to cover the hosts of both (see [Profiles](../concepts/profiles.md#the-browser-cookie)) |
 | `addr.host`, `addr.port` | `127.0.0.1`, `8900` | CDD has to listen on another address |
+| `sync.addr.host`, `sync.addr.port` | `127.0.0.1`, `8901` | the sync endpoints have to be on another address; without `sync.addr` they are served on `addr` |
 | `server_url` | `https://localhost:8900` | the Identity Server reaches CDD by another name |
 | `tls.cert_dir` | `repository/resources/security` | the TLS material is mounted elsewhere |
 | `datasource` | the inbuilt database | in production — PostgreSQL, MySQL or SQL Server |
@@ -85,11 +87,16 @@ restart it:
 [customer_data_service]
 enable = true
 server_url = "https://localhost:8900"
+sync_url = "https://localhost:8901"
 admin_username = "admin"
 admin_password = "<AUTH_SERVER_ADMIN_PASSWORD in secrets.env>"
 ```
 
-`server_url` is where the Identity Server reaches CDD. `admin_username` and
+`server_url` is the public address of CDD, `addr`: the Console calls CDD there.
+`sync_url` is where the Identity Server sends its synchronisation calls: the
+sync port, `sync.addr`. When CDD has no `sync.addr`, it serves those calls on
+`addr` too; leave `sync_url` out, and the Identity Server sends them to
+`server_url`. CDD logs at start which of the two it expects. `admin_username` and
 `admin_password` are the credentials it presents on the CDD synchronisation
 endpoints, so they have to match `auth_server.admin_username` and
 `AUTH_SERVER_ADMIN_PASSWORD` on the CDD side.

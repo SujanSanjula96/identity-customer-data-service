@@ -153,7 +153,7 @@ The inbuilt database is a single file written by a single process. Use PostgreSQ
 instead when you need any of the following:
 
 - More than one CDD instance against the same data. SQLite is not shared storage,
-  so the Helm chart's default of two replicas requires PostgreSQL.
+  so more than one replica requires PostgreSQL.
 - Trigram-accelerated `co` (contains) and `sw` (starts with) profile filters.
   These work on the inbuilt database but scan the table, since SQLite has no
   `pg_trgm` or GIN indexes.

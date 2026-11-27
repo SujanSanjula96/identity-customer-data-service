@@ -69,8 +69,8 @@ Fuzzy search uses the same engine as profile unification, so it is set up the
 same way:
 
 1. **Check that tolerant matching is on for the server**, in
-   `repository/conf/deployment.yaml`. The shipped configuration and the Helm
-   chart turn it on; a configuration without the key keeps it off. While it is
+   `repository/conf/deployment.yaml`. The shipped configuration turns it on;
+   a configuration without the key keeps it off. While it is
    off, `fuzzyFilter` returns exact matches only.
 
    ```yaml
