@@ -122,6 +122,7 @@ var (
 
 	// Admin configuration.
 	AdminConfigUpdate = Event{TargetType: TargetAdminConfig, Action: ActionUpdate}
+	AdminConfigSync   = Event{TargetType: TargetAdminConfig, Action: ActionSync}
 
 	// Identity resolution.
 	ReviewTaskResolve = Event{TargetType: TargetReviewTask, Action: ActionResolve, IDParam: "taskId"}

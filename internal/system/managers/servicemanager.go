@@ -67,12 +67,7 @@ var syncRoutes = map[string]bool{
 	"POST " + constants.APIBasePath + "/v1/profile-schema/sync":      true,
 	"POST " + constants.APIBasePath + "/v1/organizations/event-sync": true,
 	"POST " + constants.APIBasePath + "/v1/service-credentials/sync": true,
-}
-
-// sharedRoutes are served on both listeners: the admin configuration update takes the Console's token on
-// the public listener and the identity server's admin credentials on the sync listener.
-var sharedRoutes = map[string]bool{
-	"PATCH " + constants.APIBasePath + "/v1/config": true,
+	"POST " + constants.APIBasePath + "/v1/config/sync":              true,
 }
 
 // RegisterServices mounts the health services under /cds/ and the other services under the tenant path
@@ -111,7 +106,7 @@ func (sm *ServiceManager) RegisterServices() error {
 		return true
 	}))
 	utils.MountTenantDispatcher(sm.syncMux, tenantHandler(routesMux, func(_ *http.Request, pattern string) bool {
-		return syncRoutes[pattern] || sharedRoutes[pattern]
+		return syncRoutes[pattern]
 	}))
 	return nil
 }

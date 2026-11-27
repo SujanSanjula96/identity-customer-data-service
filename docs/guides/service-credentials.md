@@ -63,7 +63,7 @@ Identity Server (CDD extension)                             CDD
   │ POST /t/{org}/cds/api/v1/service-credentials/sync ──────▶ token request to /t/{org}/oauth2/token
   │      {event: SERVICE_CREDENTIALS_UPDATED,                  stores only if a token is issued
   │       org_id, client_id, client_secret}
-  │ PATCH /t/{org}/cds/api/v1/config {cds_enabled} ─────────▶ initial schema sync, with the new credentials
+  │ POST /t/{org}/cds/api/v1/config/sync {cds_enabled} ─────▶ initial schema sync, with the new credentials
 ```
 
 The endpoint accepts HTTP Basic with the sync admin credentials only, and only on

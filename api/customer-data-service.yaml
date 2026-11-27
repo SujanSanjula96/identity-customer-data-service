@@ -1421,15 +1421,10 @@ paths:
         Only the fields in the body change. Fields that
         are not part of the request schema are rejected with a 400.
 
-        The request is authorized with a bearer token that has the scope below, or with the
-        admin credentials (HTTP Basic), which the identity server uses to send the CDS enable
-        setting of an organization.
-
         <br><b>Scope required:</b> `admin_config:update`
       operationId: updateAdminConfig
       security:
         - bearerAuth: [ ]
-        - basicAuth: [ ]
       requestBody:
         required: true
         content:
@@ -1449,6 +1444,37 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /config/sync:
+    post:
+      tags: [Admin Config]
+      summary: Receive the CDS enable setting of the organization from the identity provider
+      description: >-
+        The identity provider sends the CDS enable setting of a root organization when the setting
+        changes. Only the identity provider calls this endpoint, with the admin credentials. Only
+        cds_enabled can be sent, and the other settings do not change.
+      operationId: syncAdminConfig
+      security:
+        - basicAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminConfigSync'
+      responses:
+        '200':
+          description: The configuration after the update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -2688,6 +2714,14 @@ components:
           minimum: 1
           description: Days between two cleanups of the temporary profiles of the organization. The default is 30.
 
+    AdminConfigSync:
+      type: object
+      description: The CDS enable setting that the identity provider sends. Other fields are rejected.
+      required: [cds_enabled]
+      additionalProperties: false
+      properties:
+        cds_enabled:
+          type: boolean
     AdminConfigUpdate:
       type: object
       description: Fields that are not listed here are rejected. Only the fields that are sent change.

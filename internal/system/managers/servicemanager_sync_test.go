@@ -79,6 +79,7 @@ func TestPublicRoutesAreNotServedOnTheSyncListener(t *testing.T) {
 		{http.MethodGet, "/profiles/p-1"},
 		{http.MethodDelete, "/profiles/p-1"},
 		{http.MethodGet, "/config"},
+		{http.MethodPatch, "/config"},
 		{http.MethodGet, "/profile-schema"},
 		{http.MethodPost, "/organizations/sync"},
 	} {
@@ -88,13 +89,10 @@ func TestPublicRoutesAreNotServedOnTheSyncListener(t *testing.T) {
 	}
 }
 
-// The admin configuration update is on both listeners: the Console's token on the public one, the identity
-// server's admin credentials on the sync one. The health endpoints answer on both.
-func TestSharedRoutesAndHealthAreOnBothListeners(t *testing.T) {
+// The health endpoints answer on both listeners.
+func TestHealthIsOnBothListeners(t *testing.T) {
 	public, sync := splitMuxes(t)
 
-	assert.Equal(t, http.StatusUnauthorized, status(public, http.MethodPatch, tenantBase+"/config"))
-	assert.Equal(t, http.StatusUnauthorized, status(sync, http.MethodPatch, tenantBase+"/config"))
 	for _, handler := range []http.Handler{public, sync} {
 		assert.NotEqual(t, http.StatusNotFound, status(handler, http.MethodGet, "/cds/api/v1/health"))
 	}
