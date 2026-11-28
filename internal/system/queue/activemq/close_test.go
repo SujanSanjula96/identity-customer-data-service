@@ -296,7 +296,7 @@ func Test_Close_endsAReconnectThatIsWaiting(t *testing.T) {
 	}
 
 	reconnected := make(chan error, 1)
-	go func() { reconnected <- q.mc.reconnectWithBackoff("test", 1) }()
+	go func() { reconnected <- q.producer.reconnectWithBackoff("test", 1) }()
 
 	// Let the reconnect reach its backoff before the close starts.
 	time.Sleep(200 * time.Millisecond)
@@ -344,12 +344,12 @@ func Test_dial_doesNotInstallAConnectionAfterTheClose(t *testing.T) {
 		t.Fatalf("expected a graceful close, got %v", err)
 	}
 
-	installed := q.mc.getConn()
+	installed := q.producer.getConn()
 
-	if err := q.mc.dial(); err == nil {
+	if err := q.producer.dial(); err == nil {
 		t.Error("the dial installed a connection after the close")
 	}
-	if q.mc.getConn() != installed {
+	if q.producer.getConn() != installed {
 		t.Error("the connection was replaced after the close")
 	}
 
