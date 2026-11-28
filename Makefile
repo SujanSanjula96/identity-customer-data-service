@@ -212,8 +212,9 @@ clean-dist:
 check-licenses:
 	@PLATFORMS="$(PLATFORMS)" $(DISTRIBUTION_SRC)/check-licenses.sh LICENSE.txt
 
-# Check that every source file carries the license header. BASE_REF also checks
-# that files added since that ref carry the current year.
+# Check the license header of the source files changed since BASE_REF.
+# Set BASE_REF=upstream/main when origin is a fork.
+BASE_REF ?= origin/main
 check-license-headers:
 	@./scripts/check-license-headers.sh $(BASE_REF)
 
@@ -225,7 +226,7 @@ help:
 	@echo "  dist                       - Build the release packs into $(DIST_DIR)."
 	@echo "  clean-dist                 - Remove the staged distributions and their zips."
 	@echo "  check-licenses             - Check that LICENSE.txt lists exactly the modules the packs link."
-	@echo "  check-license-headers      - Check that every source file carries the license header."
+	@echo "  check-license-headers      - Check the license headers of the files changed since BASE_REF (default origin/main)."
 	@echo "  integration-test           - Run integration tests against PostgreSQL (use test=TestName to filter)."
 	@echo "  integration-test-sqlite    - Run integration tests against the inbuilt database (use test=TestName to filter)."
 	@echo "  integration-test-mysql     - Run integration tests against MySQL (use test=TestName to filter)."
