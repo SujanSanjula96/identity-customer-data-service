@@ -83,7 +83,7 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 	}
 	log.GetLogger().Info("Creating IdentityClient with base URL: " + baseHostPort)
 
-	httpClient, err := newOutboundHTTPClient(cfg.TLS)
+	httpClient, err := sharedOutboundHTTPClient(cfg.TLS)
 	if err != nil {
 		log.GetLogger().Error("Failed to create outbound HTTPS client for IS", log.Error(err))
 		os.Exit(1)
@@ -95,8 +95,40 @@ func NewIdentityClient(cfg config.Config) *IdentityClient {
 	}
 }
 
+// outboundClientKey identifies an outbound HTTP client: the TLS settings and the home that resolves a
+// relative cert_dir.
+type outboundClientKey struct {
+	tls     config.TLSConfig
+	cdsHome string
+}
+
+var (
+	outboundClientsMu sync.Mutex
+	outboundClients   = map[outboundClientKey]*http.Client{}
+)
+
+// sharedOutboundHTTPClient returns the outbound HTTP client for the TLS settings. It builds the client on
+// the first call and returns the same client on later calls with the same settings, so all identity
+// clients share one connection pool to the identity server and do not open a new TLS connection for each
+// call. Different TLS settings, for example after a configuration reload or in tests, get their own client.
+// A failure is not kept, so the next call tries again.
+func sharedOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
+	key := outboundClientKey{tls: tlsCfg, cdsHome: utils.GetCDSHome()}
+	outboundClientsMu.Lock()
+	defer outboundClientsMu.Unlock()
+	if httpClient, ok := outboundClients[key]; ok {
+		return httpClient, nil
+	}
+	httpClient, err := newOutboundHTTPClient(tlsCfg)
+	if err != nil {
+		return nil, err
+	}
+	outboundClients[key] = httpClient
+	return httpClient, nil
+}
+
 // serverCertsNotForClients holds the server certificates already reported as not allowing TLS client
-// authentication, since the outbound client is built for every identity client.
+// authentication, so that each certificate is reported once.
 var serverCertsNotForClients sync.Map
 
 // warnServerCertNotForClients says, once for each certificate, that tls.mtls_enabled presents no client
@@ -171,6 +203,9 @@ func newOutboundHTTPClient(tlsCfg config.TLSConfig) (*http.Client, error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     60 * time.Second,
 		MaxIdleConns:        100,
+		// The default keeps 2 idle connections for each host. CDS sends most calls to one host, so under
+		// load it would close the other connections and open new TLS connections again.
+		MaxIdleConnsPerHost: 100,
 		MaxConnsPerHost:     100,
 	}
 	return &http.Client{
