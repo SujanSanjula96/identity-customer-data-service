@@ -257,8 +257,6 @@ CREATE TABLE IF NOT EXISTS review_tasks
     INDEX idx_review_tasks_org_id_status (org_id, status),
     INDEX idx_review_tasks_created (created_at DESC),
     INDEX idx_review_tasks_incoming (incoming_profile_id, status),
-    -- Serves the candidate half of "incoming_profile_id IN (...) OR candidate_profile_id IN (...)", and the
-    -- foreign key on candidate_profile_id.
     INDEX idx_review_tasks_candidate (candidate_profile_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 

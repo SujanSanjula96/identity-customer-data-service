@@ -304,8 +304,6 @@ CREATE TABLE IF NOT EXISTS review_tasks
 CREATE INDEX IF NOT EXISTS idx_review_tasks_org_id_status ON review_tasks (org_id, status);
 CREATE INDEX IF NOT EXISTS idx_review_tasks_created ON review_tasks (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_review_tasks_incoming ON review_tasks (incoming_profile_id, status);
--- Serves the candidate half of "incoming_profile_id IN (...) OR candidate_profile_id IN (...)", which
--- idx_review_tasks_incoming cannot serve.
 CREATE INDEX IF NOT EXISTS idx_review_tasks_candidate ON review_tasks (candidate_profile_id, status);
 
 CREATE TABLE IF NOT EXISTS rejection_pairs
