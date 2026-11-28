@@ -87,6 +87,22 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Checks the header of every source file the pull request adds or changes.
+  license-headers:
+    name: License headers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the license headers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: make check-license-headers BASE_REF="$BASE_SHA"
+
   lint:
     runs-on: ubuntu-latest
 
