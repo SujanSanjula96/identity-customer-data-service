@@ -18,6 +18,7 @@
 package client
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -459,6 +460,30 @@ func TestNewOutboundHTTPClient(t *testing.T) {
 	_, err = newOutboundHTTPClient(config.TLSConfig{CertDir: dir, MTLSEnabled: true, CDSPublicCert: "a.crt",
 		CDSPrivateKey: "a.key"})
 	assert.Error(t, err, "a client certificate that cannot be loaded")
+}
+
+func TestSharedOutboundHTTPClient(t *testing.T) {
+	dir := t.TempDir()
+
+	first, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: dir})
+	require.NoError(t, err)
+	second, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: dir})
+	require.NoError(t, err)
+	assert.Same(t, first, second, "the same TLS settings share one client")
+
+	other, err := sharedOutboundHTTPClient(config.TLSConfig{CertDir: t.TempDir()})
+	require.NoError(t, err)
+	assert.NotSame(t, first, other, "other TLS settings get their own client")
+
+	withTrustStore := config.TLSConfig{CertDir: dir, TrustStore: "ca.crt"}
+	_, err = sharedOutboundHTTPClient(withTrustStore)
+	assert.Error(t, err, "a trust store that cannot be read")
+	writeKeyPair(t, dir, "ca", x509.ExtKeyUsageServerAuth)
+	_, err = sharedOutboundHTTPClient(withTrustStore)
+	assert.NoError(t, err, "a failure is not kept: the next call reads the trust store again")
+
+	transport := first.Transport.(*http.Transport)
+	assert.Equal(t, 100, transport.MaxIdleConnsPerHost, "keeps idle connections to the identity server")
 }
 
 func TestConvertSCIMClaimWithLocal(t *testing.T) {
